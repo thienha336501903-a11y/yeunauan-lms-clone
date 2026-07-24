@@ -1150,6 +1150,39 @@
       `;
     }
 
+    function playMainVideo(videoWrapper, lesson, email) {
+      if (!videoWrapper || !lesson) return;
+      if (isCocCocBrowser()) {
+        videoWrapper.innerHTML = getCocCocBlockedHtml();
+        clearWatermarkFrom(videoWrapper);
+        return;
+      }
+      if (!isMobileDevice()) {
+        videoWrapper.innerHTML = getPCBlockedHtml();
+        clearWatermarkFrom(videoWrapper);
+        return;
+      }
+
+      const videoUrl = lessonVideoUrl(lesson);
+      if (!videoUrl) return;
+      if (videoUrl.includes("drive.google.com")) {
+        const fileId = getGoogleDriveFileId(videoUrl);
+        if (fileId) {
+          const returnUrl = window.location.href;
+          const playerUrl = `/gdrive-player.html?id=${encodeURIComponent(fileId)}&returnUrl=${encodeURIComponent(returnUrl)}`;
+          openGoogleDrivePlayer(playerUrl, returnUrl);
+          return;
+        }
+      }
+
+      videoWrapper.innerHTML = getIframePlayerHtml(videoUrl);
+      if (lesson.videoProvider === "bunny_embed") {
+        createWatermark(videoWrapper, email);
+      } else {
+        clearWatermarkFrom(videoWrapper);
+      }
+    }
+
     function toggleRecipeMore() {
       const recipe = document.getElementById("recipeContent");
       const btn = document.getElementById("recipeMoreBtn");
@@ -1514,28 +1547,7 @@
             const playBtn = document.getElementById("playBtn");
             videoThumb.src = normalizeGoogleDriveImageUrl(currentLesson.thumbnailUrl || HERO_PLACEHOLDER_IMAGE);
 
-            playBtn.onclick = () => {
-              if (isCocCocBrowser()) {
-                videoWrapper.innerHTML = getCocCocBlockedHtml();
-                clearWatermarkFrom(videoWrapper);
-                return;
-              }
-              if (!isMobileDevice()) {
-                videoWrapper.innerHTML = getPCBlockedHtml();
-                clearWatermarkFrom(videoWrapper);
-                return;
-              }
-
-              const videoUrl = lessonVideoUrl(currentLesson);
-              if (!videoUrl) return;
-
-              videoWrapper.innerHTML = getIframePlayerHtml(videoUrl);
-              if (currentLesson.videoProvider === "bunny_embed") {
-                createWatermark(videoWrapper, studentEmail);
-              } else {
-                clearWatermarkFrom(videoWrapper);
-              }
-            };
+            playBtn.onclick = () => playMainVideo(videoWrapper, currentLesson, studentEmail);
           } else {
             videoBox.classList.add("hidden");
           }
@@ -1925,22 +1937,7 @@
             vt.src = normalizeGoogleDriveImageUrl(lesson.thumbnailUrl || HERO_PLACEHOLDER_IMAGE);
           }
           if (pb) {
-            pb.onclick = () => {
-              if (isCocCocBrowser()) {
-                videoWrapper.innerHTML = getCocCocBlockedHtml();
-                return;
-              }
-              if (!isMobileDevice()) {
-                videoWrapper.innerHTML = getPCBlockedHtml();
-                return;
-              }
-              const videoUrl = lessonVideoUrl(currentLesson);
-              if (!videoUrl) return;
-              videoWrapper.innerHTML = getIframePlayerHtml(videoUrl);
-              if (currentLesson.videoProvider === "bunny_embed") {
-                createWatermark(videoWrapper, studentEmail);
-              }
-            };
+            pb.onclick = () => playMainVideo(videoWrapper, currentLesson, studentEmail);
           }
         } else {
           videoBox.classList.add("hidden");
