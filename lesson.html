@@ -1150,8 +1150,85 @@
       `;
     }
 
+    function resetMainVideoPlayer(videoWrapper, iframe) {
+      if (!videoWrapper) return;
+      if (videoWrapper.mainVideoLoadTimer) {
+        clearTimeout(videoWrapper.mainVideoLoadTimer);
+        videoWrapper.mainVideoLoadTimer = null;
+      }
+      if (iframe && iframe.parentNode === videoWrapper) iframe.remove();
+      const thumbnail = videoWrapper.querySelector("#videoThumb");
+      const playButton = videoWrapper.querySelector("#playBtn");
+      if (thumbnail) thumbnail.classList.remove("hidden");
+      if (playButton) {
+        playButton.classList.remove("hidden");
+        playButton.disabled = false;
+        playButton.removeAttribute("aria-busy");
+      }
+      videoWrapper.dataset.mainVideoState = "idle";
+    }
+
+    function mountMainVideoIframe(videoWrapper, videoUrl, lesson, email) {
+      if (videoWrapper.dataset.mainVideoState === "loading" ||
+          videoWrapper.dataset.mainVideoState === "ready") return;
+
+      const playButton = videoWrapper.querySelector("#playBtn");
+      videoWrapper.dataset.mainVideoState = "loading";
+      if (playButton) {
+        playButton.disabled = true;
+        playButton.setAttribute("aria-busy", "true");
+      }
+
+      const iframe = document.createElement("iframe");
+      iframe.className = "main-video-player w-full h-full border-0 absolute inset-0 z-10 opacity-0 pointer-events-none";
+      iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+      iframe.allowFullscreen = true;
+      iframe.referrerPolicy = "origin";
+      iframe.setAttribute("playsinline", "");
+      iframe.setAttribute("webkit-playsinline", "");
+
+      const finishLoading = () => {
+        if (iframe.parentNode !== videoWrapper ||
+            videoWrapper.dataset.mainVideoState !== "loading") return;
+        if (videoWrapper.mainVideoLoadTimer) {
+          clearTimeout(videoWrapper.mainVideoLoadTimer);
+          videoWrapper.mainVideoLoadTimer = null;
+        }
+        const thumbnail = videoWrapper.querySelector("#videoThumb");
+        const currentPlayButton = videoWrapper.querySelector("#playBtn");
+        iframe.classList.remove("opacity-0", "pointer-events-none");
+        if (thumbnail) thumbnail.classList.add("hidden");
+        if (currentPlayButton) {
+          currentPlayButton.classList.add("hidden");
+          currentPlayButton.disabled = false;
+          currentPlayButton.removeAttribute("aria-busy");
+        }
+        videoWrapper.dataset.mainVideoState = "ready";
+        if (lesson.videoProvider === "bunny_embed") {
+          createWatermark(videoWrapper, email);
+        } else {
+          clearWatermarkFrom(videoWrapper);
+        }
+      };
+
+      iframe.addEventListener("load", finishLoading, { once: true });
+      iframe.addEventListener("error", () => resetMainVideoPlayer(videoWrapper, iframe), { once: true });
+      videoWrapper.appendChild(iframe);
+
+      // Assign src inside the original user gesture. This gives Safari/Chrome
+      // the best chance to honour provider autoplay while the thumbnail stays
+      // visible until the embedded player has actually loaded.
+      iframe.src = videoUrl;
+      videoWrapper.mainVideoLoadTimer = setTimeout(
+        () => resetMainVideoPlayer(videoWrapper, iframe),
+        15000
+      );
+    }
+
     function playMainVideo(videoWrapper, lesson, email) {
       if (!videoWrapper || !lesson) return;
+      if (videoWrapper.dataset.mainVideoState === "loading" ||
+          videoWrapper.dataset.mainVideoState === "ready") return;
       if (isCocCocBrowser()) {
         videoWrapper.innerHTML = getCocCocBlockedHtml();
         clearWatermarkFrom(videoWrapper);
@@ -1170,17 +1247,19 @@
         if (fileId) {
           const returnUrl = window.location.href;
           const playerUrl = `/gdrive-player.html?id=${encodeURIComponent(fileId)}&returnUrl=${encodeURIComponent(returnUrl)}`;
-          openGoogleDrivePlayer(playerUrl, returnUrl);
+          videoWrapper.dataset.mainVideoState = "loading";
+          try {
+            // Same one-click navigation used by supplemental Drive videos.
+            // The existing thumbnail remains intact until navigation commits.
+            openGoogleDrivePlayer(playerUrl, returnUrl);
+          } catch (error) {
+            resetMainVideoPlayer(videoWrapper);
+          }
           return;
         }
       }
 
-      videoWrapper.innerHTML = getIframePlayerHtml(videoUrl);
-      if (lesson.videoProvider === "bunny_embed") {
-        createWatermark(videoWrapper, email);
-      } else {
-        clearWatermarkFrom(videoWrapper);
-      }
+      mountMainVideoIframe(videoWrapper, videoUrl, lesson, email);
     }
 
     function toggleRecipeMore() {
@@ -1855,6 +1934,7 @@
       // bunny embed does not leak into the next lesson.
       const videoWrapper = document.getElementById("videoWrapper");
       if (videoWrapper) {
+        resetMainVideoPlayer(videoWrapper);
         clearWatermarkFrom(videoWrapper);
         videoWrapper.innerHTML = "";
       }
@@ -1937,7 +2017,7 @@
             vt.src = normalizeGoogleDriveImageUrl(lesson.thumbnailUrl || HERO_PLACEHOLDER_IMAGE);
           }
           if (pb) {
-            pb.onclick = () => playMainVideo(videoWrapper, currentLesson, studentEmail);
+            pb.onclick = () => playMainVideo(videoWrapper, lesson, studentEmail);
           }
         } else {
           videoBox.classList.add("hidden");
