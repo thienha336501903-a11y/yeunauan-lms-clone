@@ -1214,6 +1214,12 @@
       c.innerHTML = `<iframe class="absolute inset-0 w-full h-full border-0" src="https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0" allowfullscreen></iframe>`;
     }
 
+    function renderMediaCaption(caption) {
+      const text = String(caption || "").trim();
+      if (!text) return "";
+      return `<p data-media-caption class="mt-2 px-1 text-xs sm:text-sm leading-relaxed text-brandBrown/60 whitespace-pre-line">${escapeHtml(text)}</p>`;
+    }
+
     function renderMediaItems(lesson) {
       const section = document.getElementById("mediaItemsSection");
       if (!section) return;
@@ -1231,6 +1237,7 @@
       let supplementalVideoIndex = 0;
       const html = parsedItems.map(item => {
         const safeTitle = escapeHtml(item.title || "");
+        const captionHtml = renderMediaCaption(item.caption);
         if (item.type === "video") {
           let url = extractIframeSrc(item.url).replace(/&amp;/g, "&").trim();
           if (url.startsWith("error:")) {
@@ -1248,6 +1255,7 @@
                   ${coverImg}
                   ${getSupplementalPlayButtonHtml(`playSupplementalYouTube('${containerId}')`)}
                 </div>
+                ${captionHtml ? `<div class="px-4 pb-4">${captionHtml}</div>` : ""}
               </div>`;
           }
           const driveId = getGoogleDriveFileId(url);
@@ -1261,6 +1269,7 @@
                   ${coverImg}
                   ${getGoogleDrivePlayButtonHtml(playerUrl, returnUrl)}
                 </div>
+                ${captionHtml ? `<div class="px-4 pb-4">${captionHtml}</div>` : ""}
               </div>`;
           }
           if (url.includes("mediadelivery.net") || url.includes("bunnycdn.com")) {
@@ -1273,6 +1282,7 @@
                   ${coverImg}
                   ${getSupplementalPlayButtonHtml(`playSupplementalBunny('${containerId}')`)}
                 </div>
+                ${captionHtml ? `<div class="px-4 pb-4">${captionHtml}</div>` : ""}
               </div>`;
           }
           const isImage = /\.(jpg|jpeg|png|webp|gif|svg)(?:\?.*)?$/i.test(url);
@@ -1282,12 +1292,14 @@
                 ${videoLabelHtml}
                 <div class="p-4">
                   <img src="${escapeHtml(url)}" alt="" class="w-full rounded-xl object-contain max-h-[400px]" loading="lazy"/>
+                  ${captionHtml}
                 </div>
               </div>`;
           }
           return `
             <div class="bg-white border border-brandBrown/5 rounded-2xl overflow-hidden shadow-sm p-4 mb-4 flex items-center justify-between gap-3">
               ${videoLabelHtml}
+              ${captionHtml ? `<div class="flex-1">${captionHtml}</div>` : ""}
               <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="px-4 py-2 bg-brandGreen hover:bg-brandGreen/90 text-white font-bold text-xs rounded-xl">Mở video ↗</a>
             </div>`;
         }
@@ -1304,6 +1316,7 @@
                 ${coverImg}
                 ${getSupplementalPlayButtonHtml(`playSupplementalYouTube('${containerId}')`)}
               </div>
+              ${captionHtml ? `<div class="px-4 pb-4">${captionHtml}</div>` : ""}
             </div>`;
         }
         if (item.type === "image") {
@@ -1314,6 +1327,7 @@
               ${safeTitle ? `<div class="px-4 pt-4 font-bold text-sm text-brandBrown">${safeTitle}</div>` : ""}
               <div class="p-4">
                 <img src="${escapeHtml(imgSrc)}" alt="${safeTitle}" class="w-full rounded-xl object-contain max-h-[400px]" loading="lazy"/>
+                ${captionHtml}
               </div>
             </div>`;
         }
