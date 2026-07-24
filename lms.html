@@ -574,7 +574,7 @@
       return url;
     }
 
-    function inferMainMediaTypeFromUrl(input) {
+    function inferMainMediaTypeFromText(input) {
       const text = extractIframeSrc(String(input || "")).replace(/&amp;/g, "&").trim();
       const match = text.match(/\.([a-z0-9]{2,5})(?:[?#].*)?$/i);
       const ext = match ? match[1].toLowerCase() : "";
@@ -583,19 +583,40 @@
       return "unknown";
     }
 
+    function getExplicitMainMediaType(input) {
+      const text = extractIframeSrc(String(input || "")).replace(/&amp;/g, "&").trim();
+      try {
+        const mediaType = new URL(text).searchParams.get("lms_media_type");
+        return mediaType === "image" || mediaType === "video" ? mediaType : "";
+      } catch (err) {
+        return "";
+      }
+    }
+
     function getMainMediaType(lesson) {
+      const mediaUrl = lesson?.videoUrl || lesson?.secureVideoUrl || "";
+      const explicitType = getExplicitMainMediaType(mediaUrl);
+      if (explicitType) return explicitType;
+
       const serverType = String(lesson?.mainMediaType || "").toLowerCase().trim();
-      if (serverType === "image" || serverType === "video") return serverType;
+      if (serverType === "image" || serverType === "video" || serverType === "none") return serverType;
 
       const mime = String(lesson?.mainMediaMimeType || "").toLowerCase().trim();
       if (mime.startsWith("image/")) return "image";
       if (mime.startsWith("video/")) return "video";
 
-      return inferMainMediaTypeFromUrl(lesson?.videoUrl || lesson?.secureVideoUrl || "");
+      const nameType = inferMainMediaTypeFromText(lesson?.mainMediaName || "");
+      if (nameType !== "unknown") return nameType;
+      return inferMainMediaTypeFromText(mediaUrl);
     }
 
     function isMainMediaImage(lesson) {
       return getMainMediaType(lesson) === "image";
+    }
+
+    function isMainMediaUnknown(lesson) {
+      return getMainMediaType(lesson) === "unknown"
+        && Boolean(lesson?.videoUrl || lesson?.secureVideoUrl);
     }
 
     function mainMediaImageUrl(lesson) {
@@ -614,6 +635,19 @@
             loading="lazy"
           />
         </div>
+      `;
+    }
+
+    function getUnknownMainMediaHtml(lesson) {
+      const src = escapeHtml(normalizeGoogleDriveImageUrl(
+        lesson?.thumbnailUrl || lesson?.videoUrl || lesson?.secureVideoUrl || HERO_PLACEHOLDER_IMAGE
+      ) || HERO_PLACEHOLDER_IMAGE);
+      const title = escapeHtml(lesson?.title || "Nội dung bài học");
+      return `
+        <img class="absolute inset-0 w-full h-full object-contain bg-brandCream" src="${src}" alt="${title}" loading="lazy" onerror="this.onerror=null;this.src=HERO_PLACEHOLDER_IMAGE">
+        <button type="button" class="relative z-10 rounded-full bg-brandGreen/95 hover:bg-brandGreen text-white font-extrabold px-6 py-3 shadow-lg transition active:scale-95" onclick="playMobileLessonVideo()">
+          Mở nội dung
+        </button>
       `;
     }
 
@@ -2002,6 +2036,12 @@
         videoBox.innerHTML = `
           <div id="mobileVideoWrapper" class="relative w-full h-full flex-grow flex items-center justify-center bg-brandCream">
             ${getMainImageHtml(l)}
+          </div>
+        `;
+      } else if (isMainMediaUnknown(l)) {
+        videoBox.innerHTML = `
+          <div id="mobileVideoWrapper" class="relative w-full h-full flex-grow flex items-center justify-center bg-brandCream">
+            ${getUnknownMainMediaHtml(l)}
           </div>
         `;
       } else if (isDrive) {
