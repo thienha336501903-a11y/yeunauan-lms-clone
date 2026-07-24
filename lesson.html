@@ -905,7 +905,7 @@
       return url;
     }
 
-    function inferMainMediaTypeFromText(input) {
+    function inferMainMediaTypeFromUrl(input) {
       const text = extractIframeSrc(String(input || "")).replace(/&amp;/g, "&").trim();
       const match = text.match(/\.([a-z0-9]{2,5})(?:[?#].*)?$/i);
       const ext = match ? match[1].toLowerCase() : "";
@@ -914,40 +914,19 @@
       return "unknown";
     }
 
-    function getExplicitMainMediaType(input) {
-      const text = extractIframeSrc(String(input || "")).replace(/&amp;/g, "&").trim();
-      try {
-        const mediaType = new URL(text).searchParams.get("lms_media_type");
-        return mediaType === "image" || mediaType === "video" ? mediaType : "";
-      } catch (err) {
-        return "";
-      }
-    }
-
     function getMainMediaType(lesson) {
-      const mediaUrl = lesson?.videoUrl || lesson?.secureVideoUrl || "";
-      const explicitType = getExplicitMainMediaType(mediaUrl);
-      if (explicitType) return explicitType;
-
       const serverType = String(lesson?.mainMediaType || "").toLowerCase().trim();
-      if (serverType === "image" || serverType === "video" || serverType === "none") return serverType;
+      if (serverType === "image" || serverType === "video") return serverType;
 
       const mime = String(lesson?.mainMediaMimeType || "").toLowerCase().trim();
       if (mime.startsWith("image/")) return "image";
       if (mime.startsWith("video/")) return "video";
 
-      const nameType = inferMainMediaTypeFromText(lesson?.mainMediaName || "");
-      if (nameType !== "unknown") return nameType;
-      return inferMainMediaTypeFromText(mediaUrl);
+      return inferMainMediaTypeFromUrl(lesson?.videoUrl || lesson?.secureVideoUrl || "");
     }
 
     function isMainMediaImage(lesson) {
       return getMainMediaType(lesson) === "image";
-    }
-
-    function isMainMediaUnknown(lesson) {
-      return getMainMediaType(lesson) === "unknown"
-        && Boolean(lesson?.videoUrl || lesson?.secureVideoUrl);
     }
 
     function mainMediaImageUrl(lesson) {
@@ -967,56 +946,6 @@
           />
         </div>
       `;
-    }
-
-    function renderUnknownMainMedia(wrapper, lesson, email) {
-      if (!wrapper) return;
-      const src = escapeHtml(normalizeGoogleDriveImageUrl(
-        lesson?.thumbnailUrl || lesson?.videoUrl || lesson?.secureVideoUrl || HERO_PLACEHOLDER_IMAGE
-      ) || HERO_PLACEHOLDER_IMAGE);
-      const title = escapeHtml(lesson?.title || "Nội dung bài học");
-      wrapper.innerHTML = `
-        <img class="absolute inset-0 w-full h-full object-contain bg-brandCream" src="${src}" alt="${title}" loading="lazy" onerror="swapToHeroPlaceholder(this)">
-        <button type="button" class="relative z-10 rounded-full bg-brandGreen/95 hover:bg-brandGreen text-white font-extrabold px-6 py-3 shadow-lg transition active:scale-95">
-          Mở nội dung
-        </button>
-      `;
-      const openButton = wrapper.querySelector("button");
-      if (openButton) openButton.onclick = () => playMainVideo(wrapper, lesson, email);
-    }
-
-    function playMainVideo(wrapper, lesson, email) {
-      if (!wrapper || !lesson) return;
-      if (isCocCocBrowser()) {
-        wrapper.innerHTML = getCocCocBlockedHtml();
-        clearWatermarkFrom(wrapper);
-        return;
-      }
-      if (!isMobileDevice()) {
-        wrapper.innerHTML = getPCBlockedHtml();
-        clearWatermarkFrom(wrapper);
-        return;
-      }
-
-      const videoUrl = lessonVideoUrl(lesson);
-      if (!videoUrl) return;
-      const rawUrl = lesson?.videoUrl || lesson?.secureVideoUrl || "";
-      if (isGoogleDriveVideoUrl(rawUrl)) {
-        const fileId = getGoogleDriveFileId(rawUrl);
-        if (fileId) {
-          const returnUrl = window.location.href;
-          const playerUrl = `/gdrive-player.html?id=${encodeURIComponent(fileId)}&returnUrl=${encodeURIComponent(returnUrl)}`;
-          openGoogleDrivePlayer(playerUrl, returnUrl);
-          return;
-        }
-      }
-
-      wrapper.innerHTML = getIframePlayerHtml(videoUrl);
-      if (lesson.videoProvider === "bunny_embed") {
-        createWatermark(wrapper, email);
-      } else {
-        clearWatermarkFrom(wrapper);
-      }
     }
 
     function getYouTubeVideoId(input) {
@@ -1555,7 +1484,6 @@
         // Video Player Box: Auto-hide if no video is available
         const videoBox = document.getElementById("videoBox");
         const hasMainImage = isMainMediaImage(currentLesson);
-        const hasUnknownMainMedia = isMainMediaUnknown(currentLesson);
         const hasVideo = Boolean(lessonVideoUrl(currentLesson));
         if (videoBox) {
           if (hasMainImage) {
@@ -1565,11 +1493,6 @@
               videoWrapper.innerHTML = getMainImageHtml(currentLesson);
               clearWatermarkFrom(videoWrapper);
             }
-          } else if (hasUnknownMainMedia) {
-            videoBox.classList.remove("hidden");
-            const videoWrapper = document.getElementById("videoWrapper");
-            renderUnknownMainMedia(videoWrapper, currentLesson, studentEmail);
-            clearWatermarkFrom(videoWrapper);
           } else if (hasVideo) {
             videoBox.classList.remove("hidden");
             const videoWrapper = document.getElementById("videoWrapper");
@@ -1959,7 +1882,6 @@
       // Video / image area
       const videoBox = document.getElementById("videoBox");
       const hasMainImage = isMainMediaImage(lesson);
-      const hasUnknownMainMedia = isMainMediaUnknown(lesson);
       const hasVideo = Boolean(lessonVideoUrl(lesson));
       if (videoBox) {
         if (hasMainImage) {
@@ -1967,9 +1889,6 @@
           if (videoWrapper) {
             videoWrapper.innerHTML = getMainImageHtml(lesson);
           }
-        } else if (hasUnknownMainMedia) {
-          videoBox.classList.remove("hidden");
-          renderUnknownMainMedia(videoWrapper, lesson, studentEmail);
         } else if (hasVideo) {
           videoBox.classList.remove("hidden");
           // Media P0 fix: the swap-cleanup at the top of paintLesson set
