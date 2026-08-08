@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sơ đồ kiến trúc hệ thống hiện tại</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Arial, sans-serif; }
+    body { margin: 0; background: #f7f9fc; color: #17243a; }
+    main { max-width: 1500px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; text-align: center; }
+    .sub { text-align: center; color: #5a6b82; margin-bottom: 28px; }
+    .card { background: white; border: 1px solid #dce4ef; border-radius: 18px; padding: 24px; box-shadow: 0 8px 30px #18304c12; }
+    .mermaid { overflow: auto; min-height: 520px; }
+    .legend, .unknown { margin-top: 20px; border-radius: 14px; padding: 18px 22px; }
+    .legend { background: #edf7ff; border: 1px solid #a8d1ef; }
+    .unknown { background: #fff8e8; border: 1px solid #e5bd67; }
+    h2 { font-size: 20px; margin: 0 0 10px; }
+    li { margin: 7px 0; }
+    code { background: #eef2f7; border-radius: 5px; padding: 2px 5px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Kiến trúc hệ thống hiện tại</h1>
+  <p class="sub">Audit READ-ONLY 06/08/2026 11:25 +07 — sơ đồ authoritative chỉ gồm quan hệ đã xác minh</p>
+  <section class="card">
+    <pre class="mermaid">
+flowchart LR
+    U["Người dùng / quản trị viên"]
+    subgraph A["Admin nội bộ"]
+      A1["admin.yeunauan.live&lt;br/&gt;admin-web-tra-bai&lt;br/&gt;dpl_BEjH... · READY"]
+    end
+    subgraph P["Portal / Student Web"]
+      P1["www.yeunauan.live/post/&amp;lt;id&amp;gt;&lt;br/&gt;student-web&lt;br/&gt;dpl_92XT... · READY"]
+    end
+    subgraph C["Commerce / Bán hàng"]
+      C1["admin.html&lt;br/&gt;Quản trị khóa bán"]
+      C2["orders.html&lt;br/&gt;Đơn hàng / approve / revoke"]
+      CP["Cùng project + deployment&lt;br/&gt;web-ban-hang-chinh-thuc&lt;br/&gt;dpl_DZL1... · READY"]
+      C1 --> CP
+      C2 --> CP
+    end
+    subgraph L["LMS / Quản trị khóa học"]
+      L1["www.daubepnho.store/lms-admin.html&lt;br/&gt;web-lms-chinh-thuc&lt;br/&gt;dpl_HVQ... · READY"]
+      LA["/api/lms/portal"]
+      GD["Google Drive modules"]
+      L1 --> LA
+      L1 --> GD
+    end
+    DBB[("Supabase B&lt;br/&gt;aqozjkfwzmyfunqvcyjv&lt;br/&gt;Commerce + LMS baseline")]
+    U --> A1
+    U --> P1
+    U --> C1
+    U --> C2
+    U --> L1
+    CP --> DBB
+    L1 --> DBB
+    P1 -->|"course-data / public-lesson / entry-token"| LA
+    </pre>
+  </section>
+  <section class="legend">
+    <h2>Cách đọc</h2>
+    <p>Mỗi mũi tên trong sơ đồ là quan hệ có bằng chứng từ current Vercel routing,
+       HTTP runtime hoặc exact deployed source. Không tự nối các hệ thống chỉ vì
+       project/domain cùng tồn tại.</p>
+  </section>
+  <section class="card" style="margin-top:20px">
+    <h2>Sơ đồ phụ — quan hệ cấu hình chưa xác minh runtime</h2>
+    <pre class="mermaid">
+flowchart LR
+  C["Commerce"] -. "SYSTEM1_URL: UNREADABLE_BY_PLATFORM" .-> A["Admin nội bộ / Portal sync target?"]
+  C -. "SYSTEM3_URL: UNREADABLE_BY_PLATFORM" .-> L["LMS legacy?"]
+  A -. "NEXT_PUBLIC_STUDENT_APP_URL: UNREADABLE" .-> P["Student Web"]
+  A -. "DB A crph...? UNPROVEN" .-> DBA[("Portal Supabase DB A")]
+  P -. "DB A crph...? UNPROVEN" .-> DBA
+  P -. "LMS_SUPABASE_URL = aqoz...? UNPROVEN" .-> DBB[("Supabase B")]
+    </pre>
+  </section>
+  <section class="unknown">
+    <h2>Chưa xác minh runtime</h2>
+    <ul>
+      <li><code>SYSTEM1_URL</code>, <code>SYSTEM3_URL</code> và Admin Student URL: <b>UNREADABLE_BY_PLATFORM</b>.</li>
+      <li>Exact Supabase DB A pairing giữa Admin nội bộ và Student Web: <b>UNPROVEN</b>.</li>
+      <li>Exact <code>LMS_SUPABASE_URL</code> mà Student Web đang dùng: <b>UNPROVEN</b>.</li>
+      <li>Internal-secret pairing và Google Drive credential health: <b>UNPROVEN</b>.</li>
+      <li>Post media/course mapping: <b>UNPROVEN</b> sau unauthenticated SSR audit.</li>
+    </ul>
+  </section>
+</main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'base', securityLevel: 'strict', flowchart: { curve: 'basis', htmlLabels: true } });
+</script>
+</body>
+</html>

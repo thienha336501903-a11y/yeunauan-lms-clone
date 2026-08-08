@@ -1,0 +1,56 @@
+flowchart LR
+    U["Người dùng / quản trị viên"]
+
+    subgraph A["1. Admin nội bộ"]
+      A1["admin.yeunauan.live<br/>Quản trị nội dung / posts<br/>Project: admin-web-tra-bai<br/>Deployment: dpl_BEjH... · READY"]
+    end
+
+    subgraph P["2. Portal / Student Web"]
+      P1["www.yeunauan.live/post/&lt;id&gt;<br/>Trang nội dung học viên<br/>Project: student-web<br/>Deployment: dpl_92XT... · READY"]
+    end
+
+    subgraph C["3. Commerce / Bán hàng"]
+      C1["shop.yeunauan.live/admin.html<br/>Quản trị khóa học"]
+      C2["shop.yeunauan.live/orders.html<br/>Quản lý đơn / duyệt / revoke"]
+      CP["CÙNG project + deployment<br/>web-ban-hang-chinh-thuc<br/>dpl_DZL1... · READY"]
+      C1 --> CP
+      C2 --> CP
+    end
+
+    subgraph L["4. LMS / Quản trị khóa học"]
+      L1["www.daubepnho.store/lms-admin.html<br/>Quản trị course / lesson / enrollment / media<br/>Project: web-lms-chinh-thuc<br/>Deployment: dpl_HVQ... · READY"]
+      LA["LMS Portal API<br/>/api/lms/portal"]
+      GD["Google Drive<br/>upload / permission / retry"]
+      L1 --> LA
+      L1 --> GD
+    end
+
+    DBB[("Supabase B<br/>aqozjkfwzmyfunqvcyjv<br/>Commerce + LMS baseline")]
+
+    U --> A1
+    U --> P1
+    U --> C1
+    U --> C2
+    U --> L1
+    CP --> DBB
+    L1 --> DBB
+    P1 -->|"course-data / public-lesson / entry-token"| LA
+
+    DBA[("Portal Supabase DB A<br/>documented crph...<br/>current ref UNPROVEN")]
+    CP -. "SYSTEM1_URL UNREADABLE" .-> A1
+    CP -. "SYSTEM3_URL UNREADABLE" .-> LA
+    A1 -. "Student URL UNREADABLE" .-> P1
+    A1 -. "current DB pairing UNPROVEN" .-> DBA
+    P1 -. "current DB pairing UNPROVEN" .-> DBA
+    P1 -. "LMS_SUPABASE_URL UNPROVEN" .-> DBB
+
+    classDef admin fill:#fff3e8,stroke:#d97706,stroke-width:2px,color:#412006;
+    classDef portal fill:#f3edff,stroke:#7854c7,stroke-width:2px,color:#28164d;
+    classDef commerce fill:#eaf3ff,stroke:#2867bd,stroke-width:2px,color:#102e58;
+    classDef lms fill:#edf9ed,stroke:#3f9140,stroke-width:2px,color:#183e1a;
+    classDef db fill:#e8faf5,stroke:#23856a,stroke-width:2px,color:#103e33;
+    class A1 admin;
+    class P1 portal;
+    class C1,C2,CP commerce;
+    class L1,LA,GD lms;
+    class DBB,DBA db;

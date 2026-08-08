@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <style>
+      .title { font: 700 42px Arial, sans-serif; fill: #132238; }
+      .subtitle { font: 400 21px Arial, sans-serif; fill: #52657d; }
+      .group { font: 700 24px Arial, sans-serif; fill: #2457a6; }
+      .box-title { font: 700 24px Arial, sans-serif; fill: #15243a; }
+      .box-text { font: 400 19px Arial, sans-serif; fill: #33465f; }
+      .small { font: 400 17px Arial, sans-serif; fill: #586b82; }
+      .note-title { font: 700 22px Arial, sans-serif; fill: #704900; }
+      .note { font: 400 18px Arial, sans-serif; fill: #5d4b26; }
+      .arrow { fill: none; stroke: #2457a6; stroke-width: 5; marker-end: url(#arrow); }
+      .thin-arrow { fill: none; stroke: #4c6f9f; stroke-width: 4; marker-end: url(#arrow2); }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#2457a6"/>
+    </marker>
+    <marker id="arrow2" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#4c6f9f"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#14243b" flood-opacity="0.13"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="#f7f9fc"/>
+  <text x="800" y="62" text-anchor="middle" class="title">KIẾN TRÚC HỆ THỐNG HIỆN TẠI</text>
+  <text x="800" y="98" text-anchor="middle" class="subtitle">Trạng thái sau khôi phục ngày 06/08/2026 — chỉ thể hiện routing Production đã xác minh</text>
+
+  <!-- Two active domains, one Commerce runtime -->
+  <rect x="55" y="150" width="340" height="350" rx="24" fill="#eef5ff" stroke="#6da3e8" stroke-width="3" stroke-dasharray="10 8"/>
+  <text x="225" y="190" text-anchor="middle" class="group">HAI TÊN MIỀN ĐANG HOẠT ĐỘNG</text>
+
+  <rect x="85" y="225" width="280" height="95" rx="18" fill="#ffffff" stroke="#3d7ed0" stroke-width="3" filter="url(#shadow)"/>
+  <text x="225" y="267" text-anchor="middle" class="box-title">shop.yeunauan.live</text>
+  <text x="225" y="297" text-anchor="middle" class="small">HTTP 200</text>
+
+  <rect x="85" y="350" width="280" height="95" rx="18" fill="#ffffff" stroke="#3d7ed0" stroke-width="3" filter="url(#shadow)"/>
+  <text x="225" y="392" text-anchor="middle" class="box-title">yeubep.shop</text>
+  <text x="225" y="422" text-anchor="middle" class="small">HTTP 200 — domain alias</text>
+
+  <!-- Commerce -->
+  <rect x="485" y="205" width="360" height="240" rx="24" fill="#ffffff" stroke="#2457a6" stroke-width="4" filter="url(#shadow)"/>
+  <text x="665" y="255" text-anchor="middle" class="group">MỘT COMMERCE DUY NHẤT</text>
+  <text x="665" y="310" text-anchor="middle" class="box-title">web-ban-hang-chinh-thuc</text>
+  <text x="665" y="346" text-anchor="middle" class="box-text">Vercel project dùng chung</text>
+  <text x="665" y="378" text-anchor="middle" class="box-text">Cùng source · cùng env · cùng API</text>
+  <text x="665" y="410" text-anchor="middle" class="small">Artifact: cafe21b...</text>
+
+  <path d="M365 272 C420 272 430 282 485 295" class="arrow"/>
+  <path d="M365 397 C420 397 430 367 485 355" class="arrow"/>
+
+  <!-- Shared Supabase -->
+  <rect x="955" y="155" width="400" height="175" rx="24" fill="#eafaf5" stroke="#2f9b74" stroke-width="4" filter="url(#shadow)"/>
+  <text x="1155" y="205" text-anchor="middle" class="group" fill="#167356">SUPABASE PRODUCTION CHÍNH</text>
+  <text x="1155" y="250" text-anchor="middle" class="box-title">aqozjkfwzmyfunqvcyjv</text>
+  <text x="1155" y="285" text-anchor="middle" class="box-text">Commerce + LMS legacy + session/sync</text>
+  <text x="1155" y="313" text-anchor="middle" class="small">Không còn phân tách theo sales_site</text>
+
+  <path d="M845 285 C890 285 910 245 955 245" class="thin-arrow"/>
+
+  <!-- Portal and LMS legacy -->
+  <rect x="955" y="370" width="400" height="130" rx="24" fill="#f4efff" stroke="#7957bd" stroke-width="4" filter="url(#shadow)"/>
+  <text x="1155" y="418" text-anchor="middle" class="group" fill="#6544a1">PORTAL CŨ ĐANG HOẠT ĐỘNG</text>
+  <text x="1155" y="462" text-anchor="middle" class="box-title">www.yeunauan.live</text>
+
+  <rect x="955" y="545" width="400" height="145" rx="24" fill="#eef9ed" stroke="#4c9a43" stroke-width="4" filter="url(#shadow)"/>
+  <text x="1155" y="595" text-anchor="middle" class="group" fill="#34752d">LMS LEGACY — LUỒNG CHÍNH</text>
+  <text x="1155" y="640" text-anchor="middle" class="box-title">www.daubepnho.store</text>
+  <text x="1155" y="671" text-anchor="middle" class="small">web-lms-chinh-thuc</text>
+
+  <path d="M845 345 C900 345 900 435 955 435" class="thin-arrow"/>
+  <path d="M1155 500 L1155 545" class="thin-arrow"/>
+  <path d="M955 615 C900 615 900 325 845 325" class="thin-arrow"/>
+
+  <!-- Isolated assets -->
+  <rect x="55" y="570" width="790" height="245" rx="24" fill="#fffaf0" stroke="#d59a2d" stroke-width="3" stroke-dasharray="11 8"/>
+  <text x="450" y="610" text-anchor="middle" class="note-title">TÀI SẢN CÒN TỒN TẠI — CHƯA NỐI VÀO ROUTING PRODUCTION</text>
+
+  <rect x="85" y="640" width="345" height="65" rx="14" fill="#ffffff" stroke="#d6af62" stroke-width="2"/>
+  <text x="258" y="669" text-anchor="middle" class="box-title">lms.yeubep.shop</text>
+  <text x="258" y="694" text-anchor="middle" class="small">Online, nhưng chưa được Commerce route riêng</text>
+
+  <rect x="465" y="640" width="345" height="65" rx="14" fill="#ffffff" stroke="#d6af62" stroke-width="2"/>
+  <text x="638" y="669" text-anchor="middle" class="box-title">web-ban-hang-yeubep-shop</text>
+  <text x="638" y="694" text-anchor="middle" class="small">Cô lập — không có custom domain</text>
+
+  <rect x="85" y="725" width="345" height="65" rx="14" fill="#ffffff" stroke="#d6af62" stroke-width="2"/>
+  <text x="258" y="754" text-anchor="middle" class="box-title">portal.yeubep.shop</text>
+  <text x="258" y="779" text-anchor="middle" class="small">DNS chưa phân giải</text>
+
+  <rect x="465" y="725" width="345" height="65" rx="14" fill="#ffffff" stroke="#d6af62" stroke-width="2"/>
+  <text x="638" y="754" text-anchor="middle" class="box-title">portal.yeunauan.live</text>
+  <text x="638" y="779" text-anchor="middle" class="small">DNS chưa phân giải</text>
+
+  <!-- Explicit warning -->
+  <rect x="955" y="735" width="400" height="80" rx="16" fill="#fff1f1" stroke="#cf4b4b" stroke-width="3"/>
+  <text x="1155" y="767" text-anchor="middle" class="box-title" fill="#a12f2f">KHÔNG PHẢI KIẾN TRÚC 2–2</text>
+  <text x="1155" y="798" text-anchor="middle" class="box-text">Không có 2 Commerce độc lập → 2 LMS độc lập</text>
+
+  <text x="800" y="865" text-anchor="middle" class="small">Mũi tên = kết nối Production đã xác minh · Khung nét đứt màu cam = tài sản tồn tại nhưng chưa kết nối</text>
+</svg>

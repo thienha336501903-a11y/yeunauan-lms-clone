@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph S1["HỆ THỐNG 1 — Nội dung / Trả bài"]
+    A1["admin.yeunauan.live"] --> P1["www.yeunauan.live/post/&lt;id&gt;"]
+    P1 --> DB1["Portal DB riêng Hệ thống 1"]
+    P1 --> AUTH1["Auth / session riêng Hệ thống 1"]
+  end
+
+  subgraph S2["HỆ THỐNG 2 — Commerce / LMS"]
+    C2["shop.yeunauan.live<br/>admin.html + orders.html"] --> P2["Portal Learning mới<br/>portal-learning.yeunauan.live"]
+    P2 --> DB2["Portal DB riêng Hệ thống 2"]
+    P2 --> AUTH2["Auth / session riêng Hệ thống 2"]
+    P2 --> LMS["www.daubepnho.store"]
+    LMS --> LDB["LMS DB aqoz..."]
+    LMS --> DRIVE["Google Drive modules"]
+  end
+
+  style S1 fill:#eef6ff,stroke:#2563eb
+  style S2 fill:#f0fdf4,stroke:#16a34a
