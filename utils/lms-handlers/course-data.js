@@ -383,7 +383,7 @@ export default async function handler(req, res) {
         authError: code,
         code,
         course: activeCourseSlug,
-        error: "Liên kết lớp học này cần được mở từ Cổng học viên. Vui lòng quay lại trang bài học trên yeunauan.live và bấm “Bài học gốc phục vụ giảng dạy” để vào lớp."
+        error: "Liên kết lớp học này cần được mở từ Cổng học viên clone. Vui lòng quay lại https://yeunauan-lms-clone.vercel.app và mở lại khóa học để vào lớp."
       });
     }
 
