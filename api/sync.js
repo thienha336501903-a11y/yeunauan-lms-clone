@@ -84,9 +84,11 @@ export default async function handler(req, res) {
         result = { id: existingCourse.id, updated: true };
       } else {
         // Create new course in draft mode
+        const newCourseId = (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : require("crypto").randomUUID());
         const { data: newCourse, error: insertErr } = await supabase
           .from("courses")
           .insert({
+            id: newCourseId,
             slug: slug.trim(),
             title: nextTitle,
             subtitle: nextSubtitle || null,
