@@ -392,6 +392,7 @@ export async function autoEnroll(supabase, { email, courseSlug, name, phone, ord
       const { data: newStudent, error: insertError } = await supabase
         .from("students")
         .insert({
+          id: crypto.randomUUID(),
           email: cleanEmail,
           full_name: name || null,
           phone: phone || null,
@@ -1563,6 +1564,7 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
       const { data: newStudent, error: studentInsertErr } = await supabase
         .from("students")
         .insert({
+          id: crypto.randomUUID(),
           email: cleanEmail,
           full_name: name || null,
           phone: phone || null,

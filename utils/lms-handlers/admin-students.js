@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest, normalizeEmail } from "../lms.js";
 
@@ -44,6 +45,7 @@ export default async function handler(req, res) {
       const { data, error } = await supabase
         .from("students")
         .insert({
+          id: crypto.randomUUID(),
           email: cleanEmail,
           full_name: full_name || null,
           phone: phone || null,
