@@ -458,7 +458,7 @@
 
     // Configuration values derived from URL query parameters and local storage
     const COURSE = new URLSearchParams(window.location.search).get("course") || "banh-mi";
-    const MY_COURSES_URL = "https://www.yeunauan.live/my-courses";
+    const MY_COURSES_URL = window.location.origin;
     const SESSION_KEY = `course_session_token_${COURSE}`;
     const SESSION_EMAIL_KEY = `course_session_email_${COURSE}`;
     const SESSION_EXP_KEY = `course_session_exp_${COURSE}`;
