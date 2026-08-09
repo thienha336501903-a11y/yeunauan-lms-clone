@@ -25,18 +25,16 @@ export function isAdminEmail(email) {
 
 // Session secrets
 function sessionSecrets() {
-  return [
-    process.env.SESSION_SECRET,
-    process.env.GOOGLE_CLIENT_ID,
-    "fallback-session-secret"
-  ]
-    .filter(Boolean)
-    .map(s => String(s).trim())
-    .filter((s, idx, self) => s && self.indexOf(s) === idx);
+  const secret = String(process.env.SESSION_SECRET || "").trim();
+  return secret ? [secret] : [];
 }
 
 function sessionSecret() {
-  return sessionSecrets()[0] || "fallback-session-secret";
+  const secret = sessionSecrets()[0];
+  if (!secret) {
+    throw new Error("SESSION_SECRET is required for LMS sessions");
+  }
+  return secret;
 }
 
 function base64url(input) {
