@@ -460,7 +460,7 @@
     const initialParams = new URLSearchParams(window.location.search);
     let COURSE = initialParams.get("course") || "banh-mi";
     let currentCourseSlug = COURSE;
-    const MY_COURSES_URL = "https://www.yeunauan.live/my-courses";
+    const MY_COURSES_URL = window.location.origin;
     const LMS_DEVICE_KEY = "lms_device_id";
     const LMS_SESSION_KEY = "lms_verified_session_id";
     const LMS_SESSION_ALIAS_KEY = "lms_session_id";
@@ -2364,9 +2364,9 @@
         <div class="text-4xl mb-4">🔒</div>
         <p class="font-extrabold text-lg sm:text-xl text-brandOrange mb-2">Cần mở lớp từ Cổng học viên</p>
         <p class="text-brandBrown/60 text-sm max-w-sm mx-auto leading-relaxed mb-5">
-          ${escapeHtml(message || "Liên kết lớp học này cần được mở từ Cổng học viên. Vui lòng quay lại trang bài học trên yeunauan.live và bấm “Bài học gốc phục vụ giảng dạy” để vào lớp.")}
+          ${escapeHtml(message || "Liên kết lớp học này cần được mở từ Cổng học viên clone. Vui lòng quay lại danh sách khóa học và mở lại lớp học.")}
         </p>
-        <a href="https://www.yeunauan.live/my-courses" class="inline-flex items-center justify-center rounded-full bg-brandGreen px-5 py-3 text-sm font-extrabold text-white shadow-md hover:bg-brandGreen/95 transition">
+        <a href="/" class="inline-flex items-center justify-center rounded-full bg-brandGreen px-5 py-3 text-sm font-extrabold text-white shadow-md hover:bg-brandGreen/95 transition">
           Về Khóa học của tôi
         </a>
       `;
