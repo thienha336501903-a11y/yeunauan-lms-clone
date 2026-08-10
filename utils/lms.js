@@ -778,17 +778,25 @@ export async function getGoogleDriveClient(supabase) {
   }
 
   // 2. OAuth Refresh Token authentication fallback
-  const { data: configToken } = await supabase
+  const { data: configToken, error: accessTokenReadError } = await supabase
     .from("site_config")
     .select("value")
     .eq("key", "google_drive_access_token")
     .maybeSingle();
 
-  const { data: configRefresh } = await supabase
+  if (accessTokenReadError) {
+    throw new Error(`Không thể đọc Google Drive Access Token: ${accessTokenReadError.message}`);
+  }
+
+  const { data: configRefresh, error: refreshTokenReadError } = await supabase
     .from("site_config")
     .select("value")
     .eq("key", "google_drive_refresh_token")
     .maybeSingle();
+
+  if (refreshTokenReadError) {
+    throw new Error(`Không thể đọc Google Drive Refresh Token: ${refreshTokenReadError.message}`);
+  }
 
   const accessTokenVal = configToken?.value?.val;
   const expiresAt = configToken?.value?.expires_at || 0;
@@ -823,11 +831,15 @@ export async function getGoogleDriveClient(supabase) {
   }
 
   const newExpiresAt = Date.now() + 3500 * 1000;
-  await supabase.from("site_config").upsert({
+  const { error: accessTokenWriteError } = await supabase.from("site_config").upsert({
     key: "google_drive_access_token",
     value: { val: newAccessToken, expires_at: newExpiresAt },
     updated_at: new Date().toISOString()
   }, { onConflict: "key" });
+
+  if (accessTokenWriteError) {
+    throw new Error(`Không thể lưu Google Drive Access Token mới: ${accessTokenWriteError.message}`);
+  }
 
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: newAccessToken });
