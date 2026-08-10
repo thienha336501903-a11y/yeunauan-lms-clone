@@ -417,19 +417,36 @@ export async function autoEnroll(supabase, { email, courseSlug, name, phone, ord
 
     const courseId = course?.id || null;
 
-    const { error: enrollError } = await supabase
+    const { data: existingEnrollment, error: enrollmentLookupError } = await supabase
       .from("student_enrollments")
-      .upsert({
-        student_id: studentId,
-        course_id: courseId,
-        course_slug: courseSlug,
-        email: cleanEmail,
-        status: "active",
-        source_order_id: orderId || null,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "email,course_slug"
-      });
+      .select("id")
+      .eq("email", cleanEmail)
+      .eq("course_slug", courseSlug)
+      .maybeSingle();
+
+    if (enrollmentLookupError) {
+      console.error("Error checking enrollment in autoEnroll:", enrollmentLookupError);
+      return;
+    }
+
+    const enrollmentPayload = {
+      student_id: studentId,
+      course_id: courseId,
+      course_slug: courseSlug,
+      email: cleanEmail,
+      status: "active",
+      source_order_id: orderId || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error: enrollError } = existingEnrollment
+      ? await supabase
+          .from("student_enrollments")
+          .update(enrollmentPayload)
+          .eq("id", existingEnrollment.id)
+      : await supabase
+          .from("student_enrollments")
+          .insert({ id: crypto.randomUUID(), ...enrollmentPayload });
 
     if (enrollError) {
       console.error("Error upserting enrollment in autoEnroll:", enrollError);
@@ -1585,23 +1602,38 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
       .eq("slug", courseSlug.trim())
       .maybeSingle();
 
-    // 3. Upsert enrollment
-    const { data, error: enrollErr } = await supabase
+    // 3. Create or update enrollment without relying on a database conflict constraint.
+    const normalizedCourseSlug = courseSlug.trim();
+    const { data: existingEnrollment, error: enrollmentLookupError } = await supabase
       .from("student_enrollments")
-      .upsert({
-        student_id: studentId,
-        course_id: courseRec?.id || null,
-        course_slug: courseSlug.trim(),
-        email: cleanEmail,
-        status: "active",
-        expired_at: expiredAt || null,
-        source_order_id: orderId || null,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "email,course_slug"
-      })
-      .select()
-      .single();
+      .select("id")
+      .eq("email", cleanEmail)
+      .eq("course_slug", normalizedCourseSlug)
+      .maybeSingle();
+
+    if (enrollmentLookupError) throw enrollmentLookupError;
+
+    const enrollmentPayload = {
+      student_id: studentId,
+      course_id: courseRec?.id || null,
+      course_slug: normalizedCourseSlug,
+      email: cleanEmail,
+      status: "active",
+      expired_at: expiredAt || null,
+      source_order_id: orderId || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const enrollmentWrite = existingEnrollment
+      ? supabase
+          .from("student_enrollments")
+          .update(enrollmentPayload)
+          .eq("id", existingEnrollment.id)
+      : supabase
+          .from("student_enrollments")
+          .insert({ id: crypto.randomUUID(), ...enrollmentPayload });
+
+    const { data, error: enrollErr } = await enrollmentWrite.select().single();
 
     if (enrollErr) throw enrollErr;
     enrollmentResult = data;
