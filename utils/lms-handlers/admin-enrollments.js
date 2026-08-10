@@ -1,6 +1,72 @@
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest, normalizeEmail, syncEnrollment } from "../lms.js";
 
+export async function listAdminEnrollments(supabaseClient, { course, search } = {}) {
+  let query = supabaseClient
+    .from("student_enrollments")
+    .select("*");
+
+  if (course) {
+    query = query.eq("course_slug", course);
+  }
+  if (search) {
+    query = query.ilike("email", `%${search.trim()}%`);
+  }
+
+  const { data: enrollments, error } = await query.order("created_at", { ascending: false });
+  if (error) throw error;
+
+  // The Clone schema intentionally has no PostgREST foreign-key relation
+  // between student_enrollments and students. Fetch student profiles
+  // separately and join them in memory so the admin list works without
+  // changing the database baseline.
+  const studentIds = [...new Set((enrollments || [])
+    .map((enrollment) => enrollment.student_id)
+    .filter(Boolean))];
+  const enrollmentEmails = [...new Set((enrollments || [])
+    .map((enrollment) => normalizeEmail(enrollment.email))
+    .filter(Boolean))];
+  const students = [];
+
+  if (studentIds.length > 0) {
+    const { data, error: studentIdError } = await supabaseClient
+      .from("students")
+      .select("id, email, full_name, phone")
+      .in("id", studentIds);
+    if (studentIdError) throw studentIdError;
+    students.push(...(data || []));
+  }
+
+  const knownEmails = new Set(students.map((student) => normalizeEmail(student.email)));
+  const missingEmails = enrollmentEmails.filter((email) => !knownEmails.has(email));
+  if (missingEmails.length > 0) {
+    const { data, error: studentEmailError } = await supabaseClient
+      .from("students")
+      .select("id, email, full_name, phone")
+      .in("email", missingEmails);
+    if (studentEmailError) throw studentEmailError;
+    students.push(...(data || []));
+  }
+
+  const studentsById = new Map();
+  const studentsByEmail = new Map();
+  for (const student of students) {
+    if (student.id) studentsById.set(student.id, student);
+    const email = normalizeEmail(student.email);
+    if (email) studentsByEmail.set(email, student);
+  }
+
+  return (enrollments || []).map((enrollment) => {
+    const student = studentsById.get(enrollment.student_id)
+      || studentsByEmail.get(normalizeEmail(enrollment.email))
+      || null;
+    return {
+      ...enrollment,
+      student: student ? { full_name: student.full_name, phone: student.phone } : null
+    };
+  });
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -19,26 +85,7 @@ export default async function handler(req, res) {
     // ── GET: List enrollments with filters ────────────────────────────────────
     if (req.method === "GET") {
       const { course, search } = req.query || {};
-      let query = supabase
-        .from("student_enrollments")
-        .select(`
-          *,
-          student:students (
-            full_name,
-            phone
-          )
-        `);
-
-      if (course) {
-        query = query.eq("course_slug", course);
-      }
-      if (search) {
-        query = query.ilike("email", `%${search.trim()}%`);
-      }
-
-      const { data: enrollments, error } = await query.order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const enrollments = await listAdminEnrollments(supabase, { course, search });
       return res.status(200).json({ success: true, enrollments });
     }
 
