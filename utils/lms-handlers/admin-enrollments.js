@@ -21,13 +21,7 @@ export default async function handler(req, res) {
       const { course, search } = req.query || {};
       let query = supabase
         .from("student_enrollments")
-        .select(`
-          *,
-          student:students (
-            full_name,
-            phone
-          )
-        `);
+        .select("*");
 
       if (course) {
         query = query.eq("course_slug", course);
@@ -39,7 +33,58 @@ export default async function handler(req, res) {
       const { data: enrollments, error } = await query.order("created_at", { ascending: false });
 
       if (error) throw error;
-      return res.status(200).json({ success: true, enrollments });
+
+      // The Clone schema intentionally has no PostgREST foreign-key relation
+      // between student_enrollments and students. Fetch student profiles
+      // separately and join them in memory so the admin list works without
+      // changing the database baseline.
+      const studentIds = [...new Set((enrollments || [])
+        .map((enrollment) => enrollment.student_id)
+        .filter(Boolean))];
+      const enrollmentEmails = [...new Set((enrollments || [])
+        .map((enrollment) => normalizeEmail(enrollment.email))
+        .filter(Boolean))];
+      const students = [];
+
+      if (studentIds.length > 0) {
+        const { data, error: studentIdError } = await supabase
+          .from("students")
+          .select("id, email, full_name, phone")
+          .in("id", studentIds);
+        if (studentIdError) throw studentIdError;
+        students.push(...(data || []));
+      }
+
+      const knownEmails = new Set(students.map((student) => normalizeEmail(student.email)));
+      const missingEmails = enrollmentEmails.filter((email) => !knownEmails.has(email));
+      if (missingEmails.length > 0) {
+        const { data, error: studentEmailError } = await supabase
+          .from("students")
+          .select("id, email, full_name, phone")
+          .in("email", missingEmails);
+        if (studentEmailError) throw studentEmailError;
+        students.push(...(data || []));
+      }
+
+      const studentsById = new Map();
+      const studentsByEmail = new Map();
+      for (const student of students) {
+        if (student.id) studentsById.set(student.id, student);
+        const email = normalizeEmail(student.email);
+        if (email) studentsByEmail.set(email, student);
+      }
+
+      const hydratedEnrollments = (enrollments || []).map((enrollment) => {
+        const student = studentsById.get(enrollment.student_id)
+          || studentsByEmail.get(normalizeEmail(enrollment.email))
+          || null;
+        return {
+          ...enrollment,
+          student: student ? { full_name: student.full_name, phone: student.phone } : null
+        };
+      });
+
+      return res.status(200).json({ success: true, enrollments: hydratedEnrollments });
     }
 
     // ── POST: Grant Access (Enroll Student) ──────────────────────────────────
