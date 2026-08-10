@@ -1,6 +1,69 @@
 import { getAdminFromRequest, isAdminEmail, normalizeEmail } from "../lms.js";
 import { google } from "googleapis";
 
+export async function readStoredRefreshToken(supabase) {
+  const { data, error } = await supabase
+    .from("site_config")
+    .select("value")
+    .eq("key", "google_drive_refresh_token")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Không thể đọc Refresh Token đã lưu: ${error.message}`);
+  }
+
+  return data?.value?.val || null;
+}
+
+async function canRefreshAccessToken(refreshToken) {
+  if (!refreshToken) return false;
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  try {
+    const tokenRes = await oauth2Client.getAccessToken();
+    return Boolean(tokenRes?.token);
+  } catch (err) {
+    console.warn("[admin-drive-auth] Stored refresh token is no longer valid:", err?.message);
+    return false;
+  }
+}
+
+export async function saveSiteConfigValue(supabase, key, value) {
+  const { error } = await supabase.from("site_config").upsert({
+    key,
+    value,
+    updated_at: new Date().toISOString()
+  }, { onConflict: "key" });
+
+  if (error) {
+    throw new Error(`Không thể lưu cấu hình ${key}: ${error.message}`);
+  }
+}
+
+export async function verifyStoredDriveTokens(supabase, expectedAccessToken, expectedRefreshToken) {
+  const { data, error } = await supabase
+    .from("site_config")
+    .select("key, value")
+    .in("key", ["google_drive_access_token", "google_drive_refresh_token"]);
+
+  if (error) {
+    throw new Error(`Không thể kiểm tra lại token Google Drive: ${error.message}`);
+  }
+
+  const values = new Map((data || []).map((row) => [row.key, row.value?.val]));
+  if (
+    values.get("google_drive_access_token") !== expectedAccessToken ||
+    values.get("google_drive_refresh_token") !== expectedRefreshToken
+  ) {
+    throw new Error("Token Google Drive chưa được lưu đầy đủ. Vui lòng kết nối lại.");
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -78,21 +141,32 @@ export default async function handler(req, res) {
         });
       }
 
-      // Save access_token to site_config
-      await supabase.from("site_config").upsert({
-        key: "google_drive_access_token",
-        value: { val: access_token, expires_at: expiry_date || (Date.now() + 3600 * 1000) },
-        updated_at: new Date().toISOString()
-      }, { onConflict: "key" });
-
-      // Save refresh_token to site_config if present
-      if (refresh_token) {
-        await supabase.from("site_config").upsert({
-          key: "google_drive_refresh_token",
-          value: { val: refresh_token },
-          updated_at: new Date().toISOString()
-        }, { onConflict: "key" });
+      let durableRefreshToken = refresh_token || null;
+      if (!durableRefreshToken) {
+        const storedRefreshToken = await readStoredRefreshToken(supabase);
+        if (await canRefreshAccessToken(storedRefreshToken)) {
+          durableRefreshToken = storedRefreshToken;
+        }
       }
+
+      if (!durableRefreshToken) {
+        return res.status(409).json({
+          success: false,
+          code: "DRIVE_REAUTH_REQUIRED",
+          error: "Google chưa cấp Refresh Token mới và token cũ đã hết hiệu lực. Hãy thu hồi quyền của ứng dụng trong Tài khoản Google, sau đó bấm Kết nối Drive lại."
+        });
+      }
+
+      // Persist the durable credential first, then the short-lived access token.
+      // Every write is checked so the UI cannot report a false successful connection.
+      await saveSiteConfigValue(supabase, "google_drive_refresh_token", {
+        val: durableRefreshToken
+      });
+      await saveSiteConfigValue(supabase, "google_drive_access_token", {
+        val: access_token,
+        expires_at: expiry_date || (Date.now() + 3600 * 1000)
+      });
+      await verifyStoredDriveTokens(supabase, access_token, durableRefreshToken);
 
       return res.status(200).json({
         success: true,
