@@ -17,7 +17,6 @@ import adminDriveRetryHandler from "../../utils/lms-handlers/admin-drive-retry.j
 import adminVerifyMediaHandler from "../../utils/lms-handlers/admin-verify-media.js";
 import adminStudentTraceHandler from "../../utils/lms-handlers/admin-student-trace.js";
 import adminAccountSharingAlertsHandler from "../../utils/lms-handlers/admin-account-sharing-alerts.js";
-import { installSecureCookieResponse } from "../../utils/secure-cookie-response.js";
 
 export const config = {
   api: {
@@ -28,7 +27,6 @@ export const config = {
 };
 
 export default async function handler(req, res) {
-  installSecureCookieResponse(req, res);
   const { endpoint } = req.query || {};
 
   if (endpoint === "auth") {
