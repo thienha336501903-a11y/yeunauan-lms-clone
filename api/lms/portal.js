@@ -3,10 +3,8 @@ import lessonHandler from "../../utils/lms-handlers/lesson.js";
 import publicConfigHandler from "../../utils/lms-handlers/public-config.js";
 import publicLessonHandler from "../../utils/lms-handlers/public-lesson.js";
 import verifyEntryTokenHandler from "../../utils/lms-handlers/verify-entry-token.js";
-import { installSecureCookieResponse } from "../../utils/secure-cookie-response.js";
 
 export default async function handler(req, res) {
-  installSecureCookieResponse(req, res);
   const { endpoint } = req.query || {};
 
   if (endpoint === "course-data") {
