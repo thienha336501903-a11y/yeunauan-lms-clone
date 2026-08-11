@@ -23,6 +23,36 @@ export function isAdminEmail(email) {
   return getAdminEmails().includes(normalizeEmail(email));
 }
 
+// The Clone's site_config table does not currently enforce a unique key.
+// Avoid PostgREST upsert(onConflict: "key"), which fails without that
+// database constraint. Updating first also preserves the existing row count.
+export async function saveSiteConfigValue(supabase, key, value) {
+  const payload = {
+    value,
+    updated_at: new Date().toISOString()
+  };
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("site_config")
+    .update(payload)
+    .eq("key", key)
+    .select("key");
+
+  if (updateError) {
+    throw new Error(`Không thể cập nhật cấu hình ${key}: ${updateError.message}`);
+  }
+
+  if (updatedRows?.length) return;
+
+  const { error: insertError } = await supabase.from("site_config").insert({
+    key,
+    ...payload
+  });
+
+  if (insertError) {
+    throw new Error(`Không thể tạo cấu hình ${key}: ${insertError.message}`);
+  }
+}
+
 // Session secrets
 function sessionSecrets() {
   const secret = String(process.env.SESSION_SECRET || "").trim();
@@ -831,15 +861,10 @@ export async function getGoogleDriveClient(supabase) {
   }
 
   const newExpiresAt = Date.now() + 3500 * 1000;
-  const { error: accessTokenWriteError } = await supabase.from("site_config").upsert({
-    key: "google_drive_access_token",
-    value: { val: newAccessToken, expires_at: newExpiresAt },
-    updated_at: new Date().toISOString()
-  }, { onConflict: "key" });
-
-  if (accessTokenWriteError) {
-    throw new Error(`Không thể lưu Google Drive Access Token mới: ${accessTokenWriteError.message}`);
-  }
+  await saveSiteConfigValue(supabase, "google_drive_access_token", {
+    val: newAccessToken,
+    expires_at: newExpiresAt
+  });
 
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: newAccessToken });

@@ -1,4 +1,9 @@
-import { getAdminFromRequest, isAdminEmail, normalizeEmail } from "../lms.js";
+import {
+  getAdminFromRequest,
+  isAdminEmail,
+  normalizeEmail,
+  saveSiteConfigValue
+} from "../lms.js";
 import { google } from "googleapis";
 
 export async function readStoredRefreshToken(supabase) {
@@ -30,18 +35,6 @@ async function canRefreshAccessToken(refreshToken) {
   } catch (err) {
     console.warn("[admin-drive-auth] Stored refresh token is no longer valid:", err?.message);
     return false;
-  }
-}
-
-export async function saveSiteConfigValue(supabase, key, value) {
-  const { error } = await supabase.from("site_config").upsert({
-    key,
-    value,
-    updated_at: new Date().toISOString()
-  }, { onConflict: "key" });
-
-  if (error) {
-    throw new Error(`Không thể lưu cấu hình ${key}: ${error.message}`);
   }
 }
 
