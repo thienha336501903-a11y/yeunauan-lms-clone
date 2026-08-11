@@ -1,8 +1,29 @@
+import crypto from "crypto";
 import { supabase } from "../utils/supabase.js";
 import { 
   normalizeEmail, 
   syncEnrollment
 } from "../utils/lms.js";
+
+function timingSafeEqualString(left, right) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftBuffer = Buffer.from(left, "utf8");
+  const rightBuffer = Buffer.from(right, "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    const size = Math.max(leftBuffer.length, rightBuffer.length, 1);
+    const paddedLeft = Buffer.alloc(size);
+    const paddedRight = Buffer.alloc(size);
+    leftBuffer.copy(paddedLeft);
+    rightBuffer.copy(paddedRight);
+    crypto.timingSafeEqual(paddedLeft, paddedRight);
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+  } catch {
+    return false;
+  }
+}
 
 export default async function handler(req, res) {
   // CORS headers
@@ -18,11 +39,19 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
-  // Verify internal sync secret
-  const syncSecret = req.headers["x-sync-secret"];
-  const systemSecret = process.env.INTERNAL_SYNC_SECRET;
+  // Verify internal sync secret without leaking comparison timing.
+  const syncSecret = String(req.headers["x-sync-secret"] || "");
+  const systemSecret = String(process.env.INTERNAL_SYNC_SECRET || "");
 
-  if (!systemSecret || syncSecret !== systemSecret) {
+  if (!systemSecret) {
+    return res.status(503).json({
+      success: false,
+      code: "sync_misconfigured",
+      error: "Internal sync is unavailable."
+    });
+  }
+
+  if (!syncSecret || !timingSafeEqualString(syncSecret, systemSecret)) {
     return res.status(401).json({ success: false, error: "Unauthorized: Sync secret is invalid or missing." });
   }
 
