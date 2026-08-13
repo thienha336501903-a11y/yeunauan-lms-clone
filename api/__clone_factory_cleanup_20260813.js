@@ -1,3 +1,4 @@
+// One-time Clone test media cleanup endpoint. Remove after cleanup completes.
 import { supabase } from "../utils/supabase.js";
 import { getGoogleDriveClient } from "../utils/lms.js";
 
