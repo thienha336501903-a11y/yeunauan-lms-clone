@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     else if (value != null) params.set(key, String(value));
   }
   const qs = params.toString();
-  const target = mode === "v3" ? "/channel-candidate.html" : "/lms.html";
+  const target = mode === "v3" ? "/v3" : "/lms.html";
   res.setHeader("Cache-Control", "no-store");
   return res.redirect(307, target + (qs ? `?${qs}` : ""));
 }
