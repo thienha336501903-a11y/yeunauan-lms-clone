@@ -122,6 +122,19 @@
     const indexById=new Map(itemButtons.map(b=>[String(b.dataset.appendixId),Number(b.dataset.appendixIndex||0)]));
     let activeId='';
 
+    function keepActiveInsideAppendix(active){
+      if(!active||!body)return;
+      const itemTop=active.offsetTop;
+      const itemBottom=itemTop+active.offsetHeight;
+      const viewTop=body.scrollTop;
+      const viewBottom=viewTop+body.clientHeight;
+      if(itemTop<viewTop+6){
+        body.scrollTop=Math.max(0,itemTop-8);
+      }else if(itemBottom>viewBottom-6){
+        body.scrollTop=Math.max(0,itemBottom-body.clientHeight+8);
+      }
+    }
+
     function setActive(id){
       id=String(id||'');
       if(!id||id===activeId)return;
@@ -130,10 +143,7 @@
       const idx=indexById.get(id)||0;
       if(meta)meta.textContent=`${sectionCount?`${sectionCount} chương • `:''}Bài ${idx}/${lessonIndex}`;
       const active=shell.querySelector(`[data-appendix-id="${CSS.escape(id)}"]`);
-      if(active&&shell.querySelector('details')?.open){
-        const box=body.getBoundingClientRect(),r=active.getBoundingClientRect();
-        if(r.top<box.top||r.bottom>box.bottom)active.scrollIntoView({block:'nearest'});
-      }
+      if(active&&shell.querySelector('details')?.open)keepActiveInsideAppendix(active);
     }
 
     function navigate(id){
