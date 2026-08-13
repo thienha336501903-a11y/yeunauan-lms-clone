@@ -17,7 +17,6 @@ import adminDriveRetryHandler from "../../utils/lms-handlers/admin-drive-retry.j
 import adminVerifyMediaHandler from "../../utils/lms-handlers/admin-verify-media.js";
 import adminStudentTraceHandler from "../../utils/lms-handlers/admin-student-trace.js";
 import adminAccountSharingAlertsHandler from "../../utils/lms-handlers/admin-account-sharing-alerts.js";
-import cloneFactoryCleanupHandler from "../clone-factory-cleanup-20260813.js";
 
 export const config = {
   api: {
@@ -86,9 +85,6 @@ export default async function handler(req, res) {
   }
   if (endpoint === "account-sharing-alerts") {
     return adminAccountSharingAlertsHandler(req, res);
-  }
-  if (endpoint === "clone-factory-cleanup-20260813") {
-    return cloneFactoryCleanupHandler(req, res);
   }
 
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
