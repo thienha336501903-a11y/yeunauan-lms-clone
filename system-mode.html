@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clone - Chế độ học V2 / V3</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#f8fafc;color:#1e293b}main{max-width:980px;margin:32px auto;padding:0 16px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:22px;box-shadow:0 4px 18px rgba(15,23,42,.05)}h1{font-size:22px;margin:0 0 8px}p{color:#64748b;line-height:1.55}.state{margin:18px 0;padding:14px;border-radius:14px;background:#f1f5f9;display:flex;gap:12px;align-items:center;flex-wrap:wrap}.badge{font-weight:800;padding:6px 11px;border-radius:999px;background:#e2e8f0}.buttons{display:flex;gap:12px;flex-wrap:wrap}.mode{border:2px solid #cbd5e1;background:#fff;border-radius:14px;padding:14px 18px;font-weight:800;cursor:pointer}.mode.active{border-color:#0ea5e9;background:#eff6ff;color:#0369a1}.mode:disabled{opacity:.55;cursor:wait}.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:22px}.link{display:block;text-decoration:none;color:#0f172a;border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#fff}.link b{display:block;margin-bottom:4px}.small{font-size:12px;color:#64748b}.msg{min-height:20px;margin-top:12px;font-size:13px;font-weight:700}.warn{margin-top:18px;padding:12px 14px;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:12px}
+</style>
+</head>
+<body><main><div class="card">
+<h1>Chế độ học Clone (V2 / V3)</h1>
+<p><b>V2</b> giữ nguyên LMS hiện tại. <b>V3</b> dùng Telegram Channel Candidate. Mode chỉ điều khiển đường dẫn chung <code>/learning</code>; các URL trực tiếp V2/V3 vẫn giữ để test và rollback.</p>
+<div class="state"><span>Chế độ hiện tại:</span><span id="badge" class="badge">Đang tải...</span><span id="source" class="small"></span></div>
+<div class="buttons"><button id="v2" class="mode" onclick="setMode('v2')">📚 V2 — LMS hiện tại</button><button id="v3" class="mode" onclick="setMode('v3')">💬 V3 — Telegram Channel</button></div>
+<div id="msg" class="msg"></div>
+<div class="links">
+<a class="link" href="/admin.html"><b>Admin V2</b><span class="small">Trang quản trị LMS hiện tại</span></a>
+<a class="link" href="/channel-admin-candidate.html"><b>Admin V3</b><span class="small">Composer + Background Upload</span></a>
+<a class="link" href="/learning"><b>Học viên — URL chung</b><span class="small">Tự vào V2 hoặc V3 theo mode</span></a>
+<a class="link" href="/channel-candidate.html"><b>Học viên V3 trực tiếp</b><span class="small">Dùng để A/B test không phụ thuộc mode</span></a>
+</div>
+<div class="warn">Fail-safe: nếu cấu hình mode/API lỗi, URL chung luôn quay về V2. Không đổi schema và không thay dữ liệu bài học.</div>
+</div></main>
+<script>
+const badge=document.getElementById('badge'),msg=document.getElementById('msg'),b2=document.getElementById('v2'),b3=document.getElementById('v3');
+function paint(mode,source){badge.textContent=(mode||'v2').toUpperCase();document.getElementById('source').textContent=source?('Nguồn: '+source):'';b2.classList.toggle('active',mode==='v2');b3.classList.toggle('active',mode==='v3');}
+async function load(){try{const r=await fetch('/api/lms/admin?endpoint=learning-mode',{cache:'no-store'});const d=await r.json();if(r.status===401){msg.textContent='Bạn cần đăng nhập Admin Clone trước tại /admin.html';return;}if(!r.ok||!d.success)throw new Error(d.error||'Không tải được mode');paint(d.activeMode,d.source);}catch(e){msg.textContent='Không tải được trạng thái: '+e.message;paint('v2','fallback');}}
+async function setMode(mode){if(!confirm('Chuyển URL học viên chung sang '+mode.toUpperCase()+'?'))return;b2.disabled=b3.disabled=true;msg.textContent='Đang chuyển...';try{const r=await fetch('/api/lms/admin?endpoint=learning-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Chuyển mode thất bại');paint(d.activeMode,'site_config');msg.textContent='Đã chuyển sang '+d.activeMode.toUpperCase()+'.';}catch(e){msg.textContent='Lỗi: '+e.message;}finally{b2.disabled=b3.disabled=false;}}
+load();
+</script></body></html>
