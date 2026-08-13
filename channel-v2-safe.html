@@ -5,48 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Telegram Channel Feed V2 Safe</title>
   <style>
-    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#dbe7ef}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#dbe7ef;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#243746}
     iframe{display:block;width:100%;height:100%;border:0;background:#dbe7ef}
+    .state{position:fixed;inset:0;display:grid;place-items:center;padding:20px;background:#dbe7ef}
+    .card{width:min(440px,100%);background:#fff;border-radius:16px;padding:24px;text-align:center;box-shadow:0 8px 28px rgba(35,68,90,.14)}
+    .spin{width:34px;height:34px;border:3px solid #dce7ed;border-top-color:#5682a3;border-radius:50%;margin:0 auto 13px;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+    .error{color:#a74444;font-size:13px;line-height:1.5}.hidden{display:none!important}
   </style>
 </head>
 <body>
-<iframe id="feed" title="Telegram Channel Feed V2 Safe"></iframe>
+<div class="state" id="state"><div class="card"><div class="spin"></div><strong>Đang xác định đúng kênh học viên…</strong><div id="message" style="font-size:12px;color:#71818d;margin-top:7px">Đang đối chiếu khóa học với quyền hiện tại.</div></div></div>
+<iframe id="feed" class="hidden" title="Telegram Channel Feed V2 Safe"></iframe>
 <script>
 (() => {
-  const frame = document.getElementById('feed');
-  const keys = ['lms_verified_session_id','lms_session_id'];
-  const saved = {};
-  let restored = false;
+  const frame=document.getElementById('feed');
+  const state=document.getElementById('state');
+  const message=document.getElementById('message');
+  const qs=new URLSearchParams(location.search);
+  const requested=String(qs.get('course')||'').trim();
+  const LMS_DEVICE_KEY='lms_device_id',LMS_SESSION_KEY='lms_verified_session_id',LMS_SESSION_ALIAS_KEY='lms_session_id';
 
-  function restoreSessionKeys(){
-    if(restored) return;
-    restored = true;
+  function headers(){
     try{
-      keys.forEach(key => {
-        const value = saved[key];
-        if(value === null || value === undefined) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
-      });
-    }catch{}
+      const sid=localStorage.getItem(LMS_SESSION_KEY)||localStorage.getItem(LMS_SESSION_ALIAS_KEY)||'';
+      const did=localStorage.getItem(LMS_DEVICE_KEY)||'';
+      return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{};
+    }catch{return {};}
+  }
+  const norm=(v)=>String(v||'').trim().toLowerCase();
+  function fail(text){
+    const card=state.querySelector('.card');
+    card.innerHTML=`<div style="font-size:34px">🔒</div><h3 style="margin:8px 0">Không mở được V2</h3><div class="error">${String(text||'Không xác định được khóa học được cấp quyền.')}</div><a href="/channel-entry.html" style="display:inline-block;margin-top:14px;color:#5682a3;font-weight:700;text-decoration:none">← Chọn lại kênh học viên</a>`;
   }
 
-  try{
-    keys.forEach(key => {
-      saved[key] = localStorage.getItem(key);
-      localStorage.removeItem(key);
+  async function resolveCourse(){
+    const res=await fetch('/api/lms/portal?endpoint=course-data',{
+      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({course:''})
     });
-  }catch{}
+    const data=await res.json();
+    if(!res.ok||!data?.allowed)throw new Error(data?.error||'Phiên hội viên không hợp lệ');
+    const allowed=(Array.isArray(data.allowedCourses)&&data.allowedCourses.length?data.allowedCourses:[data.course]).map(v=>String(v||'').trim()).filter(Boolean);
+    if(!allowed.length)throw new Error('Tài khoản chưa có khóa học đang hoạt động');
+    if(!requested)return String(data.course||allowed[0]);
+    const exact=allowed.find(slug=>slug===requested);
+    if(exact)return exact;
+    const canonical=allowed.find(slug=>norm(slug)===norm(requested));
+    if(canonical)return canonical;
+    throw new Error(`Tài khoản không có quyền khóa “${requested}”. Khóa được cấp: ${allowed.join(', ')}`);
+  }
 
-  const target = new URL('/channel-v2.html', location.origin);
-  target.search = location.search;
-  frame.src = target.toString();
-
-  // channel-v2.html loads channel.html as a same-origin child frame. Its auth
-  // request is dispatched before this outer frame finishes loading, so restoring
-  // here keeps the workaround scoped to this page load only.
-  frame.addEventListener('load', () => setTimeout(restoreSessionKeys, 250));
-  setTimeout(restoreSessionKeys, 8000);
-  window.addEventListener('beforeunload', restoreSessionKeys);
+  (async()=>{
+    try{
+      const canonical=await resolveCourse();
+      message.textContent=`Đã xác nhận quyền: ${canonical}. Đang mở Media Layout V2…`;
+      const target=new URL('/channel-v2.html',location.origin);
+      const next=new URLSearchParams(location.search);
+      next.set('course',canonical);
+      target.search=next.toString();
+      frame.src=target.toString();
+      frame.addEventListener('load',()=>{state.classList.add('hidden');frame.classList.remove('hidden');},{once:true});
+    }catch(e){fail(e?.message||e);}
+  })();
 })();
 </script>
 </body>
