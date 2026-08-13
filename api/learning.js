@@ -10,8 +10,13 @@ export default async function handler(req, res) {
     if (Array.isArray(value)) value.forEach(v => params.append(key, String(v)));
     else if (value != null) params.set(key, String(value));
   }
+
   const qs = params.toString();
-  const target = mode === "v3" ? "/v3" : "/lms.html";
+  const hasCourse = Boolean(String(params.get("course") || "").trim());
+  const target = mode === "v3"
+    ? "/v3"
+    : (hasCourse ? "/lms.html" : "/v2-entry.html");
+
   res.setHeader("Cache-Control", "no-store");
   return res.redirect(307, target + (qs ? `?${qs}` : ""));
 }
