@@ -1,6 +1,8 @@
 {
   "rewrites": [
-    { "source": "/learning", "destination": "/api/learning" }
+    { "source": "/learning", "destination": "/api/learning" },
+    { "source": "/v3", "destination": "/channel-candidate.html" },
+    { "source": "/v3-admin", "destination": "/channel-admin-candidate.html" }
   ],
   "headers": [
     {
