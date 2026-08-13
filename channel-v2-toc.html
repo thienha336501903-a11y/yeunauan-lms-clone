@@ -144,7 +144,7 @@
       const search=doc.getElementById('searchInput');
       if(search&&search.value){
         search.value='';
-        search.dispatchEvent(new Event('input',{bubbles:true}));
+        search.dispatchEvent(new doc.defaultView.Event('input',{bubbles:true}));
         setTimeout(run,240);
       }else run();
     }
@@ -155,7 +155,10 @@
 
     const observed=new WeakSet();
     const visibility=new Map();
-    const io=new IntersectionObserver(entries=>{
+    const InnerIntersectionObserver=doc.defaultView?.IntersectionObserver;
+    const InnerMutationObserver=doc.defaultView?.MutationObserver;
+    if(!InnerIntersectionObserver||!InnerMutationObserver)return true;
+    const io=new InnerIntersectionObserver(entries=>{
       entries.forEach(entry=>{
         const id=String(entry.target.dataset.lessonId||'');
         if(!id)return;
@@ -175,7 +178,7 @@
       });
     }
     observePosts();
-    new MutationObserver(observePosts).observe(feed,{childList:true,subtree:true});
+    new InnerMutationObserver(observePosts).observe(feed,{childList:true,subtree:true});
 
     const first=doc.querySelector('.post[data-lesson-id]');
     if(first)setActive(first.dataset.lessonId);
