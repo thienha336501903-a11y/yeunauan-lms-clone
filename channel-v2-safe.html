@@ -57,8 +57,8 @@
   (async()=>{
     try{
       const canonical=await resolveCourse();
-      message.textContent=`Đã xác nhận quyền: ${canonical}. Đang mở Media Layout V2…`;
-      const target=new URL('/channel-v2.html',location.origin);
+      message.textContent=`Đã xác nhận quyền: ${canonical}. Đang mở Media Layout V2 + Phụ lục…`;
+      const target=new URL('/channel-v2-toc.html',location.origin);
       const next=new URLSearchParams(location.search);
       next.set('course',canonical);
       target.search=next.toString();
