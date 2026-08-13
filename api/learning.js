@@ -1,18 +1,8 @@
-import { supabase } from "../utils/supabase.js";
-
-const MODE_KEY = "clone_learning_mode";
+import { getRuntimeSnapshot } from "../utils/v3-runtime-controller.js";
 
 export default async function handler(req, res) {
-  let mode = "v2";
-  try {
-    const { data, error } = await supabase
-      .from("site_config")
-      .select("value,updated_at")
-      .eq("key", MODE_KEY)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-    if (!error && String(data?.[0]?.value || "").trim().toLowerCase() === "v3") mode = "v3";
-  } catch {}
+  const state = await getRuntimeSnapshot();
+  const mode = state.effectiveMode === "v3" ? "v3" : "v2";
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(req.query || {})) {
