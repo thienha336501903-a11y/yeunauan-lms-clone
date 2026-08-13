@@ -71,7 +71,8 @@
 
   function esc(value){return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
   function headers(){try{const sid=localStorage.getItem(LMS_SESSION_KEY)||localStorage.getItem(LMS_SESSION_ALIAS_KEY)||'';const did=localStorage.getItem(LMS_DEVICE_KEY)||'';return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{};}catch{return {};}}
-  function linkify(text){const safe=esc(text);return safe.replace(/(https?:\/\/[^\s<]+)/gi,(m)=>`<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`);}
+  function normalizeSharedLinks(text){return String(text||'').replace(/(https?:\/\/[^\s()]+)\s*\((https?:\/\/[^\s()]+)\)/gi,(whole,visible,target)=>{try{const a=new URL(visible),b=new URL(target);if(a.origin===b.origin&&a.pathname===b.pathname)return visible;}catch{}return whole;}).replace(/https?:\/\/s\.shopee\.vn\/([A-Za-z0-9_-]+)\?[^\s)]+/gi,'https://s.shopee.vn/$1');}
+  function linkify(text){const safe=esc(normalizeSharedLinks(text));return safe.replace(/(https?:\/\/[^\s<]+)/gi,(m)=>`<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`);}
   function driveId(input){const s=String(input||'');let m=s.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);if(m)return m[1];m=s.match(/[?&]id=([^&#]+)/);return m?m[1]:'';}
   function ytId(input){const s=String(input||'');let m=s.match(/youtu\.be\/([\w-]{11})/);if(m)return m[1];m=s.match(/[?&]v=([\w-]{11})/);if(m)return m[1];m=s.match(/youtube(?:-nocookie)?\.com\/(?:embed|shorts|live)\/([\w-]{11})/);return m?m[1]:'';}
   function imgUrl(input){const id=driveId(input);return id?`https://drive.google.com/thumbnail?id=${id}&sz=w1400`:String(input||'');}
