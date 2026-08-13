@@ -4,175 +4,120 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Culinary CMS - Clone V2/V3</title>
-  <style>
-    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8fafc}
-    #core{display:block;width:100%;height:100%;border:0;background:#f8fafc}
-  </style>
+  <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8fafc}#core{display:block;width:100%;height:100%;border:0;background:#f8fafc}</style>
 </head>
 <body>
-  <iframe id="core" src="/admin.html?embedded=1" title="Culinary LMS Admin"></iframe>
-  <script>
-  (()=>{
-    const frame=document.getElementById('core');
-    let timer=null;
+<iframe id="core" src="/admin.html?embedded=1" title="Culinary LMS Admin"></iframe>
+<script>
+(()=>{
+  const frame=document.getElementById('core');
+  let timer=null;
+  function install(){
+    let d,w;try{d=frame.contentDocument;w=frame.contentWindow;}catch{return false;}
+    if(!d||!w||typeof w.switchTab!=='function')return false;
+    if(d.getElementById('tabBtn-system')&&d.getElementById('tabContent-system'))return true;
+    const aside=d.querySelector('#appShell aside');
+    const lessons=d.getElementById('tabContent-lessons');
+    const workspace=lessons?.parentElement;
+    if(!aside||!workspace)return false;
 
-    function install(){
-      let d,w;
-      try{d=frame.contentDocument;w=frame.contentWindow;}catch{return false;}
-      if(!d||!w||typeof w.switchTab!=='function')return false;
-      if(d.getElementById('tabBtn-system')&&d.getElementById('tabContent-system'))return true;
+    const btn=d.createElement('button');
+    btn.id='tabBtn-system';
+    btn.className='tab-btn flex-grow lg:flex-none flex items-center justify-center lg:justify-start gap-2.5 py-4 lg:py-3 px-5 text-sm font-bold border-b-2 lg:border-b-0 lg:border-l-4 border-transparent text-slate-500 hover:bg-slate-50 transition';
+    btn.innerHTML='⚙️ Hệ Thống';
+    btn.addEventListener('click',()=>{w.switchTab('system');w.__cloneLoadRuntime?.();});
+    aside.appendChild(btn);
 
-      const aside=d.querySelector('#appShell aside');
-      const lessons=d.getElementById('tabContent-lessons');
-      const workspace=lessons?.parentElement;
-      if(!aside||!workspace)return false;
-
-      const btn=d.createElement('button');
-      btn.id='tabBtn-system';
-      btn.className='tab-btn flex-grow lg:flex-none flex items-center justify-center lg:justify-start gap-2.5 py-4 lg:py-3 px-5 text-sm font-bold border-b-2 lg:border-b-0 lg:border-l-4 border-transparent text-slate-500 hover:bg-slate-50 transition';
-      btn.innerHTML='⚙️ Hệ Thống';
-      btn.addEventListener('click',()=>{w.switchTab('system');w.__cloneLoadLearningMode?.();});
-      aside.appendChild(btn);
-
-      const panel=d.createElement('div');
-      panel.id='tabContent-system';
-      panel.className='tab-content hidden flex-grow space-y-4';
-      panel.innerHTML=`
-        <div class="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
-          <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
-            <div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <h2 class="text-lg font-extrabold text-slate-800">Chế độ hệ thống (V2 / V3)</h2>
-                <span class="text-[10px] font-black px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100">CLONE</span>
-              </div>
-              <p class="text-xs text-slate-500 mt-1 leading-relaxed max-w-4xl">V2 giữ nguyên hệ thống học hiện tại. V3 là trải nghiệm Telegram Channel LMS. Việc chuyển mode chỉ điều khiển URL học viên chung <b>/learning</b>; các URL V2/V3 trực tiếp vẫn giữ nguyên để A/B test và rollback.</p>
+    const panel=d.createElement('div');
+    panel.id='tabContent-system';
+    panel.className='tab-content hidden flex-grow space-y-4';
+    panel.innerHTML=`
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-lg font-extrabold text-slate-800">Chế độ hệ thống (V2 / V3)</h2>
+              <span class="text-[10px] font-black px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100">CLONE</span>
             </div>
-            <button id="systemRefreshBtn" class="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">↻ Làm mới</button>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed max-w-4xl">V2 là LMS hiện tại và là trạng thái an toàn. V3 là Telegram Channel LMS. Bộ điều khiển này mô phỏng kiến trúc runtime Production: mode đã chọn, mode thực sự hiệu lực và kill switch khẩn cấp.</p>
           </div>
-
-          <div class="mt-5 bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-wrap items-center gap-3">
-            <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Chế độ hiện tại</span>
-            <span id="systemModeBadge" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-200 text-slate-600">Đang tải...</span>
-            <span id="systemModeDesc" class="text-xs font-bold text-slate-600"></span>
-            <span id="systemModeSource" class="text-[10px] text-slate-400 ml-auto"></span>
-          </div>
-
-          <div class="grid md:grid-cols-2 gap-3 mt-4">
-            <button id="systemModeV2" class="text-left border-2 border-slate-200 rounded-2xl p-4 hover:border-emerald-300 hover:bg-emerald-50/40 transition">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm font-black text-slate-800">📚 V2 — Hệ thống học hiện tại</div>
-                  <div class="text-xs text-slate-500 mt-1 leading-relaxed">Giữ nguyên giao diện LMS hiện tại, bài học theo trang truyền thống.</div>
-                </div>
-                <span data-check="v2" class="hidden text-emerald-600 text-xl font-black">✓</span>
-              </div>
-            </button>
-            <button id="systemModeV3" class="text-left border-2 border-slate-200 rounded-2xl p-4 hover:border-sky-300 hover:bg-sky-50/40 transition">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm font-black text-slate-800">💬 V3 — Telegram Channel LMS</div>
-                  <div class="text-xs text-slate-500 mt-1 leading-relaxed">Feed liên tục, media mosaic, preview, phụ lục tự động và Admin upload nền.</div>
-                </div>
-                <span data-check="v3" class="hidden text-sky-600 text-xl font-black">✓</span>
-              </div>
-            </button>
-          </div>
-
-          <div id="systemModeMessage" class="min-h-[18px] mt-3 text-xs font-bold text-slate-500"></div>
+          <button id="systemRefreshBtn" class="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">↻ Làm mới</button>
         </div>
 
-        <div class="grid lg:grid-cols-2 gap-4">
-          <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <h3 class="text-sm font-black text-slate-800">Đường dẫn học viên</h3>
-            <p class="text-xs text-slate-500 mt-1">URL chung tự route theo mode đang bật. URL trực tiếp vẫn bỏ qua mode để kiểm thử.</p>
-            <div class="grid sm:grid-cols-2 gap-2 mt-4">
-              <button id="systemOpenLearning" class="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl">↗ Mở URL học viên chung</button>
-              <button id="systemOpenV3Student" class="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-100 text-xs font-bold py-2.5 px-3 rounded-xl">↗ Mở V3 trực tiếp</button>
-            </div>
-          </div>
-          <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <h3 class="text-sm font-black text-slate-800">Quản trị V3</h3>
-            <p class="text-xs text-slate-500 mt-1">Mở Telegram composer có Background Upload Queue. Nếu đang chọn khóa ở tab Bài học, link sẽ mang theo đúng course đó.</p>
-            <div class="grid sm:grid-cols-2 gap-2 mt-4">
-              <button id="systemOpenV3Admin" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl">💬 Mở Admin V3</button>
-              <a href="/system-mode.html" target="_blank" class="text-center bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold py-2.5 px-3 rounded-xl">Trang mode độc lập</a>
-            </div>
-          </div>
+        <div class="mt-5 bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-2"><span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Đã chọn</span><span id="systemModeBadge" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-200 text-slate-600">…</span></div>
+          <div class="flex items-center gap-2"><span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Hiệu lực</span><span id="systemEffectiveBadge" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-200 text-slate-600">…</span></div>
+          <div class="flex items-center gap-2"><span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Kill switch</span><span id="systemKillBadge" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-200 text-slate-600">…</span></div>
+          <span id="systemModeSource" class="text-[10px] text-slate-400 ml-auto"></span>
         </div>
 
-        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 leading-relaxed">
-          <b>Fail-safe:</b> nếu cấu hình hoặc API mode gặp lỗi, URL học viên chung luôn quay về V2. Chuyển V2/V3 không sửa schema, bài học, enrollment hoặc dữ liệu Drive.
+        <div class="grid md:grid-cols-2 gap-3 mt-4">
+          <button id="systemModeV2" class="text-left border-2 border-slate-200 rounded-2xl p-4 hover:border-emerald-300 hover:bg-emerald-50/40 transition">
+            <div class="flex items-center justify-between gap-3"><div><div class="text-sm font-black text-slate-800">📚 V2 — Hệ thống học hiện tại</div><div class="text-xs text-slate-500 mt-1 leading-relaxed">Bản ổn định. Khi V2 hiệu lực, URL /learning mở LMS truyền thống.</div></div><span data-check="v2" class="hidden text-emerald-600 text-xl font-black">✓</span></div>
+          </button>
+          <button id="systemModeV3" class="text-left border-2 border-slate-200 rounded-2xl p-4 hover:border-sky-300 hover:bg-sky-50/40 transition">
+            <div class="flex items-center justify-between gap-3"><div><div class="text-sm font-black text-slate-800">💬 V3 — Telegram Channel LMS</div><div class="text-xs text-slate-500 mt-1 leading-relaxed">Feed liên tục, mosaic, preview, phụ lục và Admin upload nền.</div></div><span data-check="v3" class="hidden text-sky-600 text-xl font-black">✓</span></div>
+          </button>
         </div>
-      `;
-      workspace.appendChild(panel);
+        <div id="systemModeMessage" class="min-h-[18px] mt-3 text-xs font-bold text-slate-500"></div>
+      </div>
 
-      const badge=d.getElementById('systemModeBadge');
-      const desc=d.getElementById('systemModeDesc');
-      const source=d.getElementById('systemModeSource');
-      const msg=d.getElementById('systemModeMessage');
-      const v2=d.getElementById('systemModeV2');
-      const v3=d.getElementById('systemModeV3');
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+        <h3 class="text-sm font-black text-slate-800">⛔ Kill switch V3 (khẩn cấp)</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">Bật kill switch sẽ ép <b>mode hiệu lực về V2 ngay lập tức</b>, dù mode đã chọn vẫn có thể là V3. Không xóa dữ liệu và không đổi cấu hình V3; tắt kill switch sẽ quay lại mode đã chọn.</p>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button id="systemKillOn" class="border-2 border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-black px-4 py-2.5 rounded-xl">Bật kill switch (ép V2)</button>
+          <button id="systemKillOff" class="border-2 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black px-4 py-2.5 rounded-xl">Tắt kill switch</button>
+        </div>
+      </div>
 
-      function headers(){
-        try{return typeof w.authHeaders==='function'?w.authHeaders():{'Content-Type':'application/json'};}catch{return {'Content-Type':'application/json'};}
-      }
-      function currentCourse(){return String(d.getElementById('courseSelect')?.value||'').trim();}
-      function withCourse(path){const c=currentCourse();return c?path+(path.includes('?')?'&':'?')+'course='+encodeURIComponent(c):path;}
-      function paint(mode,meta={}){
-        mode=mode==='v3'?'v3':'v2';
-        const isV3=mode==='v3';
-        badge.textContent=mode.toUpperCase();
-        badge.className='text-xs font-black px-3 py-1.5 rounded-full '+(isV3?'bg-sky-100 text-sky-700':'bg-emerald-100 text-emerald-700');
-        desc.textContent=isV3?'Telegram Channel LMS đang được dùng cho URL học viên chung.':'LMS hiện tại đang được dùng cho URL học viên chung.';
-        source.textContent=meta.source?('Nguồn: '+meta.source):'';
-        v2.classList.toggle('border-emerald-500',!isV3);v2.classList.toggle('bg-emerald-50',!isV3);v2.classList.toggle('border-slate-200',isV3);
-        v3.classList.toggle('border-sky-500',isV3);v3.classList.toggle('bg-sky-50',isV3);v3.classList.toggle('border-slate-200',!isV3);
-        d.querySelector('[data-check="v2"]')?.classList.toggle('hidden',isV3);
-        d.querySelector('[data-check="v3"]')?.classList.toggle('hidden',!isV3);
-      }
-      async function loadMode(){
-        msg.textContent='Đang tải trạng thái...';
-        try{
-          const r=await w.fetch('/api/lms/admin?endpoint=learning-mode',{method:'GET',headers:headers(),cache:'no-store'});
-          const x=await r.json();
-          if(!r.ok||!x.success)throw new Error(x.error||'Không tải được mode');
-          paint(x.activeMode,x);msg.textContent='';
-        }catch(e){paint('v2',{source:'fallback'});msg.textContent='Không đọc được mode; giao diện đang hiển thị fallback V2. '+(e?.message||'');}
-      }
-      async function setMode(mode){
-        const label=mode==='v3'?'V3 — Telegram Channel':'V2 — LMS hiện tại';
-        if(!w.confirm('Chuyển URL học viên chung sang '+label+'?'))return;
-        v2.disabled=v3.disabled=true;msg.textContent='Đang chuyển mode...';
-        try{
-          const r=await w.fetch('/api/lms/admin?endpoint=learning-mode',{method:'POST',headers:headers(),body:JSON.stringify({mode})});
-          const x=await r.json();
-          if(!r.ok||!x.success)throw new Error(x.error||'Chuyển mode thất bại');
-          paint(x.activeMode,{source:'site_config'});msg.textContent='✓ Đã chuyển URL học viên chung sang '+x.activeMode.toUpperCase()+'.';
-          try{w.toast?.('Đã chuyển hệ thống sang '+x.activeMode.toUpperCase());}catch{}
-        }catch(e){msg.textContent='Lỗi chuyển mode: '+(e?.message||'Không xác định');try{w.toast?.('Chuyển mode thất bại','error');}catch{}}
-        finally{v2.disabled=v3.disabled=false;}
-      }
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          <h3 class="text-sm font-black text-slate-800">Đường dẫn học viên</h3>
+          <p class="text-xs text-slate-500 mt-1">URL chung đọc mode hiệu lực. URL trực tiếp bỏ qua mode để test và rollback.</p>
+          <div class="grid sm:grid-cols-2 gap-2 mt-4"><button id="systemOpenLearning" class="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl">↗ Mở URL học viên chung</button><button id="systemOpenV3Student" class="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-100 text-xs font-bold py-2.5 px-3 rounded-xl">↗ Mở V3 trực tiếp</button></div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          <h3 class="text-sm font-black text-slate-800">Quản trị V3</h3>
+          <p class="text-xs text-slate-500 mt-1">Mở Telegram composer. Nếu đang chọn khóa ở tab Bài học, link tự mang đúng course.</p>
+          <div class="grid sm:grid-cols-2 gap-2 mt-4"><button id="systemOpenV3Admin" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl">💬 Mở Admin V3</button><a href="/system-mode.html" target="_blank" class="text-center bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold py-2.5 px-3 rounded-xl">Trang mode độc lập</a></div>
+        </div>
+      </div>
 
-      w.__cloneLoadLearningMode=loadMode;
-      w.__cloneSetLearningMode=setMode;
-      d.getElementById('systemRefreshBtn').addEventListener('click',loadMode);
-      v2.addEventListener('click',()=>setMode('v2'));
-      v3.addEventListener('click',()=>setMode('v3'));
-      d.getElementById('systemOpenLearning').addEventListener('click',()=>w.open(withCourse('/learning'),'_blank'));
-      d.getElementById('systemOpenV3Student').addEventListener('click',()=>w.open(withCourse('/channel-candidate.html'),'_blank'));
-      d.getElementById('systemOpenV3Admin').addEventListener('click',()=>w.open(withCourse('/channel-admin-candidate.html'),'_blank'));
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 leading-relaxed"><b>Fail-safe:</b> lỗi DB/API hoặc cấu hình không hợp lệ ⇒ effective mode = V2. Chuyển mode/kill switch không sửa schema, bài học, enrollment hay file Drive.</div>
+    `;
+    workspace.appendChild(panel);
 
-      return true;
+    const badge=d.getElementById('systemModeBadge'),effective=d.getElementById('systemEffectiveBadge'),kill=d.getElementById('systemKillBadge'),source=d.getElementById('systemModeSource'),msg=d.getElementById('systemModeMessage');
+    const v2=d.getElementById('systemModeV2'),v3=d.getElementById('systemModeV3'),killOn=d.getElementById('systemKillOn'),killOff=d.getElementById('systemKillOff');
+    function headers(){try{return typeof w.authHeaders==='function'?w.authHeaders():{'Content-Type':'application/json'};}catch{return {'Content-Type':'application/json'};}}
+    function currentCourse(){return String(d.getElementById('courseSelect')?.value||'').trim();}
+    function withCourse(path){const c=currentCourse();return c?path+(path.includes('?')?'&':'?')+'course='+encodeURIComponent(c):path;}
+    function paint(x={}){
+      const active=x.activeMode==='v3'?'v3':'v2';
+      const eff=x.effectiveMode==='v3'?'v3':'v2';
+      const killed=Boolean(x.killSwitch);
+      badge.textContent=active.toUpperCase();badge.className='text-xs font-black px-3 py-1.5 rounded-full '+(active==='v3'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700');
+      effective.textContent=eff==='v3'?'V3 đang hoạt động':'V2 đang hoạt động';effective.className='text-xs font-black px-3 py-1.5 rounded-full '+(eff==='v3'?'bg-sky-100 text-sky-700':'bg-emerald-100 text-emerald-700');
+      kill.textContent=killed?'BẬT (ép V2)':'Tắt';kill.className='text-xs font-black px-3 py-1.5 rounded-full '+(killed?'bg-red-100 text-red-700':'bg-slate-200 text-slate-600');
+      source.textContent='Nguồn: '+(x.source||'—')+(x.ok===false?' · fallback an toàn':'');
+      v2.classList.toggle('border-emerald-500',active==='v2');v2.classList.toggle('bg-emerald-50',active==='v2');v2.classList.toggle('border-slate-200',active!=='v2');
+      v3.classList.toggle('border-sky-500',active==='v3');v3.classList.toggle('bg-sky-50',active==='v3');v3.classList.toggle('border-slate-200',active!=='v3');
+      d.querySelector('[data-check="v2"]')?.classList.toggle('hidden',active!=='v2');d.querySelector('[data-check="v3"]')?.classList.toggle('hidden',active!=='v3');
+      killOn.classList.toggle('border-red-500',killed);killOff.classList.toggle('border-slate-500',!killed);
     }
-
-    function start(){
-      if(timer)clearInterval(timer);
-      let tries=0;
-      timer=setInterval(()=>{tries++;if(install()||tries>300){clearInterval(timer);timer=null;}},100);
-    }
-    frame.addEventListener('load',start);
-    start();
-  })();
-  </script>
+    async function call(body){const r=await w.fetch('/api/lms/admin?endpoint=learning-mode',{method:body?'POST':'GET',headers:headers(),cache:'no-store',body:body?JSON.stringify(body):undefined});const x=await r.json();if(!r.ok||!x.success)throw new Error(x.error||'runtime_request_failed');return x;}
+    async function load(){msg.textContent='Đang tải trạng thái...';try{const x=await call();paint(x);msg.textContent='';}catch(e){paint({activeMode:'v2',effectiveMode:'v2',killSwitch:false,source:'fallback',ok:false});msg.textContent='Không đọc được runtime; đang hiển thị V2 an toàn. '+(e?.message||'');}}
+    async function setMode(mode){const label=mode==='v3'?'V3 — Telegram Channel':'V2 — LMS hiện tại';if(!w.confirm('Chuyển mode đã chọn sang '+label+'?'))return;v2.disabled=v3.disabled=true;msg.textContent='Đang chuyển mode...';try{const x=await call({action:'set_mode',mode});paint(x);msg.textContent='✓ Đã lưu '+x.activeMode.toUpperCase()+'. Hiệu lực hiện tại: '+x.effectiveMode.toUpperCase()+(x.killSwitch?' (kill switch đang bật)':'')+'.';w.toast?.('Đã chuyển mode sang '+x.activeMode.toUpperCase());}catch(e){msg.textContent='Lỗi chuyển mode: '+(e?.message||'');w.toast?.('Chuyển mode thất bại','error');}finally{v2.disabled=v3.disabled=false;}}
+    async function setKill(enabled){if(enabled&&!w.confirm('Bật kill switch để ép toàn bộ URL /learning về V2 ngay lập tức?'))return;if(!enabled&&!w.confirm('Tắt kill switch và quay lại mode đã chọn?'))return;killOn.disabled=killOff.disabled=true;msg.textContent='Đang cập nhật kill switch...';try{const x=await call({action:'set_kill_switch',enabled});paint(x);msg.textContent=enabled?'✓ Kill switch đã bật — V2 đang hiệu lực.':'✓ Kill switch đã tắt — mode hiệu lực: '+x.effectiveMode.toUpperCase()+'.';w.toast?.(enabled?'Đã bật kill switch V3':'Đã tắt kill switch V3');}catch(e){msg.textContent='Lỗi kill switch: '+(e?.message||'');w.toast?.('Cập nhật kill switch thất bại','error');}finally{killOn.disabled=killOff.disabled=false;}}
+    w.__cloneLoadRuntime=load;w.__cloneSetLearningMode=setMode;w.__cloneSetKillSwitch=setKill;
+    d.getElementById('systemRefreshBtn').addEventListener('click',load);v2.addEventListener('click',()=>setMode('v2'));v3.addEventListener('click',()=>setMode('v3'));killOn.addEventListener('click',()=>setKill(true));killOff.addEventListener('click',()=>setKill(false));
+    d.getElementById('systemOpenLearning').addEventListener('click',()=>w.open(withCourse('/learning'),'_blank'));d.getElementById('systemOpenV3Student').addEventListener('click',()=>w.open(withCourse('/channel-candidate.html'),'_blank'));d.getElementById('systemOpenV3Admin').addEventListener('click',()=>w.open(withCourse('/channel-admin-candidate.html'),'_blank'));
+    return true;
+  }
+  function start(){if(timer)clearInterval(timer);let tries=0;timer=setInterval(()=>{tries++;if(install()||tries>300){clearInterval(timer);timer=null;}},100);}
+  frame.addEventListener('load',start);start();
+})();
+</script>
 </body>
 </html>
