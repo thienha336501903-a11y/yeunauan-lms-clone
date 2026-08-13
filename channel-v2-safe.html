@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Telegram Channel Feed V2 Safe</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#dbe7ef}
+    iframe{display:block;width:100%;height:100%;border:0;background:#dbe7ef}
+  </style>
+</head>
+<body>
+<iframe id="feed" title="Telegram Channel Feed V2 Safe"></iframe>
+<script>
+(() => {
+  const frame = document.getElementById('feed');
+  const keys = ['lms_verified_session_id','lms_session_id'];
+  const saved = {};
+  let restored = false;
+
+  function restoreSessionKeys(){
+    if(restored) return;
+    restored = true;
+    try{
+      keys.forEach(key => {
+        const value = saved[key];
+        if(value === null || value === undefined) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      });
+    }catch{}
+  }
+
+  try{
+    keys.forEach(key => {
+      saved[key] = localStorage.getItem(key);
+      localStorage.removeItem(key);
+    });
+  }catch{}
+
+  const target = new URL('/channel-v2.html', location.origin);
+  target.search = location.search;
+  frame.src = target.toString();
+
+  // channel-v2.html loads channel.html as a same-origin child frame. Its auth
+  // request is dispatched before this outer frame finishes loading, so restoring
+  // here keeps the workaround scoped to this page load only.
+  frame.addEventListener('load', () => setTimeout(restoreSessionKeys, 250));
+  setTimeout(restoreSessionKeys, 8000);
+  window.addEventListener('beforeunload', restoreSessionKeys);
+})();
+</script>
+</body>
+</html>
