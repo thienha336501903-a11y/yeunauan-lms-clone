@@ -1,3 +1,4 @@
+// Preview-only learner E2E trigger; remove after PASS.
 import { supabase } from '../utils/supabase.js';
 import feedHandler from '../utils/lms-handlers/v4-telegram-feed.js';
 import mediaHandler from '../utils/lms-handlers/v4-telegram-media.js';
