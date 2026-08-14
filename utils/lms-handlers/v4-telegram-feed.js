@@ -22,6 +22,7 @@ function pickMedia(raw, messageType) {
       size: Number(item.file_size || 0),
       width: Number(item.width || 0),
       height: Number(item.height || 0),
+      duration: 0,
       mimeType: "image/jpeg",
       name: ""
     };
@@ -61,11 +62,14 @@ function publicMedia(row, courseSlug) {
   }
   if (!media) return null;
 
-  const botDownloadable = Boolean(media.fileId) && (!media.size || media.size <= BOT_API_DOWNLOAD_LIMIT);
   let delivery = "metadata_only";
-  if (botDownloadable) delivery = "telegram_bot_proxy";
-  else if (fromHistoricalReader || media.size > BOT_API_DOWNLOAD_LIMIT) delivery = "mtproto_required";
+  if (media.fileId && (!media.size || media.size <= BOT_API_DOWNLOAD_LIMIT)) {
+    delivery = "telegram_gateway_bot";
+  } else if (MEDIA_MESSAGE_TYPES.has(row.message_type)) {
+    delivery = "telegram_gateway_mtproto";
+  }
 
+  const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
   return {
     type: media.type,
     size: media.size,
@@ -75,7 +79,7 @@ function publicMedia(row, courseSlug) {
     mimeType: media.mimeType || "",
     name: media.name || "",
     delivery,
-    url: delivery === "telegram_bot_proxy"
+    url: playable
       ? `/api/lms/portal?endpoint=v4-telegram-media&course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`
       : ""
   };
@@ -133,10 +137,17 @@ export default async function handler(req, res) {
 
     const stats = posts.reduce((acc, post) => {
       acc.total += 1;
-      if (post.media?.delivery === "telegram_bot_proxy") acc.botProxy += 1;
-      if (post.media?.delivery === "mtproto_required") acc.mtprotoRequired += 1;
+      if (post.media?.delivery === "telegram_gateway_bot") {
+        acc.playable += 1;
+        acc.botGateway += 1;
+      }
+      if (post.media?.delivery === "telegram_gateway_mtproto") {
+        acc.playable += 1;
+        acc.mtprotoGateway += 1;
+      }
+      if (post.media && post.media.delivery === "metadata_only") acc.unavailable += 1;
       return acc;
-    }, { total: 0, botProxy: 0, mtprotoRequired: 0 });
+    }, { total: 0, playable: 0, botGateway: 0, mtprotoGateway: 0, unavailable: 0 });
 
     return res.status(200).json({
       success: true,
