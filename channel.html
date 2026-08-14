@@ -68,8 +68,8 @@
     .toc-section{font-weight:800;color:#6c7e88;background:#f6f8fa;margin:7px 0 3px}
 
     /* Lightbox Modal */
-    .lightbox{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
-    .lightbox img{max-width:96vw;max-height:82vh;object-fit:contain;border-radius:4px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+    .lightbox{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px);touch-action:pan-y}
+    .lightbox img{max-width:96vw;max-height:82vh;object-fit:contain;border-radius:4px;box-shadow:0 8px 30px rgba(0,0,0,.5);user-select:none;-webkit-user-drag:none}
     .lightbox-bar{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;color:#fff}
     .lightbox-title{font-size:14px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.8)}
     .lightbox-close{background:rgba(255,255,255,.18);border:0;color:#fff;width:38px;height:38px;border-radius:50%;font-size:22px;cursor:pointer;display:grid;place-items:center}.lightbox-close:hover{background:rgba(255,255,255,.3)}
@@ -129,7 +129,7 @@
   </div>
   <img id="lightboxImg" src="" alt="Full view" />
   <div class="lightbox-nav hidden" id="lightboxNav">
-    <button class="lightbox-btn" id="lightboxPrev">‹ Trắc trước</button>
+    <button class="lightbox-btn" id="lightboxPrev">‹ Trở trước</button>
     <button class="lightbox-btn" id="lightboxNext">Tiếp theo ›</button>
   </div>
 </div>
@@ -154,6 +154,8 @@
 
   let lightboxImages = [];
   let lightboxIndex = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
 
   function esc(value){return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
   function headers(){try{const sid=localStorage.getItem(LMS_SESSION_KEY)||localStorage.getItem(LMS_SESSION_ALIAS_KEY)||'';const did=localStorage.getItem(LMS_DEVICE_KEY)||'';return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{};}catch{return {};}}
@@ -229,7 +231,7 @@
   function closeLightbox(){$('lightbox').classList.add('hidden');}
   function showLightboxImage(){if(!lightboxImages.length)return;const item=lightboxImages[lightboxIndex];$('lightboxImg').src=imgUrl(item.url);$('lightboxTitle').textContent=`${item.title||'Ảnh'} (${lightboxIndex+1}/${lightboxImages.length})`;$('lightboxNav').classList.toggle('hidden',lightboxImages.length<=1);}
 
-  /* Single-Video Playback Guard */
+  /* Single-Video Playback Guard (Applies strictly to HTML5 <video> elements) */
   document.addEventListener('play',(e)=>{if(e.target.tagName==='VIDEO'){document.querySelectorAll('video').forEach(v=>{if(v!==e.target)v.pause();});}},true);
 
   async function init(){
@@ -304,11 +306,21 @@
   const sentinelObserver=new IntersectionObserver((entries)=>{if(entries.some(e=>e.isIntersecting))appendBatch();},{rootMargin:'1000px 0px'});
   sentinelObserver.observe($('sentinel'));
 
-  /* Lightbox Controls */
+  /* Lightbox Controls & Touch Swipe */
   $('lightboxClose').onclick=closeLightbox;
   $('lightboxPrev').onclick=()=>{if(lightboxIndex>0){lightboxIndex--;showLightboxImage();}};
   $('lightboxNext').onclick=()=>{if(lightboxIndex<lightboxImages.length-1){lightboxIndex++;showLightboxImage();}};
   document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closeLightbox();if(e.key==='ArrowLeft')($('lightboxPrev').click());if(e.key==='ArrowRight')($('lightboxNext').click());});
+
+  const lb=$('lightbox');
+  lb.addEventListener('touchstart',(e)=>{const t=e.changedTouches?.[0];if(t){touchStartX=t.clientX;touchStartY=t.clientY;}},{passive:true});
+  lb.addEventListener('touchend',(e)=>{
+    const t=e.changedTouches?.[0];if(!t)return;
+    const dx=t.clientX-touchStartX, dy=t.clientY-touchStartY;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.2){
+      if(dx<0) $('lightboxNext').click(); else $('lightboxPrev').click();
+    }
+  },{passive:true});
 
   /* FAB Scroll Visibility Guard */
   window.addEventListener('scroll',()=>{
