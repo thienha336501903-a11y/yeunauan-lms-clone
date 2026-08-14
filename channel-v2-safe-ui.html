@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Telegram Channel Feed V2 Safe - Appendix UI Fix</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#dbe7ef}
+    iframe{display:block;width:100%;height:100%;border:0;background:#dbe7ef}
+  </style>
+</head>
+<body>
+<iframe id="safe" title="Telegram Channel Feed V2 Safe"></iframe>
+<script>
+(() => {
+  const frame=document.getElementById('safe');
+  const target=new URL('/channel-v2-safe.html',location.origin);
+  target.search=location.search;
+  frame.src=target.toString();
+
+  const css=`
+    #tg-auto-appendix.tg-auto-appendix-shell{
+      max-width:620px!important;
+      margin:14px auto 12px!important;
+      padding:0 8px!important;
+      box-sizing:border-box!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix{
+      background:#fff!important;
+      border:1px solid #d9e5ec!important;
+      border-radius:14px!important;
+      box-shadow:0 4px 16px rgba(42,72,91,.10)!important;
+      overflow:hidden!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix summary{
+      min-height:58px!important;
+      box-sizing:border-box!important;
+      padding:10px 13px!important;
+      gap:11px!important;
+      align-items:center!important;
+      background:#fff!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-icon{
+      width:36px!important;
+      height:36px!important;
+      border-radius:10px!important;
+      background:#eaf4fa!important;
+      font-size:17px!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-head{
+      display:block!important;
+      flex:1 1 auto!important;
+      min-width:0!important;
+      line-height:1.2!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-title{
+      display:block!important;
+      font-size:13px!important;
+      line-height:1.3!important;
+      font-weight:800!important;
+      color:#263f4e!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-meta{
+      display:block!important;
+      margin-top:4px!important;
+      font-size:10px!important;
+      line-height:1.25!important;
+      color:#81929d!important;
+      white-space:nowrap!important;
+      overflow:hidden!important;
+      text-overflow:ellipsis!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-chevron{
+      flex:0 0 auto!important;
+      width:28px!important;
+      height:28px!important;
+      display:grid!important;
+      place-items:center!important;
+      border-radius:50%!important;
+      background:#f3f7f9!important;
+      color:#718692!important;
+      font-size:14px!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-body{
+      box-sizing:border-box!important;
+      padding:10px 10px 12px!important;
+      max-height:min(50vh,430px)!important;
+      border-top:1px solid #e7eef2!important;
+      background:#fbfdfe!important;
+      scrollbar-width:thin!important;
+      scrollbar-color:#aab9c2 transparent!important;
+    }
+    #tg-auto-appendix .tg-auto-appendix-body::-webkit-scrollbar{width:6px!important}
+    #tg-auto-appendix .tg-auto-appendix-body::-webkit-scrollbar-thumb{background:#aab9c2!important;border-radius:999px!important}
+    #tg-auto-appendix .tg-auto-section{
+      margin:12px 2px 6px!important;
+      padding:6px 9px!important;
+      border-radius:7px!important;
+      border-left:3px solid #8fb4c9!important;
+      background:#eef4f7!important;
+      color:#607784!important;
+      font-size:10px!important;
+      line-height:1.3!important;
+      font-weight:800!important;
+    }
+    #tg-auto-appendix .tg-auto-section:first-child{margin-top:0!important}
+    #tg-auto-appendix .tg-auto-item{
+      min-height:46px!important;
+      box-sizing:border-box!important;
+      padding:7px 9px!important;
+      margin:2px 0!important;
+      display:grid!important;
+      grid-template-columns:32px minmax(0,1fr) 20px!important;
+      gap:10px!important;
+      align-items:center!important;
+      border:1px solid transparent!important;
+      border-radius:9px!important;
+      background:transparent!important;
+    }
+    #tg-auto-appendix .tg-auto-item:hover{
+      background:#f0f6f9!important;
+      border-color:#e3edf2!important;
+    }
+    #tg-auto-appendix .tg-auto-item.active{
+      background:#e7f3fa!important;
+      border-color:#cfe4ef!important;
+      color:#176f9d!important;
+    }
+    #tg-auto-appendix .tg-auto-num{
+      width:30px!important;
+      height:30px!important;
+      border-radius:9px!important;
+      font-size:11px!important;
+      line-height:30px!important;
+      font-weight:800!important;
+      flex:none!important;
+    }
+    #tg-auto-appendix .tg-auto-copy{
+      display:block!important;
+      min-width:0!important;
+      overflow:hidden!important;
+    }
+    #tg-auto-appendix .tg-auto-name{
+      display:-webkit-box!important;
+      min-width:0!important;
+      overflow:hidden!important;
+      text-overflow:ellipsis!important;
+      white-space:normal!important;
+      -webkit-box-orient:vertical!important;
+      -webkit-line-clamp:2!important;
+      font-size:12px!important;
+      line-height:1.35!important;
+      font-weight:700!important;
+      color:#2b404c!important;
+    }
+    #tg-auto-appendix .tg-auto-item.active .tg-auto-name{color:#176f9d!important}
+    #tg-auto-appendix .tg-auto-sub{display:none!important}
+    #tg-auto-appendix .tg-auto-arrow{
+      width:20px!important;
+      height:20px!important;
+      display:grid!important;
+      place-items:center!important;
+      color:#9aabb4!important;
+      font-size:16px!important;
+    }
+    #tg-auto-appendix .tg-auto-item.active .tg-auto-arrow{color:#5682a3!important}
+
+    @media(max-width:520px){
+      #tg-auto-appendix.tg-auto-appendix-shell{padding:0 5px!important;margin:9px auto 8px!important}
+      #tg-auto-appendix .tg-auto-appendix{border-radius:11px!important}
+      #tg-auto-appendix .tg-auto-appendix summary{min-height:54px!important;padding:9px 10px!important;gap:9px!important}
+      #tg-auto-appendix .tg-auto-appendix-icon{width:33px!important;height:33px!important;font-size:15px!important}
+      #tg-auto-appendix .tg-auto-appendix-title{font-size:12px!important}
+      #tg-auto-appendix .tg-auto-appendix-meta{font-size:9px!important}
+      #tg-auto-appendix .tg-auto-appendix-body{max-height:54vh!important;padding:7px 7px 9px!important}
+      #tg-auto-appendix .tg-auto-item{min-height:44px!important;padding:6px 7px!important;grid-template-columns:30px minmax(0,1fr) 18px!important;gap:8px!important}
+      #tg-auto-appendix .tg-auto-num{width:28px!important;height:28px!important;line-height:28px!important;font-size:10px!important}
+      #tg-auto-appendix .tg-auto-name{font-size:11px!important}
+      #tg-auto-appendix .tg-auto-section{margin-top:10px!important;padding:6px 8px!important;font-size:9px!important}
+    }
+  `;
+
+  function walk(doc){
+    if(!doc)return false;
+    const appendix=doc.getElementById('tg-auto-appendix');
+    if(appendix){
+      if(!doc.getElementById('tg-auto-appendix-ui-fix')){
+        const style=doc.createElement('style');
+        style.id='tg-auto-appendix-ui-fix';
+        style.textContent=css;
+        doc.head.appendChild(style);
+      }
+      return true;
+    }
+    const frames=[...doc.querySelectorAll('iframe')];
+    for(const child of frames){
+      try{if(walk(child.contentDocument))return true;}catch{}
+    }
+    return false;
+  }
+
+  let tries=0;
+  const timer=setInterval(()=>{
+    tries++;
+    try{if(walk(frame.contentDocument)){clearInterval(timer);return;}}catch{}
+    if(tries>320)clearInterval(timer);
+  },125);
+})();
+</script>
+</body>
+</html>

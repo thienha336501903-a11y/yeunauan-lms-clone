@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#5682a3" />
+  <title>Kênh học viên</title>
+  <style>
+    :root{--tg:#5682a3;--tg-dark:#456d8c;--ink:#1f2937;--muted:#6b7280;--line:#dfe7ec;--bubble:#fff;--bg:#dbe7ef;--green:#38a169}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background-color:var(--bg);background-image:radial-gradient(circle at 25px 25px,rgba(255,255,255,.45) 2px,transparent 2.5px),radial-gradient(circle at 75px 75px,rgba(86,130,163,.08) 2px,transparent 2.5px);background-size:100px 100px}
+    button,input{font:inherit}.hidden{display:none!important}.app{min-height:100vh}.topbar{position:sticky;top:0;z-index:50;background:rgba(86,130,163,.96);color:#fff;box-shadow:0 2px 10px rgba(20,50,70,.22);backdrop-filter:blur(10px)}
+    .topbar-inner{max-width:920px;margin:auto;min-height:58px;display:flex;align-items:center;gap:10px;padding:8px 12px}.icon-btn{width:40px;height:40px;border:0;border-radius:50%;background:transparent;color:#fff;font-size:22px;cursor:pointer;display:grid;place-items:center}.icon-btn:hover{background:rgba(255,255,255,.12)}
+    .avatar{width:40px;height:40px;border-radius:50%;background:#fff;color:var(--tg);display:grid;place-items:center;font-weight:800;flex:0 0 auto;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.channel-meta{min-width:0;flex:1}.channel-title{font-size:15px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-sub{font-size:11px;opacity:.82;margin-top:2px}.search-wrap{max-width:920px;margin:auto;padding:0 12px 10px}.search{width:100%;border:0;outline:0;border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.96);font-size:14px;color:#1f2937}
+    .notice{max-width:720px;margin:14px auto;padding:0 10px}.notice-card{background:rgba(255,255,255,.88);border:1px solid rgba(255,255,255,.9);border-radius:14px;padding:12px 14px;text-align:center;color:#607080;font-size:12px;box-shadow:0 2px 8px rgba(35,68,90,.08)}
+    .feed{max-width:720px;margin:0 auto;padding:0 8px 100px}.section-tag{width:max-content;max-width:90%;margin:16px auto 10px;background:rgba(68,99,119,.72);color:#fff;border-radius:999px;padding:6px 12px;font-size:11px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.14);text-align:center}
+    .post{display:flex;gap:7px;align-items:flex-end;margin:7px 0}.post-avatar{width:32px;height:32px;border-radius:50%;background:var(--tg);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800;flex:0 0 auto;margin-bottom:2px}.bubble{position:relative;min-width:0;width:min(620px,calc(100% - 39px));background:var(--bubble);border-radius:10px 10px 10px 3px;box-shadow:0 1px 2px rgba(0,0,0,.16);overflow:hidden}.bubble::before{content:"";position:absolute;left:-6px;bottom:0;border-width:0 7px 8px 0;border-style:solid;border-color:transparent #fff transparent transparent}.body{padding:8px 10px 7px}.author{font-size:12px;font-weight:750;color:var(--tg);margin-bottom:4px}.post-title{font-size:14px;font-weight:750;line-height:1.35;margin:1px 0 5px}.post-copy{font-size:14px;line-height:1.48;white-space:pre-wrap;word-break:break-word;position:relative}.post-copy a{color:#168acd;text-decoration:none}.post-copy a:hover{text-decoration:underline}.post-copy.collapsed{max-height:13.3em;overflow:hidden}.post-copy.collapsed::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2.8em;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 82%);pointer-events:none}.text-toggle{display:inline-block;border:0;background:transparent;color:#168acd;padding:4px 0 1px;margin:0;font-size:12px;font-weight:700;cursor:pointer}.text-toggle:hover{text-decoration:underline}
+    .media{margin-top:7px}.image-grid{display:grid;gap:2px;border-radius:7px;overflow:hidden;background:#e6edf1}.image-grid.one{grid-template-columns:1fr}.image-grid.two{grid-template-columns:1fr 1fr}.image-grid.many{grid-template-columns:repeat(2,1fr)}.image-grid img{display:block;width:100%;height:100%;min-height:150px;max-height:390px;object-fit:cover;background:#eef2f4}.image-grid.two img,.image-grid.many img{aspect-ratio:1/1;min-height:0}.image-grid.many .img-wrap:first-child:nth-last-child(3){grid-row:span 2}.image-grid.many .img-wrap:first-child:nth-last-child(3) img{height:100%}.img-wrap{position:relative;min-width:0;overflow:hidden;background:#eef2f4}.media-caption{padding:5px 2px 1px;color:#5b6770;font-size:11px;line-height:1.35;white-space:pre-wrap}
+    .video-card{position:relative;margin-top:5px;border-radius:8px;overflow:hidden;background:#17212b;aspect-ratio:16/9;color:#fff}.video-card iframe{position:absolute;inset:0;width:100%;height:100%;border:0}.video-cover{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,rgba(23,33,43,.18),rgba(23,33,43,.5));cursor:pointer;text-decoration:none;color:#fff}.play{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:rgba(86,130,163,.96);font-size:25px;box-shadow:0 8px 26px rgba(0,0,0,.3);padding-left:3px}.video-name{position:absolute;left:10px;right:10px;bottom:8px;font-size:11px;font-weight:650;text-shadow:0 1px 3px #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .docs{display:grid;gap:5px;margin-top:7px}.doc{display:flex;align-items:center;gap:9px;padding:9px;background:#f4f7f9;border-radius:8px;text-decoration:none;color:var(--ink);border:1px solid #e7edf1}.doc-icon{width:36px;height:36px;border-radius:7px;background:#e1edf5;color:var(--tg);display:grid;place-items:center;font-size:10px;font-weight:800}.doc-main{min-width:0;flex:1}.doc-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.doc-meta{font-size:10px;color:#84919b;margin-top:2px}
+    .meta{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:4px;font-size:10px;color:#8b98a1}.seen{color:#4da2d6;font-size:13px;letter-spacing:-3px;margin-right:2px}.classic{color:#78909c;text-decoration:none}.classic:hover{color:var(--tg)}
+    .sentinel{height:40px}.fab{position:fixed;right:max(16px,calc((100vw - 720px)/2 + 16px));bottom:24px;z-index:40;width:48px;height:48px;border:0;border-radius:50%;background:var(--tg);color:#fff;box-shadow:0 5px 20px rgba(36,76,102,.35);font-size:21px;cursor:pointer}.drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:70}.drawer{position:fixed;z-index:80;top:0;bottom:0;left:0;width:min(360px,88vw);background:#fff;box-shadow:8px 0 30px rgba(0,0,0,.18);overflow:auto;transform:translateX(-102%);transition:transform .2s ease}.drawer.open{transform:none}.drawer-head{position:sticky;top:0;background:var(--tg);color:#fff;padding:18px 16px 13px}.drawer-title{font-weight:800}.drawer-sub{font-size:11px;opacity:.8;margin-top:3px}.toc{padding:8px}.toc a,.toc .toc-section{display:block;padding:10px 9px;border-radius:8px;text-decoration:none;color:#283844;font-size:12px}.toc a:hover{background:#edf4f8}.toc-section{font-weight:800;color:#6c7e88;background:#f6f8fa;margin:7px 0 3px}.state{max-width:560px;margin:80px auto;padding:20px;text-align:center}.state-card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 5px 26px rgba(30,70,95,.12)}.spinner{width:34px;height:34px;border:3px solid #dce7ed;border-top-color:var(--tg);border-radius:50%;margin:0 auto 13px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.back-link{display:inline-block;margin-top:12px;color:var(--tg);font-weight:700;text-decoration:none}
+    @media(max-width:520px){.feed{padding-left:4px;padding-right:5px}.post-avatar{display:none}.bubble{width:calc(100% - 2px);border-radius:9px}.bubble::before{display:none}.image-grid img{max-height:340px}.topbar-inner{padding-left:6px;padding-right:8px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button class="icon-btn" id="backBtn" aria-label="Quay lại">‹</button>
+      <div class="avatar" id="channelAvatar">K</div>
+      <div class="channel-meta">
+        <div class="channel-title" id="channelTitle">Kênh học viên</div>
+        <div class="channel-sub" id="channelSub">Đang tải…</div>
+      </div>
+      <button class="icon-btn" id="searchBtn" aria-label="Tìm kiếm">⌕</button>
+      <button class="icon-btn" id="tocBtn" aria-label="Mục lục">☰</button>
+    </div>
+    <div class="search-wrap hidden" id="searchWrap"><input class="search" id="searchInput" placeholder="Tìm trong kênh…" autocomplete="off" /></div>
+  </header>
+
+  <main>
+    <div class="state" id="loadingState"><div class="state-card"><div class="spinner"></div><strong>Đang mở kênh học viên…</strong><div style="font-size:12px;color:#7b8b96;margin-top:7px">Đang kiểm tra quyền truy cập và tải các bài đăng.</div></div></div>
+    <div class="state hidden" id="errorState"><div class="state-card"><div style="font-size:38px">🔒</div><h3 id="errorTitle">Không mở được kênh</h3><div id="errorText" style="font-size:13px;line-height:1.5;color:#687984"></div><a class="back-link" href="/">← Về khóa học của tôi</a></div></div>
+    <section class="notice hidden" id="channelNotice"><div class="notice-card">Đây là chế độ <b>Telegram Channel Feed</b> đang thử nghiệm trên LMS Clone. Bạn có thể mở từng bài bằng giao diện LMS cũ từ liên kết nhỏ ở cuối post.</div></section>
+    <section class="feed hidden" id="feed"></section>
+    <div class="sentinel" id="sentinel"></div>
+  </main>
+
+  <button class="fab hidden" id="latestBtn" title="Xuống bài mới nhất">↓</button>
+</div>
+<div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
+<aside class="drawer" id="drawer"><div class="drawer-head"><div class="drawer-title" id="drawerTitle">Mục lục</div><div class="drawer-sub" id="drawerSub">Chạm để đi tới bài</div></div><nav class="toc" id="toc"></nav></aside>
+
+<script>
+(() => {
+  const qs = new URLSearchParams(location.search);
+  const COURSE = String(qs.get('course') || '').trim();
+  const TARGET_LESSON = String(qs.get('id') || qs.get('lesson') || '').trim();
+  const BATCH = 14;
+  const LMS_DEVICE_KEY = 'lms_device_id';
+  const LMS_SESSION_KEY = 'lms_verified_session_id';
+  const LMS_SESSION_ALIAS_KEY = 'lms_session_id';
+  const $ = (id) => document.getElementById(id);
+  let DATA = null;
+  let items = [];
+  let rendered = 0;
+  let filteredLessonIds = null;
+  let loadingBatch = false;
+  const detailsCache = new Map();
+  const detailLoading = new Set();
+
+  function esc(value){return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+  function headers(){try{const sid=localStorage.getItem(LMS_SESSION_KEY)||localStorage.getItem(LMS_SESSION_ALIAS_KEY)||'';const did=localStorage.getItem(LMS_DEVICE_KEY)||'';return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{};}catch{return {};}}
+  function normalizeSharedLinks(text){return String(text||'').replace(/(https?:\/\/[^\s()]+)\s*\((https?:\/\/[^\s()]+)\)/gi,(whole,visible,target)=>{try{const a=new URL(visible),b=new URL(target);if(a.origin===b.origin&&a.pathname===b.pathname)return visible;}catch{}return whole;}).replace(/https?:\/\/s\.shopee\.vn\/([A-Za-z0-9_-]+)\?[^\s)]+/gi,'https://s.shopee.vn/$1');}
+  function linkify(text){const safe=esc(normalizeSharedLinks(text));return safe.replace(/(https?:\/\/[^\s<]+)/gi,(m)=>`<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`);}
+  function driveId(input){const s=String(input||'');let m=s.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);if(m)return m[1];m=s.match(/[?&]id=([^&#]+)/);return m?m[1]:'';}
+  function ytId(input){const s=String(input||'');let m=s.match(/youtu\.be\/([\w-]{11})/);if(m)return m[1];m=s.match(/[?&]v=([\w-]{11})/);if(m)return m[1];m=s.match(/youtube(?:-nocookie)?\.com\/(?:embed|shorts|live)\/([\w-]{11})/);return m?m[1]:'';}
+  function imgUrl(input){const id=driveId(input);return id?`https://drive.google.com/thumbnail?id=${id}&sz=w1400`:String(input||'');}
+  function parseMedia(raw){if(!raw||typeof raw!=='string')return[];return raw.split('\n').map(line=>{const p=line.trim();if(!p)return null;const a=p.indexOf('|'),b=p.indexOf('|',a+1),c=p.indexOf('|',b+1);if(a<0||b<0)return null;const type=p.slice(0,a).trim();const title=p.slice(a+1,b).trim();const url=(c<0?p.slice(b+1):p.slice(b+1,c)).trim();let caption='';if(c>=0){try{caption=decodeURIComponent(p.slice(c+1).trim())}catch{caption=p.slice(c+1).trim()}}return type&&url?{type,title,url,caption}:null;}).filter(Boolean);}
+  function fileSize(n){const v=Number(n||0);if(!v)return'';if(v<1024)return`${v} B`;if(v<1048576)return`${(v/1024).toFixed(1)} KB`;return`${(v/1048576).toFixed(1)} MB`;}
+  function badge(name,mime){const s=(String(name||'')+' '+String(mime||'')).toLowerCase();if(s.includes('pdf'))return'PDF';if(/doc|word/.test(s))return'DOC';if(/xls|excel|sheet/.test(s))return'XLS';if(/ppt|powerpoint|presentation/.test(s))return'PPT';if(/image|jpg|jpeg|png|webp/.test(s))return'IMG';return'FILE';}
+  function displayTitle(lesson){const title=String(lesson.title||'').trim(),desc=String(lesson.description||'').trim();if(!title)return'';if(desc && (desc===title || desc.toLowerCase().startsWith(title.toLowerCase()+'\n')))return'';return title;}
+  function channelName(){return String(DATA?.courseInfo?.title||COURSE||'Kênh học viên').trim();}
+  function combinedPostText(lesson){const desc=String(lesson.description||'').trim();const recipe=String(lesson.recipeText||'').trim();if(!desc)return recipe;if(!recipe)return desc;const a=desc.toLowerCase(),b=recipe.toLowerCase();if(a===b||a.includes(b))return desc;if(b.includes(a))return recipe;return `${desc}\n\n${recipe}`;}
+  function renderPostText(lesson){const text=combinedPostText(lesson);if(!text)return'';const long=text.length>720||text.split(/\r?\n/).length>11;return `<div class="post-copy${long?' collapsed':''}" data-post-copy>${linkify(text)}</div>${long?'<button class="text-toggle" type="button">Xem thêm</button>':''}`;}
+
+  function renderImageGroup(group){const count=group.length;const cls=count===1?'one':count===2?'two':'many';return `<div class="image-grid ${cls}">${group.map(x=>`<div class="img-wrap"><a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(imgUrl(x.url))}" alt="${esc(x.title||'Ảnh')}" loading="lazy" /></a></div>`).join('')}</div>${group.map(x=>x.caption?`<div class="media-caption">${esc(x.caption)}</div>`:'').join('')}`;}
+  function renderVideo(item,lesson){const y=ytId(item.url);if(y){return `<div class="video-card"><iframe src="https://www.youtube.com/embed/${y}?rel=0&playsinline=1" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>${item.caption?`<div class="media-caption">${esc(item.caption)}</div>`:''}`;}
+    const d=driveId(item.url);if(d){const returnUrl=location.href.split('#')[0]+'#post-'+encodeURIComponent(lesson.id);const player=`/gdrive-player.html?id=${encodeURIComponent(d)}&returnUrl=${encodeURIComponent(returnUrl)}`;return `<div class="video-card"><iframe src="https://drive.google.com/file/d/${esc(d)}/preview" loading="lazy" style="pointer-events:none;opacity:.45"></iframe><a class="video-cover" href="${player}" onclick="sessionStorage.setItem('courseReturnUrl',location.href)"><span class="play">▶</span><span class="video-name">${esc(item.title||'Video')}</span></a></div>${item.caption?`<div class="media-caption">${esc(item.caption)}</div>`:''}`;}
+    return `<a class="doc" href="${esc(item.url)}" target="_blank" rel="noopener"><span class="doc-icon">VIDEO</span><span class="doc-main"><span class="doc-name">${esc(item.title||'Mở video')}</span></span></a>`;}
+  function renderMedia(lesson){const parsed=parseMedia(lesson.mediaUrls);const out=[];let images=[];const flush=()=>{if(images.length){out.push(renderImageGroup(images));images=[];}};
+    parsed.forEach(item=>{if(String(item.type).toLowerCase()==='image'){images.push(item);return;}flush();if(String(item.type).toLowerCase()==='video')out.push(renderVideo(item,lesson));else out.push(`<a class="doc" href="${esc(item.url)}" target="_blank" rel="noopener"><span class="doc-icon">FILE</span><span class="doc-main"><span class="doc-name">${esc(item.title||'Tệp')}</span></span></a>`);});flush();
+    if(!parsed.length && lesson.videoUrl){const type=String(lesson.mainMediaType||'').toLowerCase();if(type==='image')out.push(renderImageGroup([{type:'image',url:lesson.videoUrl,title:lesson.title,caption:''}]));else out.push(renderVideo({type:'video',url:lesson.videoUrl,title:lesson.title,caption:''},lesson));}
+    return out.length?`<div class="media">${out.join('')}</div>`:'';
+  }
+  function renderDocs(materials){const arr=Array.isArray(materials)?materials:[];if(!arr.length)return'';return `<div class="docs">${arr.map(m=>`<a class="doc" href="${esc(m.downloadUrl||m.url||'#')}" target="_blank" rel="noopener"><span class="doc-icon">${badge(m.name,m.mimeType)}</span><span class="doc-main"><span class="doc-name">${esc(m.name||'Tài liệu')}</span><span class="doc-meta">${esc(fileSize(m.size)||'Tài liệu đính kèm')}</span></span><span>›</span></a>`).join('')}</div>`;}
+  function renderLesson(lesson){const title=displayTitle(lesson);const details=detailsCache.get(String(lesson.id));const merged={...lesson,...(details||{})};const materials=details?.materials||lesson.materials||[];return `<article class="post" id="post-${esc(lesson.id)}" data-lesson-id="${esc(lesson.id)}"><div class="post-avatar">${esc(channelName().charAt(0).toUpperCase())}</div><div class="bubble"><div class="body"><div class="author">${esc(channelName())}</div>${title?`<div class="post-title">${esc(title)}</div>`:''}${renderPostText(merged)}${renderMedia(merged)}<div data-docs>${renderDocs(materials)}</div><div class="meta"><a class="classic" href="/lesson.html?id=${encodeURIComponent(lesson.id)}">Bài ${esc(lesson.displayLesson||lesson.lesson||'')}</a><span>•</span><span>👁 ${esc(lesson.views||0)}</span><span class="seen">✓✓</span></div></div></div></article>`;}
+  function renderSection(item){return `<div class="section-tag" id="section-${esc(item.id)}">${esc(item.title||'Chương')}</div>`;}
+
+  function buildItems(){items=(DATA.lessons||[]).map(x=>x.isSection?{kind:'section',...x}:{kind:'lesson',...x});buildToc();}
+  function visibleItems(){if(!filteredLessonIds)return items;return items.filter(x=>x.kind==='section'||filteredLessonIds.has(String(x.id)));}
+  function appendBatch(){if(loadingBatch)return;const list=visibleItems();if(rendered>=list.length)return;loadingBatch=true;const end=Math.min(rendered+BATCH,list.length);const html=list.slice(rendered,end).map(x=>x.kind==='section'?renderSection(x):renderLesson(x)).join('');$('feed').insertAdjacentHTML('beforeend',html);rendered=end;loadingBatch=false;observeDetails();if(TARGET_LESSON)setTimeout(scrollTarget,60);}
+  function resetFeed(){rendered=0;$('feed').innerHTML='';appendBatch();}
+  function scrollTarget(){const el=$('post-'+TARGET_LESSON);if(el){el.scrollIntoView({block:'center'});el.style.outline='2px solid rgba(86,130,163,.38)';setTimeout(()=>el.style.outline='',1700);}else if(rendered<visibleItems().length){appendBatch();setTimeout(scrollTarget,60);}}
+
+  const detailObserver=new IntersectionObserver((entries)=>{entries.forEach(e=>{if(e.isIntersecting){const id=e.target.dataset.lessonId;if(id)loadDetails(id,e.target);detailObserver.unobserve(e.target);}})},{rootMargin:'800px 0px'});
+  function observeDetails(){document.querySelectorAll('.post[data-lesson-id]:not([data-detail-observed])').forEach(el=>{el.dataset.detailObserved='1';detailObserver.observe(el);});}
+  async function loadDetails(id,el){const key=String(id);if(detailsCache.has(key)||detailLoading.has(key))return;detailLoading.add(key);try{const res=await fetch(`/api/lms/portal?endpoint=lesson&id=${encodeURIComponent(key)}`,{credentials:'same-origin',headers:headers()});const d=await res.json();if(res.ok&&d.lesson){detailsCache.set(key,d.lesson);const docs=el?.querySelector('[data-docs]');if(docs)docs.innerHTML=renderDocs(d.lesson.materials);}}catch(e){console.warn('detail load',e)}finally{detailLoading.delete(key);}}
+
+  function buildToc(){const nav=$('toc');let chapter=0;nav.innerHTML=(DATA.lessons||[]).map(l=>{if(l.isSection){chapter++;return `<div class="toc-section">${esc(l.title||('Chương '+chapter))}</div>`;}return `<a href="#post-${esc(l.id)}" data-toc-id="${esc(l.id)}">Bài ${esc(l.displayLesson||l.lesson||'')} · ${esc(l.title||'Bài đăng')}</a>`;}).join('');nav.querySelectorAll('a').forEach(a=>a.addEventListener('click',(e)=>{e.preventDefault();closeDrawer();const id=a.dataset.tocId;while(!$('post-'+id)&&rendered<visibleItems().length)appendBatch();setTimeout(()=>$('post-'+id)?.scrollIntoView({behavior:'smooth',block:'center'}),30);}));}
+  function openDrawer(){$('drawer').classList.add('open');$('drawerBackdrop').classList.remove('hidden');}
+  function closeDrawer(){$('drawer').classList.remove('open');$('drawerBackdrop').classList.add('hidden');}
+  function applySearch(){const q=String($('searchInput').value||'').trim().toLowerCase();if(!q){filteredLessonIds=null;}else{filteredLessonIds=new Set((DATA.lessons||[]).filter(l=>!l.isSection&&[l.title,l.description,l.recipeText].some(v=>String(v||'').toLowerCase().includes(q))).map(l=>String(l.id)));}resetFeed();}
+
+  async function init(){if(!COURSE){showError('Thiếu khóa học','Liên kết chưa có tham số khóa học. Hãy mở khóa học từ Cổng học viên.');return;}try{const res=await fetch('/api/lms/portal?endpoint=course-data',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({course:COURSE})});const d=await res.json();if(!res.ok||!d.allowed){showError('Không mở được kênh',d.error||'Phiên học đã hết hạn hoặc bạn chưa có quyền vào khóa học này.');return;}DATA=d;document.title=`${channelName()} - Kênh học viên`;$('channelTitle').textContent=channelName();$('channelSub').textContent=`${(d.lessons||[]).filter(x=>!x.isSection).length} bài đăng · ${d.email||'Học viên'}`;$('drawerTitle').textContent=channelName();$('drawerSub').textContent='Mục lục bài đăng';const hero=String(d.courseInfo?.heroImage||'');if(hero){$('channelAvatar').innerHTML=`<img src="${esc(imgUrl(hero))}" alt="">`;}else $('channelAvatar').textContent=channelName().charAt(0).toUpperCase();buildItems();$('loadingState').classList.add('hidden');$('channelNotice').classList.remove('hidden');$('feed').classList.remove('hidden');$('latestBtn').classList.remove('hidden');appendBatch();if(TARGET_LESSON)setTimeout(scrollTarget,80);}catch(e){showError('Lỗi kết nối','Không thể tải kênh học viên lúc này. Vui lòng thử lại.');}}
+  function showError(title,text){$('loadingState').classList.add('hidden');$('errorState').classList.remove('hidden');$('errorTitle').textContent=title;$('errorText').textContent=text;}
+
+  $('feed').addEventListener('click',(e)=>{const btn=e.target.closest('.text-toggle');if(!btn)return;const copy=btn.previousElementSibling;if(!copy?.classList.contains('post-copy'))return;const collapsed=copy.classList.toggle('collapsed');btn.textContent=collapsed?'Xem thêm':'Thu gọn';});
+  $('backBtn').onclick=()=>{location.href='/';};$('tocBtn').onclick=openDrawer;$('drawerBackdrop').onclick=closeDrawer;$('latestBtn').onclick=()=>{while(rendered<visibleItems().length)appendBatch();setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),40);};$('searchBtn').onclick=()=>{$('searchWrap').classList.toggle('hidden');if(!$('searchWrap').classList.contains('hidden'))$('searchInput').focus();};let searchTimer;$('searchInput').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(applySearch,180);});
+  const sentinelObserver=new IntersectionObserver((entries)=>{if(entries.some(e=>e.isIntersecting))appendBatch();},{rootMargin:'1000px 0px'});sentinelObserver.observe($('sentinel'));
+  document.addEventListener('contextmenu',(e)=>{if(!['INPUT','TEXTAREA'].includes(e.target.tagName))e.preventDefault();});document.addEventListener('copy',(e)=>e.preventDefault());
+  init();
+})();
+</script>
+</body>
+</html>

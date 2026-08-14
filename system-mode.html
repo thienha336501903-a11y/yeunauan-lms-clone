@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clone - Runtime V2 / V3</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#f8fafc;color:#1e293b}main{max-width:980px;margin:32px auto;padding:0 16px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:22px;box-shadow:0 4px 18px rgba(15,23,42,.05);margin-bottom:16px}h1,h2{margin:0 0 8px}p{color:#64748b;line-height:1.55}.state{margin:18px 0;padding:14px;border-radius:14px;background:#f1f5f9;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.group{display:flex;gap:7px;align-items:center}.label{font-size:11px;text-transform:uppercase;color:#94a3b8;font-weight:800}.badge{font-weight:800;padding:6px 11px;border-radius:999px;background:#e2e8f0}.buttons{display:flex;gap:12px;flex-wrap:wrap}.mode{border:2px solid #cbd5e1;background:#fff;border-radius:14px;padding:14px 18px;font-weight:800;cursor:pointer}.mode.active{border-color:#0ea5e9;background:#eff6ff;color:#0369a1}.danger{border-color:#fecaca;background:#fff1f2;color:#b91c1c}.mode:disabled{opacity:.55;cursor:wait}.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:18px}.link{display:block;text-decoration:none;color:#0f172a;border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#fff}.link b{display:block;margin-bottom:4px}.small{font-size:12px;color:#64748b}.msg{min-height:20px;margin-top:12px;font-size:13px;font-weight:700}.warn{padding:12px 14px;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:12px}
+</style>
+</head>
+<body><main>
+<div class="card">
+<h1>Chế độ hệ thống Clone (V2 / V3)</h1>
+<p><b>V2</b> là LMS hiện tại và là trạng thái an toàn. <b>V3</b> là Telegram Channel LMS. URL <code>/learning</code> luôn đi theo <b>mode hiệu lực</b>.</p>
+<div class="state">
+  <div class="group"><span class="label">Đã chọn</span><span id="active" class="badge">…</span></div>
+  <div class="group"><span class="label">Hiệu lực</span><span id="effective" class="badge">…</span></div>
+  <div class="group"><span class="label">Kill switch</span><span id="kill" class="badge">…</span></div>
+  <span id="source" class="small"></span>
+</div>
+<div class="buttons"><button id="v2" class="mode" onclick="setMode('v2')">📚 V2 — LMS hiện tại</button><button id="v3" class="mode" onclick="setMode('v3')">💬 V3 — Telegram Channel</button></div>
+<div id="msg" class="msg"></div>
+</div>
+<div class="card">
+<h2 style="font-size:18px">⛔ Kill switch V3</h2>
+<p>Bật để ép mode hiệu lực về V2 ngay lập tức. Mode đã chọn vẫn được giữ, nên khi tắt kill switch hệ thống quay lại mode đã chọn.</p>
+<div class="buttons"><button id="killOn" class="mode danger" onclick="setKill(true)">Bật kill switch (ép V2)</button><button id="killOff" class="mode" onclick="setKill(false)">Tắt kill switch</button></div>
+</div>
+<div class="card">
+<div class="links">
+<a class="link" href="/admin-system-shell.html"><b>Admin tích hợp</b><span class="small">Bài học / Học viên / Phân quyền / Hệ Thống</span></a>
+<a class="link" href="/channel-admin-candidate.html"><b>Admin V3</b><span class="small">Composer + Background Upload</span></a>
+<a class="link" href="/learning"><b>Học viên — URL chung</b><span class="small">Theo mode hiệu lực</span></a>
+<a class="link" href="/channel-candidate.html"><b>Học viên V3 trực tiếp</b><span class="small">Bỏ qua runtime mode để A/B test</span></a>
+</div>
+</div>
+<div class="warn"><b>Fail-safe:</b> lỗi DB/API hoặc cấu hình không hợp lệ ⇒ V2 hiệu lực. Không đổi schema hay dữ liệu khóa học.</div>
+</main>
+<script>
+const A=document.getElementById('active'),E=document.getElementById('effective'),K=document.getElementById('kill'),S=document.getElementById('source'),M=document.getElementById('msg'),B2=document.getElementById('v2'),B3=document.getElementById('v3'),KO=document.getElementById('killOn'),KF=document.getElementById('killOff');
+function paint(x={}){const a=x.activeMode==='v3'?'v3':'v2',e=x.effectiveMode==='v3'?'v3':'v2',k=!!x.killSwitch;A.textContent=a.toUpperCase();E.textContent=e==='v3'?'V3 đang hoạt động':'V2 đang hoạt động';K.textContent=k?'BẬT (ép V2)':'Tắt';A.style.background=a==='v3'?'#e0e7ff':'#d1fae5';E.style.background=e==='v3'?'#e0f2fe':'#d1fae5';K.style.background=k?'#fee2e2':'#e2e8f0';S.textContent='Nguồn: '+(x.source||'—')+(x.ok===false?' · fallback':'' );B2.classList.toggle('active',a==='v2');B3.classList.toggle('active',a==='v3');KO.classList.toggle('active',k);KF.classList.toggle('active',!k);}
+async function call(body){const r=await fetch('/api/lms/admin?endpoint=learning-mode',{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},cache:'no-store',body:body?JSON.stringify(body):undefined});const d=await r.json();if(r.status===401)throw new Error('Bạn cần đăng nhập Admin Clone trước');if(!r.ok||!d.success)throw new Error(d.error||'runtime_request_failed');return d;}
+async function load(){try{paint(await call());M.textContent='';}catch(e){paint({activeMode:'v2',effectiveMode:'v2',killSwitch:false,source:'fallback',ok:false});M.textContent=e.message;}}
+async function setMode(mode){if(!confirm('Chuyển mode đã chọn sang '+mode.toUpperCase()+'?'))return;B2.disabled=B3.disabled=true;try{const d=await call({action:'set_mode',mode});paint(d);M.textContent='Đã lưu '+d.activeMode.toUpperCase()+'. Hiệu lực: '+d.effectiveMode.toUpperCase()+(d.killSwitch?' (kill switch đang bật)':'')+'.';}catch(e){M.textContent='Lỗi: '+e.message;}finally{B2.disabled=B3.disabled=false;}}
+async function setKill(enabled){if(!confirm(enabled?'Bật kill switch và ép /learning về V2?':'Tắt kill switch và quay lại mode đã chọn?'))return;KO.disabled=KF.disabled=true;try{const d=await call({action:'set_kill_switch',enabled});paint(d);M.textContent=enabled?'Kill switch đã bật — V2 đang hiệu lực.':'Kill switch đã tắt — hiệu lực '+d.effectiveMode.toUpperCase()+'.';}catch(e){M.textContent='Lỗi: '+e.message;}finally{KO.disabled=KF.disabled=false;}}
+load();
+</script></body></html>

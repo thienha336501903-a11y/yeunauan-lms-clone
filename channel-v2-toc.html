@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Telegram Channel Feed V2 + Phụ lục</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#dbe7ef}
+    iframe{display:block;width:100%;height:100%;border:0;background:#dbe7ef}
+  </style>
+</head>
+<body>
+<iframe id="v2" title="Telegram Channel Feed V2 + Phụ lục"></iframe>
+<script>
+(() => {
+  const frame=document.getElementById('v2');
+  const target=new URL('/channel-v2.html',location.origin);
+  target.search=location.search;
+  frame.src=target.toString();
+
+  function escapeHtml(value){
+    return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function installAppendix(doc){
+    if(!doc||doc.getElementById('tg-auto-appendix'))return true;
+    const source=doc.getElementById('toc');
+    const feed=doc.getElementById('feed');
+    const main=feed?.parentElement;
+    const links=[...(source?.querySelectorAll('a[data-toc-id]')||[])];
+    if(!source||!feed||!main||links.length<2)return false;
+
+    const style=doc.createElement('style');
+    style.id='tg-auto-appendix-style';
+    style.textContent=`
+      .tg-auto-appendix-shell{max-width:720px;margin:12px auto 10px;padding:0 8px}
+      .tg-auto-appendix{background:rgba(255,255,255,.96);border:1px solid rgba(211,225,234,.95);border-radius:12px;box-shadow:0 2px 9px rgba(35,68,90,.09);overflow:hidden}
+      .tg-auto-appendix summary{list-style:none;cursor:pointer;user-select:none;display:flex;align-items:center;gap:10px;padding:11px 12px;color:#314b5b}
+      .tg-auto-appendix summary::-webkit-details-marker{display:none}
+      .tg-auto-appendix-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;background:#e8f2f8;color:#5682a3;font-size:16px}
+      .tg-auto-appendix-head{min-width:0;flex:1}
+      .tg-auto-appendix-title{font-size:13px;font-weight:800;line-height:1.25}
+      .tg-auto-appendix-meta{margin-top:2px;color:#7a8b96;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tg-auto-appendix-chevron{font-size:16px;color:#78909c;transition:transform .18s ease}
+      .tg-auto-appendix[open] .tg-auto-appendix-chevron{transform:rotate(180deg)}
+      .tg-auto-appendix-body{border-top:1px solid #e7eef2;padding:8px;max-height:min(52vh,470px);overflow:auto;overscroll-behavior:contain}
+      .tg-auto-section{margin:4px 0 8px;padding:6px 8px;border-radius:8px;background:#f4f7f9;color:#667984;font-size:10px;font-weight:800;text-transform:none;letter-spacing:.01em}
+      .tg-auto-section:first-child{margin-top:0}
+      .tg-auto-item{width:100%;border:0;background:transparent;color:#2a3d49;border-radius:8px;padding:8px 9px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;cursor:pointer}
+      .tg-auto-item:hover{background:#edf5f9}
+      .tg-auto-item.active{background:#e4f2fa;color:#176f9d}
+      .tg-auto-num{width:28px;height:28px;border-radius:8px;background:#eef3f6;color:#607785;display:grid;place-items:center;font-size:10px;font-weight:800}
+      .tg-auto-item.active .tg-auto-num{background:#5682a3;color:#fff}
+      .tg-auto-copy{min-width:0}
+      .tg-auto-name{font-size:11px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tg-auto-sub{margin-top:2px;font-size:9px;color:#8a98a1}
+      .tg-auto-arrow{color:#9aa8b0;font-size:14px}
+      .tg-auto-item.active .tg-auto-arrow{color:#5682a3}
+      @media(max-width:520px){
+        .tg-auto-appendix-shell{padding:0 4px;margin:8px auto 7px}
+        .tg-auto-appendix{border-radius:9px}
+        .tg-auto-appendix summary{padding:9px 10px}
+        .tg-auto-appendix-icon{width:29px;height:29px;border-radius:8px;font-size:14px}
+        .tg-auto-appendix-title{font-size:12px}
+        .tg-auto-appendix-body{max-height:56vh;padding:6px}
+        .tg-auto-item{padding:8px 7px;grid-template-columns:28px minmax(0,1fr) 14px;gap:7px}
+        .tg-auto-num{width:27px;height:27px}
+      }
+    `;
+    doc.head.appendChild(style);
+
+    const raw=[...source.children];
+    const model=[];
+    let sectionCount=0;
+    let lessonIndex=0;
+    raw.forEach(node=>{
+      if(node.classList?.contains('toc-section')){
+        const title=String(node.textContent||'').trim();
+        if(title){sectionCount++;model.push({type:'section',title});}
+        return;
+      }
+      if(node.matches?.('a[data-toc-id]')){
+        lessonIndex++;
+        const id=String(node.dataset.tocId||'');
+        const text=String(node.textContent||'').trim();
+        const cleaned=text.replace(/^Bài\s*[^·]*·\s*/i,'').trim()||text;
+        model.push({type:'lesson',id,index:lessonIndex,title:cleaned,full:text});
+      }
+    });
+    if(lessonIndex<2)return false;
+
+    const shell=doc.createElement('section');
+    shell.id='tg-auto-appendix';
+    shell.className='tg-auto-appendix-shell';
+    const openByDefault=(doc.defaultView?.innerWidth||900)>620;
+    shell.innerHTML=`
+      <details class="tg-auto-appendix" ${openByDefault?'open':''}>
+        <summary>
+          <span class="tg-auto-appendix-icon">📚</span>
+          <span class="tg-auto-appendix-head">
+            <span class="tg-auto-appendix-title">Phụ lục khóa học</span>
+            <span class="tg-auto-appendix-meta" data-appendix-meta>${sectionCount?`${sectionCount} chương • `:''}${lessonIndex} bài • Chạm để đi nhanh</span>
+          </span>
+          <span class="tg-auto-appendix-chevron">⌄</span>
+        </summary>
+        <div class="tg-auto-appendix-body" data-appendix-body></div>
+      </details>`;
+
+    const body=shell.querySelector('[data-appendix-body]');
+    body.innerHTML=model.map(item=>{
+      if(item.type==='section')return `<div class="tg-auto-section">${escapeHtml(item.title)}</div>`;
+      return `<button type="button" class="tg-auto-item" data-appendix-id="${escapeHtml(item.id)}" data-appendix-index="${item.index}">
+        <span class="tg-auto-num">${item.index}</span>
+        <span class="tg-auto-copy"><span class="tg-auto-name">${escapeHtml(item.title)}</span><span class="tg-auto-sub">Bài ${item.index}</span></span>
+        <span class="tg-auto-arrow">›</span>
+      </button>`;
+    }).join('');
+    main.insertBefore(shell,feed);
+
+    const meta=shell.querySelector('[data-appendix-meta]');
+    const itemButtons=[...shell.querySelectorAll('[data-appendix-id]')];
+    const indexById=new Map(itemButtons.map(b=>[String(b.dataset.appendixId),Number(b.dataset.appendixIndex||0)]));
+    let activeId='';
+
+    function keepActiveInsideAppendix(active){
+      if(!active||!body)return;
+      const itemTop=active.offsetTop;
+      const itemBottom=itemTop+active.offsetHeight;
+      const viewTop=body.scrollTop;
+      const viewBottom=viewTop+body.clientHeight;
+      if(itemTop<viewTop+6){
+        body.scrollTop=Math.max(0,itemTop-8);
+      }else if(itemBottom>viewBottom-6){
+        body.scrollTop=Math.max(0,itemBottom-body.clientHeight+8);
+      }
+    }
+
+    function setActive(id){
+      id=String(id||'');
+      if(!id||id===activeId)return;
+      activeId=id;
+      itemButtons.forEach(btn=>btn.classList.toggle('active',String(btn.dataset.appendixId)===id));
+      const idx=indexById.get(id)||0;
+      if(meta)meta.textContent=`${sectionCount?`${sectionCount} chương • `:''}Bài ${idx}/${lessonIndex}`;
+      const active=shell.querySelector(`[data-appendix-id="${CSS.escape(id)}"]`);
+      if(active&&shell.querySelector('details')?.open)keepActiveInsideAppendix(active);
+    }
+
+    function navigate(id){
+      const run=()=>{
+        const native=source.querySelector(`a[data-toc-id="${CSS.escape(id)}"]`);
+        if(native){native.click();setActive(id);}
+      };
+      const search=doc.getElementById('searchInput');
+      if(search&&search.value){
+        search.value='';
+        search.dispatchEvent(new doc.defaultView.Event('input',{bubbles:true}));
+        setTimeout(run,240);
+      }else run();
+    }
+    body.addEventListener('click',e=>{
+      const btn=e.target.closest('[data-appendix-id]');
+      if(btn)navigate(String(btn.dataset.appendixId||''));
+    });
+
+    const observed=new WeakSet();
+    const visibility=new Map();
+    const InnerIntersectionObserver=doc.defaultView?.IntersectionObserver;
+    const InnerMutationObserver=doc.defaultView?.MutationObserver;
+    if(!InnerIntersectionObserver||!InnerMutationObserver)return true;
+    const io=new InnerIntersectionObserver(entries=>{
+      entries.forEach(entry=>{
+        const id=String(entry.target.dataset.lessonId||'');
+        if(!id)return;
+        if(entry.isIntersecting)visibility.set(id,entry.intersectionRatio);
+        else visibility.delete(id);
+      });
+      let best='',ratio=-1;
+      visibility.forEach((value,id)=>{if(value>ratio){best=id;ratio=value;}});
+      if(best)setActive(best);
+    },{root:null,rootMargin:'-18% 0px -56% 0px',threshold:[0,.05,.15,.3,.5,.75]});
+
+    function observePosts(){
+      doc.querySelectorAll('.post[data-lesson-id]').forEach(post=>{
+        if(observed.has(post))return;
+        observed.add(post);
+        io.observe(post);
+      });
+    }
+    observePosts();
+    new InnerMutationObserver(observePosts).observe(feed,{childList:true,subtree:true});
+
+    const first=doc.querySelector('.post[data-lesson-id]');
+    if(first)setActive(first.dataset.lessonId);
+    return true;
+  }
+
+  function waitForInner(){
+    let tries=0;
+    const timer=setInterval(()=>{
+      tries++;
+      try{
+        const v2doc=frame.contentDocument;
+        const inner=v2doc?.getElementById('feed');
+        const doc=inner?.contentDocument;
+        if(installAppendix(doc)){clearInterval(timer);return;}
+      }catch{}
+      if(tries>240)clearInterval(timer);
+    },125);
+  }
+
+  frame.addEventListener('load',waitForInner);
+})();
+</script>
+</body>
+</html>

@@ -3,6 +3,10 @@ import lessonHandler from "../../utils/lms-handlers/lesson.js";
 import publicConfigHandler from "../../utils/lms-handlers/public-config.js";
 import publicLessonHandler from "../../utils/lms-handlers/public-lesson.js";
 import verifyEntryTokenHandler from "../../utils/lms-handlers/verify-entry-token.js";
+import learningModeHandler from "../../utils/lms-handlers/learning-mode.js";
+import v3BootstrapHandler from "../../utils/lms-handlers/v3-bootstrap.js";
+import v4TelegramFeedHandler from "../../utils/lms-handlers/v4-telegram-feed.js";
+import v4TelegramMediaHandler from "../../utils/lms-handlers/v4-telegram-media.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
@@ -21,6 +25,18 @@ export default async function handler(req, res) {
   }
   if (endpoint === "verify-entry-token") {
     return verifyEntryTokenHandler(req, res);
+  }
+  if (endpoint === "learning-mode") {
+    return learningModeHandler(req, res);
+  }
+  if (endpoint === "v3-bootstrap") {
+    return v3BootstrapHandler(req, res);
+  }
+  if (endpoint === "v4-telegram-feed") {
+    return v4TelegramFeedHandler(req, res);
+  }
+  if (endpoint === "v4-telegram-media") {
+    return v4TelegramMediaHandler(req, res);
   }
 
   return res.status(404).json({ success: false, error: "LMS Portal Endpoint not found" });

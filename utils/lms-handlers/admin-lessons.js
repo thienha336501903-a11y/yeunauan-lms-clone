@@ -23,6 +23,23 @@ function normalizeMaterials(value) {
     .filter(Boolean);
 }
 
+function normalizeSharedLinks(value) {
+  return String(value || "")
+    .replace(/(https?:\/\/[^\s()]+)\s*\((https?:\/\/[^\s()]+)\)/gi, (whole, visible, target) => {
+      try {
+        const visibleUrl = new URL(visible);
+        const targetUrl = new URL(target);
+        if (visibleUrl.origin === targetUrl.origin && visibleUrl.pathname === targetUrl.pathname) {
+          return visible;
+        }
+      } catch {
+        // Keep the original text if either side is not a valid URL.
+      }
+      return whole;
+    })
+    .replace(/https?:\/\/s\.shopee\.vn\/([A-Za-z0-9_-]+)\?[^\s)]+/gi, "https://s.shopee.vn/$1");
+}
+
 const PORTAL_RECIPE_PLACEHOLDER = "noi dung bai viet se som duoc cap nhat boi giang vien";
 const MIN_REAL_RECIPE_CHARS = 40;
 const TITLE_ONLY_RECIPE_TEXTS = new Set([
@@ -250,7 +267,7 @@ export default async function handler(req, res) {
           course_slug: lessonData.course,
           lesson_no: targetLessonNo,
           title: lessonData.title,
-          description: lessonData.description || "",
+          description: normalizeSharedLinks(lessonData.description || ""),
           duration_text: lessonData.duration || "",
           level: lessonData.level || "",
           thumbnail_url: lessonData.thumbnailUrl || "",
@@ -264,7 +281,7 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString()
         };
 
-    let { error: insertErr } = await supabase.from("lessons").insert(insertPayload);
+        let { error: insertErr } = await supabase.from("lessons").insert(insertPayload);
 
         // Fallback: If insert fails for any reason (e.g. is_section column missing), retry without is_section
         if (insertErr) {
@@ -311,7 +328,7 @@ export default async function handler(req, res) {
           course_slug: lessonData.course,
           lesson_no: parseInt(lessonData.lesson, 10),
           title: lessonData.title,
-          description: lessonData.description || "",
+          description: normalizeSharedLinks(lessonData.description || ""),
           duration_text: lessonData.duration || "",
           level: lessonData.level || "",
           thumbnail_url: lessonData.thumbnailUrl || "",

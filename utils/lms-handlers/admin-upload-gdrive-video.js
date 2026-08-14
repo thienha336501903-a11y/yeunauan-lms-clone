@@ -36,6 +36,19 @@ const MIME_TO_EXT = {
   "video/ogg":          "ogv",
 };
 
+const DRIVE_FOLDER_MEDIA_TYPES = new Set([
+  "main_video",
+  "lesson_media_video",
+  "lesson_media_image",
+  "lesson_media",
+  "lesson_material"
+]);
+
+function resolveFolderMediaType(mediaType) {
+  const normalized = String(mediaType || "").trim();
+  return DRIVE_FOLDER_MEDIA_TYPES.has(normalized) ? normalized : "lesson_media_video";
+}
+
 function resolveVideoMime(rawMimeFromBrowser, fileName) {
   let mime = (rawMimeFromBrowser || "").trim();
 
@@ -110,14 +123,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: "Thiếu slug khóa học (course_slug)" });
     }
 
-    // Direct frontend upload helper: resolve folder structure and return folderId
+    // Direct frontend upload helper: resolve folder structure and return folderId.
+    // The Telegram-style composer also uses this branch for images and documents,
+    // so preserve the requested attachment type instead of forcing every file into Videos.
     if (action === "get-folder") {
       const resolved = await resolveCourseFolderTree(drive, {
         course_slug,
         course_title: course_title || course_slug.toUpperCase(),
         lesson_no: lesson_no || "1",
         lesson_title: lesson_title || "Untitled",
-        type: media_type === "main_video" ? "main_video" : "lesson_media_video"
+        type: resolveFolderMediaType(media_type)
       });
 
       if (resolved.courseFolderId) {
@@ -167,7 +182,7 @@ export default async function handler(req, res) {
       course_title: course_title || course_slug.toUpperCase(),
       lesson_no: lesson_no || "1",
       lesson_title: lesson_title || "Untitled",
-      type: media_type === "main_video" ? "main_video" : "lesson_media_video"
+      type: resolveFolderMediaType(media_type)
     });
 
     const targetFolderId = resolved.targetFolderId;

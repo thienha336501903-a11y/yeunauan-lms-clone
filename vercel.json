@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    { "source": "/learning", "destination": "/api/learning" },
+    { "source": "/v3", "destination": "/v3-entry.html" },
+    { "source": "/v3-admin", "destination": "/channel-admin-candidate.html" },
+    { "source": "/v4-poc", "destination": "/v4-poc.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

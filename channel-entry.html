@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Mở kênh học viên</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#dbe7ef;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#243746;padding:20px}.card{width:min(520px,100%);background:#fff;border-radius:18px;box-shadow:0 12px 38px rgba(41,76,99,.16);overflow:hidden}.head{background:#5682a3;color:#fff;padding:20px}.head h1{font-size:19px;margin:0 0 5px}.head p{font-size:12px;opacity:.82;margin:0}.body{padding:18px}.status{text-align:center;color:#71818d;font-size:13px;padding:18px}.spin{width:34px;height:34px;border:3px solid #dce7ed;border-top-color:#5682a3;border-radius:50%;margin:0 auto 12px;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}.courses{display:grid;gap:9px}.course{display:flex;align-items:center;gap:11px;width:100%;border:1px solid #dfe8ed;background:#f8fbfc;border-radius:13px;padding:12px;text-decoration:none;color:#233947;text-align:left;transition:.15s}.course:hover{border-color:#91b3c8;background:#f1f7fa}.avatar{width:42px;height:42px;border-radius:50%;background:#5682a3;color:#fff;display:grid;place-items:center;font-weight:800}.meta{min-width:0;flex:1}.name{font-weight:750;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slug{font-size:11px;color:#82919b;margin-top:3px}.back{display:block;text-align:center;margin-top:15px;color:#5682a3;text-decoration:none;font-size:12px;font-weight:700}.error{color:#a74444;line-height:1.5}.signin{display:none;text-align:center;padding:8px 0 14px}.signin p{font-size:12px;color:#687984;line-height:1.5;margin:0 0 12px}.google{display:flex;justify-content:center;min-height:40px}.retry{border:0;border-radius:10px;background:#5682a3;color:#fff;font-weight:700;font-size:12px;padding:9px 14px;cursor:pointer;margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head"><h1 id="entryTitle">Telegram Channel Feed</h1><p id="entrySubtitle">Đăng nhập Gmail hội viên rồi chọn khóa học/kênh bạn được cấp quyền.</p></div>
+    <div class="body">
+      <div class="status" id="status"><div class="spin"></div>Đang kiểm tra phiên học viên…</div>
+      <div class="signin" id="signin"><p>Chưa có phiên hội viên hợp lệ. Hãy đăng nhập bằng Gmail đã được cấp quyền khóa học.</p><div class="google" id="googleBtn"></div></div>
+      <div class="courses" id="courses"></div>
+      <a class="back" href="/">← Về hệ thống LMS Clone hiện tại</a>
+    </div>
+  </div>
+<script>
+(() => {
+  const LMS_DEVICE_KEY='lms_device_id',LMS_SESSION_KEY='lms_verified_session_id',LMS_SESSION_ALIAS_KEY='lms_session_id';
+  const V3_SESSION_KEY='v3_course_session_token';
+  const pageQs=new URLSearchParams(location.search);
+  const isV3Entry=location.pathname==='/v3'||pageQs.get('view')==='v3';
+  const requestedCourse=String(pageQs.get('course')||'').trim();
+  const status=document.getElementById('status'),list=document.getElementById('courses'),signin=document.getElementById('signin'),googleBtn=document.getElementById('googleBtn');
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  let googleInitialized=false;
+
+  if(isV3Entry){
+    document.title='V3 - Telegram Channel LMS';
+    document.getElementById('entryTitle').textContent='V3 — Telegram Channel LMS';
+    document.getElementById('entrySubtitle').textContent='Đang kiểm tra và khôi phục phiên học viên trước khi mở kênh.';
+  }
+
+  function lmsHeaders(){
+    try{
+      const sid=localStorage.getItem(LMS_SESSION_KEY)||localStorage.getItem(LMS_SESSION_ALIAS_KEY)||'';
+      const did=localStorage.getItem(LMS_DEVICE_KEY)||'';
+      return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{};
+    }catch{return {};}
+  }
+  function savedV3Session(){try{return sessionStorage.getItem(V3_SESSION_KEY)||'';}catch{return '';}}
+  function saveV3Session(token){try{if(token)sessionStorage.setItem(V3_SESSION_KEY,String(token));}catch{}}
+  function clearV3Session(){try{sessionStorage.removeItem(V3_SESSION_KEY);}catch{}}
+  function targetFor(slug){return `${isV3Entry?'/channel-candidate.html':'/channel.html'}?course=${encodeURIComponent(slug)}`;}
+  function openCourse(slug){location.replace(targetFor(slug));}
+
+  async function getCourseInfo(slug,credential=''){
+    try{
+      const payload={course:slug};
+      const fallbackToken=savedV3Session();
+      if(credential)payload.credential=credential;
+      if(fallbackToken)payload.sessionToken=fallbackToken;
+      const r=await fetch('/api/lms/portal?endpoint=course-data',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...lmsHeaders()},body:JSON.stringify(payload)});
+      const d=await r.json();
+      if(r.ok&&d.allowed){saveV3Session(d.sessionToken);return d;}
+      if(r.status===401||d?.authError==='missing_login_session')clearV3Session();
+      return {__error:true,status:r.status,...d};
+    }catch(e){return {__error:true,error:e?.message||String(e)};}
+  }
+  function waitForGoogle(){return new Promise((resolve,reject)=>{let n=0;const t=setInterval(()=>{if(window.google?.accounts?.id){clearInterval(t);resolve();return;}if(++n>80){clearInterval(t);reject(new Error('Google Identity chưa tải được'));}},100);});}
+  async function showLogin(){
+    status.style.display='none';signin.style.display='block';list.innerHTML='';
+    try{
+      const cfg=await fetch('/api/lms/portal?endpoint=public-config',{credentials:'same-origin'}).then(r=>r.json());
+      if(!cfg?.googleClientId)throw new Error('Thiếu Google Client ID');
+      await waitForGoogle();
+      if(googleInitialized)return;
+      googleInitialized=true;
+      google.accounts.id.initialize({client_id:cfg.googleClientId,callback:async(response)=>{
+        signin.style.display='none';status.style.display='block';status.innerHTML='<div class="spin"></div>Đang tạo lại phiên và kiểm tra quyền khóa học…';
+        await loadAllowedCourses(response?.credential||'');
+      }});
+      google.accounts.id.renderButton(googleBtn,{theme:'outline',size:'large',shape:'pill',text:'signin_with',locale:'vi'});
+    }catch(e){signin.style.display='block';signin.innerHTML=`<div class="error">Không tải được đăng nhập Google: ${esc(e?.message||e)}</div><button class="retry" onclick="location.reload()">Thử lại</button>`;}
+  }
+  async function loadAllowedCourses(credential=''){
+    const first=await getCourseInfo(requestedCourse||'',credential);
+    if(!first||first.__error){
+      if(first?.authError==='entry_token_required'||first?.code==='entry_token_required'||first?.authError==='protected_session_invalid'){
+        status.style.display='block';signin.style.display='none';
+        status.innerHTML='<div class="error">Khóa học này yêu cầu mở từ Cổng học viên. Hãy mở khóa học từ Cổng học viên Clone để tạo phiên hợp lệ rồi quay lại V3.</div>';
+        return;
+      }
+      await showLogin();return;
+    }
+
+    const allowed=(Array.isArray(first.allowedCourses)&&first.allowedCourses.length?first.allowedCourses:[first.course]).map(v=>String(v||'').trim()).filter(Boolean);
+    const norm=v=>String(v||'').trim().toLowerCase();
+    const requestedCanonical=requestedCourse?(allowed.find(v=>v===requestedCourse)||allowed.find(v=>norm(v)===norm(requestedCourse))||''):'';
+
+    if(requestedCourse&&requestedCanonical){
+      status.innerHTML='<div class="spin"></div>Phiên hợp lệ. Đang mở đúng khóa học…';
+      setTimeout(()=>openCourse(requestedCanonical),80);
+      return;
+    }
+
+    status.style.display='none';signin.style.display='none';
+    const infos=await Promise.all(allowed.map(async slug=>slug===first.course?first:(await getCourseInfo(slug))));
+    list.innerHTML=allowed.map((slug,i)=>{
+      const d=infos[i];const title=!d?.__error&&(d?.courseInfo?.title||slug)||slug;const count=!d?.__error?(d?.lessons||[]).filter(x=>!x.isSection).length:'—';
+      return `<a class="course" href="${targetFor(slug)}"><span class="avatar">${esc(String(title).charAt(0).toUpperCase())}</span><span class="meta"><span class="name">${esc(title)}</span><span class="slug">${esc(slug)} · ${count} bài đăng</span></span><span>›</span></a>`;
+    }).join('');
+
+    if(requestedCourse&&!requestedCanonical){
+      status.style.display='block';
+      status.innerHTML=`<div class="error">Tài khoản hiện tại không có quyền khóa “${esc(requestedCourse)}”. Hãy chọn một khóa được cấp quyền bên dưới.</div>`;
+    }else if(allowed.length===1){
+      setTimeout(()=>openCourse(allowed[0]),250);
+    }
+  }
+  async function init(){status.innerHTML='<div class="spin"></div>Đang kiểm tra phiên học viên…';await loadAllowedCourses('');}
+  init();
+})();
+</script>
+</body>
+</html>
