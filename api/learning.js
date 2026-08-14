@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   const qs = params.toString();
   const hasCourse = Boolean(String(params.get("course") || "").trim());
   const target = mode === "v3"
-    ? "/v3"
+    ? "/v4-entry.html"
     : (hasCourse ? "/lms.html" : "/v2-entry.html");
 
   res.setHeader("Cache-Control", "no-store");
