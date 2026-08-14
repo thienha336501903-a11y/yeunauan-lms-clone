@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
-const PREVIEW_GATEWAY = "https://telegram-chan-git-6db4f5-thienha100022653824678-stacks-projects.vercel.app/api/telegram/media";
+const DEFAULT_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
 function pickMedia(raw, messageType) {
@@ -29,8 +29,7 @@ function pickMedia(raw, messageType) {
 
 function gatewayUrl() {
   const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  if (configured) return configured;
-  return process.env.VERCEL_ENV === "preview" ? PREVIEW_GATEWAY : "";
+  return configured || DEFAULT_GATEWAY;
 }
 
 export default async function handler(req, res) {
@@ -69,14 +68,6 @@ export default async function handler(req, res) {
     }
 
     const gateway = gatewayUrl();
-    if (!gateway) {
-      return res.status(503).json({
-        success: false,
-        code: "telegram_gateway_not_configured",
-        error: "Chưa cấu hình Telegram media gateway"
-      });
-    }
-
     const token = randomUUID();
     const expiresAt = new Date(Date.now() + TICKET_TTL_MS).toISOString();
     const { error: ticketError } = await supabase
