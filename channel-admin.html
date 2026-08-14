@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kênh bài học - Đăng bài nhanh</title>
+  <title>Kênh bài học - Đăng bài nhanh (V3.1)</title>
   <style>
     :root {
       --bg: #dfe7ef;
@@ -75,7 +75,7 @@
     }
     .layout {
       display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
+      grid-template-columns: 310px minmax(0, 1fr);
       min-height: calc(100vh - 68px);
     }
     aside {
@@ -128,10 +128,15 @@
       border-radius:11px;
       background:#fff;
       font-size:12px;
+      position:relative;
     }
     .recent-item strong { display:block; font-size:12px; margin-bottom:3px; }
     .recent-item span { color:var(--muted); font-size:10px; }
-    .composer-wrap { max-width: 760px; margin: 0 auto; }
+    .pin-badge { display:inline-block; font-size:10px; font-weight:800; background:#fff4ce; color:#856404; padding:2px 6px; border-radius:6px; margin-bottom:4px; border:1px solid #ffe89a }
+    .pin-btn-small { border:0; background:#eef4f8; color:var(--blue-dark); font-size:11px; font-weight:700; border-radius:6px; padding:3px 8px; margin-top:6px; cursor:pointer }
+    .pin-btn-small:hover { background:#e1edf5 }
+
+    .composer-wrap { max-width: 780px; margin: 0 auto; }
     .course-head {
       display:flex; align-items:center; gap:12px;
       padding:15px 18px;
@@ -148,22 +153,22 @@
     }
     textarea::placeholder { color:#9aa8b5; }
     .drop-zone {
-      min-height:96px;
-      border:1.5px dashed #bfd0de;
+      min-height:110px;
+      border:2px dashed #bfd0de;
       border-radius:14px;
       margin-top:10px;
-      padding:12px;
+      padding:14px;
       background:#f8fbfd;
       transition:.15s ease;
     }
     .drop-zone.dragging { border-color:var(--blue); background:#eef8fd; transform:scale(1.003); }
-    .empty-drop { color:#81909e; text-align:center; padding:18px 8px; font-size:12px; line-height:1.5; }
+    .empty-drop { color:#81909e; text-align:center; padding:18px 8px; font-size:13px; line-height:1.5; }
     .queue { display:flex; flex-direction:column; gap:9px; }
     .file-row {
       display:grid;
-      grid-template-columns:48px minmax(0,1fr) 84px 32px;
+      grid-template-columns:48px minmax(0,1fr) 90px auto;
       gap:10px; align-items:center;
-      padding:9px;
+      padding:10px;
       border:1px solid #e0e8ef;
       background:#fff;
       border-radius:12px;
@@ -176,13 +181,15 @@
     .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
     .file-meta { min-width:0; }
     .file-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:700; }
-    .file-sub { margin-top:4px; color:var(--muted); font-size:10px; display:flex; gap:7px; flex-wrap:wrap; }
-    .progress-shell { height:5px; border-radius:99px; overflow:hidden; background:#e5edf3; margin-top:7px; }
+    .file-sub { margin-top:3px; color:var(--muted); font-size:10px; display:flex; gap:7px; flex-wrap:wrap; }
+    .caption-input { width:100%; margin-top:5px; padding:4px 8px; border:1px solid var(--line); border-radius:6px; font-size:11px; outline:none; }
+    .progress-shell { height:5px; border-radius:99px; overflow:hidden; background:#e5edf3; margin-top:5px; }
     .progress-bar { height:100%; width:0%; background:var(--blue); transition:width .15s linear; }
     .file-state { font-size:10px; text-align:right; color:var(--muted); font-weight:700; }
     .file-state.done { color:var(--green); }
     .file-state.error { color:var(--red); }
-    .icon-btn { border:0; width:30px; height:30px; border-radius:50%; background:#f1f5f8; color:#72808d; }
+    .action-group { display:flex; gap:4px; align-items:center; }
+    .icon-btn { border:0; width:28px; height:28px; border-radius:50%; background:#f1f5f8; color:#72808d; font-size:12px; }
     .icon-btn:hover { background:#e8eef3; color:#263847; }
     .composer-bottom {
       display:flex; align-items:center; gap:10px;
@@ -215,7 +222,7 @@
       aside { border-right:0; border-bottom:1px solid rgba(160,178,194,.45); padding:12px; }
       .desktop-only { display:none; }
       main { padding:12px; }
-      .file-row { grid-template-columns:44px minmax(0,1fr) 64px 30px; }
+      .file-row { grid-template-columns:44px minmax(0,1fr) 64px auto; }
       header { padding:0 12px; }
       .ghost-btn span { display:none; }
     }
@@ -227,8 +234,8 @@
       <div class="brand">
         <div class="avatar">✈️</div>
         <div>
-          <h1>Kênh bài học</h1>
-          <p>Đăng nội dung theo kiểu Telegram</p>
+          <h1>Kênh bài học V3.1</h1>
+          <p>Đăng nhanh • Xem trước • Quản lý ghim bài</p>
         </div>
       </div>
       <div class="head-actions">
@@ -253,9 +260,14 @@
         </div>
 
         <div class="side-card card desktop-only">
+          <span class="label">Bài học được ghim</span>
+          <div id="pinnedLessonStatus" style="font-size:12px;color:#556677;line-height:1.4">Chưa chọn bài ghim.</div>
+        </div>
+
+        <div class="side-card card desktop-only">
           <span class="label">Cách dùng</span>
           <div style="font-size:12px;line-height:1.6;color:#61707d">
-            Gõ nội dung như một tin nhắn. Kéo thả, dán hoặc chọn nhiều ảnh/video/tài liệu cùng lúc. File được tự nhận dạng và upload lần lượt.
+            Gõ nội dung như một tin nhắn. Kéo thả, dán (Ctrl+V) hoặc chọn nhiều ảnh/video/tài liệu cùng lúc. Bạn có thể xem trước, nhập caption và đổi thứ tự file trước khi upload.
           </div>
         </div>
 
@@ -280,7 +292,7 @@
               <textarea id="messageInput" placeholder="Viết nội dung bài đăng...\n\nBạn có thể dán ảnh trực tiếp bằng Ctrl+V / Cmd+V."></textarea>
 
               <div id="dropZone" class="drop-zone">
-                <div id="emptyDrop" class="empty-drop">📎 Thả nhiều ảnh, video hoặc tài liệu vào đây<br/>Hệ thống sẽ tự upload từng file một</div>
+                <div id="emptyDrop" class="empty-drop">📎 Thả nhiều ảnh, video hoặc tài liệu vào đây hoặc Dán từ Clipboard (Ctrl+V)<br/>Hệ thống sẽ tự nhận dạng và hiển thị xem trước</div>
                 <div id="queue" class="queue"></div>
               </div>
             </div>
@@ -288,7 +300,7 @@
             <div class="composer-bottom">
               <input id="fileInput" class="hidden" type="file" multiple />
               <button class="attach-btn" id="attachBtn" title="Đính kèm file">📎</button>
-              <div class="hint" id="composerHint">Ảnh / video / tài liệu • tự nhận dạng • upload tuần tự</div>
+              <div class="hint" id="composerHint">Ảnh / video / tài liệu • dán clipboard • xem trước & caption</div>
               <button class="send-btn" id="sendBtn" disabled>Đăng</button>
             </div>
           </div>
@@ -310,6 +322,7 @@
       config: {},
       course: "",
       nextLessonNo: 1,
+      pinnedLessonId: "",
       queue: [],
       workerRunning: false,
       posting: false
@@ -439,9 +452,15 @@
     }
 
     async function onCourseChanged() {
+      if (STATE.workerRunning || STATE.queue.some(q => q.status === "uploading" || q.status === "queued")) {
+        toast("Đang có upload diễn ra. Không thể đổi khóa học!", "bad");
+        $("courseSelect").value = STATE.course;
+        return;
+      }
       STATE.course = $("courseSelect").value;
       const display = STATE.config[`${STATE.course}_studentDisplayTitle`] || STATE.config[`${STATE.course}_title`] || STATE.course || "Chọn khóa học";
       $("channelTitle").textContent = display;
+      STATE.pinnedLessonId = STATE.config[`${STATE.course}_pinnedLessonId`] || "";
       if (!STATE.course) return;
       await loadRecentPosts();
       kickWorker();
@@ -460,12 +479,54 @@
       const maxNo = lessons.reduce((max, x) => Math.max(max, Number(x.lesson || 0)), 0);
       STATE.nextLessonNo = maxNo + 1;
       $("channelSubtitle").textContent = `Bài đăng tiếp theo • #${STATE.nextLessonNo}`;
-      const recent = lessons.slice().sort((a,b) => Number(b.lesson || 0) - Number(a.lesson || 0)).slice(0, 8);
+
+      // Update Pinned Lesson status
+      const pinnedObj = lessons.find(x => String(x.id) === String(STATE.pinnedLessonId));
+      if (pinnedObj) {
+        $("pinnedLessonStatus").innerHTML = `📌 <b>Bài #${pinnedObj.lesson}:</b> ${escapeHtml(pinnedObj.title || 'Bài học')}<br/><button class="pin-btn-small" onclick="togglePinLesson('${pinnedObj.id}')">❌ Bỏ ghim</button>`;
+      } else {
+        $("pinnedLessonStatus").innerHTML = 'Chưa chọn bài ghim cho khóa học này.';
+      }
+
+      const recent = lessons.slice().sort((a,b) => Number(b.lesson || 0) - Number(a.lesson || 0)).slice(0, 10);
       if (!recent.length) {
         $("recentPosts").innerHTML = '<div class="recent-item">Chưa có bài nào.</div>';
         return;
       }
-      $("recentPosts").innerHTML = recent.map((x) => `<div class="recent-item"><strong>#${x.lesson} • ${escapeHtml(x.title || "Bài học")}</strong><span>${escapeHtml((x.description || "").slice(0, 72))}</span></div>`).join("");
+
+      $("recentPosts").innerHTML = recent.map((x) => {
+        const isPinned = String(x.id) === String(STATE.pinnedLessonId);
+        return `<div class="recent-item">
+          ${isPinned ? '<span class="pin-badge">📌 ĐANG GHIM</span>' : ''}
+          <strong>#${x.lesson} • ${escapeHtml(x.title || "Bài học")}</strong>
+          <span>${escapeHtml((x.description || "").slice(0, 72))}</span>
+          <div><button class="pin-btn-small" onclick="togglePinLesson('${x.id}')">${isPinned ? '❌ Bỏ ghim' : '📌 Ghim bài này'}</button></div>
+        </div>`;
+      }).join("");
+    }
+
+    async function togglePinLesson(lessonId) {
+      if (!STATE.course) return;
+      const targetPin = String(STATE.pinnedLessonId) === String(lessonId) ? "" : String(lessonId);
+      try {
+        const res = await fetch("/api/lms/admin?endpoint=courses", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            action: "updateConfig",
+            course: STATE.course,
+            config: { pinnedLessonId: targetPin }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Không cập nhật được bài ghim");
+        STATE.pinnedLessonId = targetPin;
+        STATE.config[`${STATE.course}_pinnedLessonId`] = targetPin;
+        toast(targetPin ? "Đã ghim bài học thành công!" : "Đã bỏ ghim bài học.", "ok");
+        await loadRecentPosts();
+      } catch (err) {
+        toast(err.message || "Lỗi cập nhật ghim bài", "bad");
+      }
     }
 
     function escapeHtml(value) {
@@ -486,6 +547,7 @@
           id: createQueueId(),
           file,
           kind: classifyFile(file),
+          caption: "",
           status: "queued",
           progress: 0,
           message: "Đang chờ",
@@ -507,6 +569,22 @@
       updateSendState();
     }
 
+    function moveQueueItem(id, dir) {
+      const idx = STATE.queue.findIndex(q => q.id === id);
+      if (idx < 0) return;
+      const targetIdx = idx + dir;
+      if (targetIdx < 0 || targetIdx >= STATE.queue.length) return;
+      const temp = STATE.queue[idx];
+      STATE.queue[idx] = STATE.queue[targetIdx];
+      STATE.queue[targetIdx] = temp;
+      renderQueue();
+    }
+
+    function updateQueueCaption(id, val) {
+      const item = STATE.queue.find(q => q.id === id);
+      if (item) item.caption = String(val || "").trim();
+    }
+
     function retryQueueItem(id) {
       const item = STATE.queue.find((q) => q.id === id);
       if (!item) return;
@@ -522,23 +600,29 @@
       const container = $("queue");
       const empty = $("emptyDrop");
       empty.classList.toggle("hidden", STATE.queue.length > 0);
-      container.innerHTML = STATE.queue.map((item) => {
+      container.innerHTML = STATE.queue.map((item, idx) => {
         let icon = item.kind === "video" ? "🎬" : "📄";
         if (item.kind === "image" && item.previewUrl) icon = `<img src="${item.previewUrl}" alt=""/>`;
         const canRemove = item.status !== "uploading";
         const stateClass = item.status === "done" ? "done" : item.status === "error" ? "error" : "";
-        const action = item.status === "error"
-          ? `<button class="icon-btn" onclick="retryQueueItem('${item.id}')" title="Thử lại">↻</button>`
-          : `<button class="icon-btn" onclick="removeQueueItem('${item.id}')" ${canRemove ? "" : "disabled"} title="Bỏ file">×</button>`;
+        
+        const actionBtns = `<div class="action-group">
+          ${idx > 0 ? `<button class="icon-btn" onclick="moveQueueItem('${item.id}', -1)" title="Lên">▲</button>` : ''}
+          ${idx < STATE.queue.length - 1 ? `<button class="icon-btn" onclick="moveQueueItem('${item.id}', 1)" title="Xuống">▼</button>` : ''}
+          ${item.status === "error" ? `<button class="icon-btn" onclick="retryQueueItem('${item.id}')" title="Thử lại">↻</button>` : ''}
+          <button class="icon-btn" onclick="removeQueueItem('${item.id}')" ${canRemove ? "" : "disabled"} title="Bỏ file">×</button>
+        </div>`;
+
         return `<div class="file-row">
           <div class="thumb">${icon}</div>
           <div class="file-meta">
             <div class="file-name">${escapeHtml(item.file.name)}</div>
             <div class="file-sub"><span>${kindLabel(item.kind)}</span><span>${formatBytes(item.file.size)}</span><span>${escapeHtml(item.message || "")}</span></div>
+            <input class="caption-input" type="text" placeholder="Thêm caption cho file..." value="${escapeHtml(item.caption||'')}" onchange="updateQueueCaption('${item.id}', this.value)" />
             <div class="progress-shell"><div class="progress-bar" style="width:${Math.max(0, Math.min(100, item.progress || 0))}%"></div></div>
           </div>
           <div class="file-state ${stateClass}">${item.status === "done" ? "✓ Xong" : item.status === "error" ? "Lỗi" : item.status === "uploading" ? `${item.progress || 0}%` : "Chờ"}</div>
-          ${action}
+          ${actionBtns}
         </div>`;
       }).join("");
       updateSummary();
@@ -549,8 +633,9 @@
       const done = STATE.queue.filter((q) => q.status === "done").length;
       const uploading = STATE.queue.filter((q) => q.status === "uploading").length;
       const errors = STATE.queue.filter((q) => q.status === "error").length;
+      const percent = total ? Math.round((done / total) * 100) : 0;
       $("uploadSummary").textContent = total
-        ? `Hàng đợi: ${total} file • ${done} xong • ${uploading} đang upload • ${errors} lỗi`
+        ? `Hàng đợi: ${done}/${total} file xong (${percent}%) • ${uploading} đang upload • ${errors} lỗi`
         : "Chưa có file trong hàng đợi.";
       updateSendState();
     }
@@ -766,11 +851,12 @@
         for (const item of STATE.queue) {
           if (!item.result) continue;
           const title = safePipeText(item.file.name);
+          const caption = encodeURIComponent(item.caption || "");
           if (item.kind === "image") {
             if (!firstImage) firstImage = item.result.directUrl;
-            mediaLines.push(`image|${title}|${item.result.directUrl}|`);
+            mediaLines.push(`image|${title}|${item.result.directUrl}|${caption}`);
           } else if (item.kind === "video") {
-            mediaLines.push(`video|${title}|${item.result.previewUrl}|`);
+            mediaLines.push(`video|${title}|${item.result.previewUrl}|${caption}`);
           } else {
             materials.push({
               id: item.result.fileId,
@@ -834,6 +920,14 @@
         if (files.length) {
           e.preventDefault();
           addFiles(files);
+          toast(`Đã dán ${files.length} tệp từ Clipboard`, "ok");
+        }
+      });
+
+      window.addEventListener("beforeunload", (e) => {
+        if (STATE.workerRunning || STATE.queue.some(q => q.status === "uploading" || q.status === "queued")) {
+          e.preventDefault();
+          e.returnValue = "Upload hoặc đăng bài chưa hoàn tất. Bạn có chắc muốn đóng trang?";
         }
       });
     }
