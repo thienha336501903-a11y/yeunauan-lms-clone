@@ -45,6 +45,8 @@ create index if not exists lms_v4_media_tickets_expires_idx
   on public.lms_v4_media_tickets(expires_at);
 create index if not exists lms_v4_media_tickets_message_idx
   on public.lms_v4_media_tickets(message_id);
+create index if not exists lms_v4_media_tickets_source_idx
+  on public.lms_v4_media_tickets(source_id);
 
 alter table public.lms_v4_media_tickets enable row level security;
 revoke all on table public.lms_v4_media_tickets from anon, authenticated;
