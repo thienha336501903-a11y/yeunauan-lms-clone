@@ -428,7 +428,8 @@ export default async function handler(req, res) {
       originalTitle: originalCourseTitle,
       studentDisplayTitle,
       subtitle: (courseRow && courseRow.subtitle) || rawConfig[`${activeCourseSlug}_subtitle`] || rawConfig.subtitle || "",
-      heroImage: (courseRow && courseRow.image_url) || courseRawData.heroImageUrl || courseRawData.bannerImageUrl || rawConfig[`${activeCourseSlug}_heroImage`] || rawConfig.heroImage || ""
+      heroImage: (courseRow && courseRow.image_url) || courseRawData.heroImageUrl || courseRawData.bannerImageUrl || rawConfig[`${activeCourseSlug}_heroImage`] || rawConfig.heroImage || "",
+      pinnedLessonId: rawConfig[`${activeCourseSlug}_pinnedLessonId`] || ""
     };
 
     // 3. Load Lessons from Supabase

@@ -1,9 +1,9 @@
 {
-  "remoteName": "origin",
+  "remoteName": "clone-origin",
   "projects": [
     {
-      "id": "prj_TimQqrVhrOLW8y1KI464JBvajwlz",
-      "name": "web-lms-chinh-thuc",
+      "id": "prj_0mFDJL5lV9q0NBjgBphs0Y6j1Xtc",
+      "name": "yeunauan-lms-clone",
       "directory": ".",
       "orgId": "team_cAthcmyw4079BDgelX0YjG9i"
     }
