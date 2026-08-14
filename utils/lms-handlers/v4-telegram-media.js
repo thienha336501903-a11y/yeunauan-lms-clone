@@ -1,8 +1,10 @@
-import { Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+const PREVIEW_GATEWAY = "https://telegram-chan-git-6db4f5-thienha100022653824678-stacks-projects.vercel.app/api/telegram/media";
+const TICKET_TTL_MS = 10 * 60 * 1000;
 
 function pickMedia(raw, messageType) {
   const value = raw && typeof raw === "object" ? raw : {};
@@ -24,6 +26,12 @@ function pickMedia(raw, messageType) {
     mimeType: String(item.mime_type || "application/octet-stream"),
     name: String(item.file_name || `telegram-${messageType}`)
   };
+}
+
+function gatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+  return process.env.VERCEL_ENV === "preview" ? PREVIEW_GATEWAY : "";
 }
 
 export default async function handler(req, res) {
@@ -57,51 +65,42 @@ export default async function handler(req, res) {
     if (!row) return res.status(404).json({ success: false, code: "message_not_found", error: "Không tìm thấy media" });
 
     const media = pickMedia(row.raw_message, row.message_type);
-    if (!media?.fileId || row.raw_message?.from_reader || media.size > BOT_API_DOWNLOAD_LIMIT) {
+    if (!media?.fileId || media.size > BOT_API_DOWNLOAD_LIMIT) {
       return res.status(409).json({
         success: false,
         code: "mtproto_required",
-        error: "Media này cần MTProto gateway để phát trực tiếp từ Telegram"
+        error: "Media này cần MTProto/Local Bot API gateway để phát trực tiếp từ Telegram"
       });
     }
 
-    const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
-    if (!botToken) {
-      return res.status(503).json({ success: false, code: "telegram_bot_not_configured", error: "Chưa cấu hình Telegram Bot token ở server" });
+    const gateway = gatewayUrl();
+    if (!gateway) {
+      return res.status(503).json({
+        success: false,
+        code: "telegram_gateway_not_configured",
+        error: "Chưa cấu hình Telegram media gateway"
+      });
     }
 
-    const infoResponse = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(media.fileId)}`);
-    const info = await infoResponse.json().catch(() => null);
-    if (!infoResponse.ok || !info?.ok || !info?.result?.file_path) {
-      return res.status(502).json({ success: false, code: "telegram_get_file_failed", error: "Telegram không trả file media" });
-    }
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + TICKET_TTL_MS).toISOString();
+    const { error: ticketError } = await supabase
+      .from("lms_v4_media_tickets")
+      .insert({
+        token,
+        course_slug: courseSlug,
+        source_id: mapping.source_id,
+        message_id: row.id,
+        email: access.email,
+        expires_at: expiresAt
+      });
+    if (ticketError) throw ticketError;
 
-    const upstreamHeaders = {};
-    const range = String(req.headers.range || "").trim();
-    if (range) upstreamHeaders.Range = range;
-
-    const fileResponse = await fetch(
-      `https://api.telegram.org/file/bot${botToken}/${info.result.file_path}`,
-      { headers: upstreamHeaders }
-    );
-    if ((!fileResponse.ok && fileResponse.status !== 206) || !fileResponse.body) {
-      return res.status(502).json({ success: false, code: "telegram_file_fetch_failed", error: "Không tải được media từ Telegram" });
-    }
-
-    const contentType = fileResponse.headers.get("content-type") || media.mimeType || "application/octet-stream";
-    const contentLength = fileResponse.headers.get("content-length");
-    const contentRange = fileResponse.headers.get("content-range");
-    const acceptRanges = fileResponse.headers.get("accept-ranges") || "bytes";
-    res.statusCode = fileResponse.status;
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Accept-Ranges", acceptRanges);
-    if (contentLength) res.setHeader("Content-Length", contentLength);
-    if (contentRange) res.setHeader("Content-Range", contentRange);
-    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(media.name || "telegram-media")}`);
-    res.setHeader("Cache-Control", "private, max-age=300");
-
-    if (req.method === "HEAD") return res.end();
-    Readable.fromWeb(fileResponse.body).pipe(res);
+    const location = `${gateway}?ticket=${encodeURIComponent(token)}`;
+    res.statusCode = 307;
+    res.setHeader("Location", location);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.end();
   } catch (error) {
     console.error("[v4-telegram-media]", error);
     if (!res.headersSent) return res.status(500).json({ success: false, error: "Server error" });
