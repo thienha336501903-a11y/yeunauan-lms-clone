@@ -1,14 +1,11 @@
 {
-  "name": "landing-page",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "build": "node scripts/v4-ui-e2e-probe.js"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.39.8",
-    "cloudinary": "^2.3.0",
-    "google-auth-library": "^9.15.1",
-    "googleapis": "^140.0.1"
-  }
+"name": "landing-page",
+"version": "1.0.0",
+"type": "module",
+"dependencies": {
+"@supabase/supabase-js": "^2.39.8",
+"cloudinary": "^2.3.0",
+"google-auth-library": "^9.15.1",
+"googleapis": "^140.0.1"
+}
 }
