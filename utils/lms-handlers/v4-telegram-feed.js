@@ -2,6 +2,15 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+const MEDIA_MESSAGE_TYPES = new Set([
+  "photo",
+  "video",
+  "document",
+  "audio",
+  "voice",
+  "animation",
+  "video_note"
+]);
 
 function pickMedia(raw, messageType) {
   const value = raw && typeof raw === "object" ? raw : {};
@@ -35,10 +44,23 @@ function pickMedia(raw, messageType) {
 }
 
 function publicMedia(row, courseSlug) {
-  const media = pickMedia(row.raw_message, row.message_type);
+  const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
+  let media = pickMedia(row.raw_message, row.message_type);
+
+  if (!media && fromHistoricalReader && MEDIA_MESSAGE_TYPES.has(row.message_type)) {
+    media = {
+      type: row.message_type,
+      fileId: "",
+      size: 0,
+      width: 0,
+      height: 0,
+      duration: 0,
+      mimeType: "",
+      name: ""
+    };
+  }
   if (!media) return null;
 
-  const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
   const botDownloadable = Boolean(media.fileId) && (!media.size || media.size <= BOT_API_DOWNLOAD_LIMIT);
   let delivery = "metadata_only";
   if (botDownloadable) delivery = "telegram_bot_proxy";
