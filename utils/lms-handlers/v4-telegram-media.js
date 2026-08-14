@@ -76,19 +76,31 @@ export default async function handler(req, res) {
       return res.status(502).json({ success: false, code: "telegram_get_file_failed", error: "Telegram không trả file media" });
     }
 
-    const fileResponse = await fetch(`https://api.telegram.org/file/bot${botToken}/${info.result.file_path}`);
-    if (!fileResponse.ok || !fileResponse.body) {
+    const upstreamHeaders = {};
+    const range = String(req.headers.range || "").trim();
+    if (range) upstreamHeaders.Range = range;
+
+    const fileResponse = await fetch(
+      `https://api.telegram.org/file/bot${botToken}/${info.result.file_path}`,
+      { headers: upstreamHeaders }
+    );
+    if ((!fileResponse.ok && fileResponse.status !== 206) || !fileResponse.body) {
       return res.status(502).json({ success: false, code: "telegram_file_fetch_failed", error: "Không tải được media từ Telegram" });
     }
 
     const contentType = fileResponse.headers.get("content-type") || media.mimeType || "application/octet-stream";
     const contentLength = fileResponse.headers.get("content-length");
+    const contentRange = fileResponse.headers.get("content-range");
+    const acceptRanges = fileResponse.headers.get("accept-ranges") || "bytes";
+    res.statusCode = fileResponse.status;
     res.setHeader("Content-Type", contentType);
+    res.setHeader("Accept-Ranges", acceptRanges);
     if (contentLength) res.setHeader("Content-Length", contentLength);
+    if (contentRange) res.setHeader("Content-Range", contentRange);
     res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(media.name || "telegram-media")}`);
     res.setHeader("Cache-Control", "private, max-age=300");
 
-    if (req.method === "HEAD") return res.status(200).end();
+    if (req.method === "HEAD") return res.end();
     Readable.fromWeb(fileResponse.body).pipe(res);
   } catch (error) {
     console.error("[v4-telegram-media]", error);
