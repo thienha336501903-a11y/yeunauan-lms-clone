@@ -65,12 +65,11 @@ export default async function handler(req, res) {
     if (!row) return res.status(404).json({ success: false, code: "message_not_found", error: "Không tìm thấy media" });
 
     const media = pickMedia(row.raw_message, row.message_type);
-    if (!media?.fileId || media.size > BOT_API_DOWNLOAD_LIMIT) {
-      return res.status(409).json({
-        success: false,
-        code: "mtproto_required",
-        error: "Media này cần MTProto/Local Bot API gateway để phát trực tiếp từ Telegram"
-      });
+    if (!media) {
+      return res.status(409).json({ success: false, code: "media_metadata_missing", error: "Bài Telegram chưa có metadata media để phát" });
+    }
+    if (!media.fileId && media.size <= BOT_API_DOWNLOAD_LIMIT) {
+      return res.status(409).json({ success: false, code: "media_file_id_missing", error: "Media nhỏ chưa có Telegram file_id" });
     }
 
     const gateway = gatewayUrl();
