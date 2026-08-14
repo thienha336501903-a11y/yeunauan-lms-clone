@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
-const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
 const PREVIEW_GATEWAY = "https://telegram-chan-git-6db4f5-thienha100022653824678-stacks-projects.vercel.app/api/telegram/media";
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
@@ -67,9 +66,6 @@ export default async function handler(req, res) {
     const media = pickMedia(row.raw_message, row.message_type);
     if (!media) {
       return res.status(409).json({ success: false, code: "media_metadata_missing", error: "Bài Telegram chưa có metadata media để phát" });
-    }
-    if (!media.fileId && media.size <= BOT_API_DOWNLOAD_LIMIT) {
-      return res.status(409).json({ success: false, code: "media_file_id_missing", error: "Media nhỏ chưa có Telegram file_id" });
     }
 
     const gateway = gatewayUrl();
