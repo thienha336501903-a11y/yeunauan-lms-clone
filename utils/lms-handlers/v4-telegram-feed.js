@@ -8,6 +8,7 @@ const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/
 const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
+const INITIAL_THUMBNAIL_BUDGET = 4;
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -112,7 +113,7 @@ async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
   return tickets;
 }
 
-function publicMedia(row, courseSlug, gatewayTicket) {
+function publicMedia(row, courseSlug, gatewayTicket, { includeThumbnail = true } = {}) {
   const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
   let media = pickMedia(row.raw_message, row.message_type);
 
@@ -142,6 +143,12 @@ function publicMedia(row, courseSlug, gatewayTicket) {
   const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
   const fallbackUrl = playable ? `${base}&endpoint=v4-telegram-media` : "";
   const gatewayUrl = delivery === "telegram_gateway_mtproto" ? mtprotoGatewayUrl() : mediaGatewayUrl();
+  const directThumbnailUrl = media.hasThumbnail
+    ? (gatewayTicket
+        ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
+        : `${base}&endpoint=v4-telegram-thumbnail`)
+    : "";
+
   return {
     type: media.type,
     size: media.size,
@@ -157,11 +164,8 @@ function publicMedia(row, courseSlug, gatewayTicket) {
           : fallbackUrl)
       : "",
     fallbackUrl,
-    thumbnailUrl: media.hasThumbnail
-      ? (gatewayTicket
-          ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
-          : `${base}&endpoint=v4-telegram-thumbnail`)
-      : ""
+    thumbnailUrl: includeThumbnail ? directThumbnailUrl : "",
+    deferredThumbnailUrl: includeThumbnail ? "" : directThumbnailUrl
   };
 }
 
@@ -216,16 +220,23 @@ export default async function handler(req, res) {
       console.warn("[v4-telegram-feed] batch gateway tickets failed; using protected fallback", error?.message || error);
     }
 
-    const posts = (rows || []).map((row) => ({
-      id: row.id,
-      telegramMessageId: row.source_message_id,
-      mediaGroupId: row.media_group_id || "",
-      type: row.message_type,
-      text: row.text || row.caption || "",
-      isPinned: Boolean(row.is_pinned),
-      date: row.source_date || row.updated_at,
-      media: publicMedia(row, courseSlug, gatewayTickets.get(row.id))
-    }));
+    let remainingInitialThumbnails = INITIAL_THUMBNAIL_BUDGET;
+    const posts = (rows || []).map((row) => {
+      const rawMedia = pickMedia(row.raw_message, row.message_type);
+      const hasThumbnail = Boolean(rawMedia?.hasThumbnail);
+      const includeThumbnail = hasThumbnail && remainingInitialThumbnails > 0;
+      if (includeThumbnail) remainingInitialThumbnails -= 1;
+      return {
+        id: row.id,
+        telegramMessageId: row.source_message_id,
+        mediaGroupId: row.media_group_id || "",
+        type: row.message_type,
+        text: row.text || row.caption || "",
+        isPinned: Boolean(row.is_pinned),
+        date: row.source_date || row.updated_at,
+        media: publicMedia(row, courseSlug, gatewayTickets.get(row.id), { includeThumbnail })
+      };
+    });
 
     const stats = posts.reduce((acc, post) => {
       acc.total += 1;
@@ -238,9 +249,12 @@ export default async function handler(req, res) {
         acc.mtprotoGateway += 1;
       }
       if (post.media && post.media.delivery === "metadata_only") acc.unavailable += 1;
+      if (post.media?.thumbnailUrl) acc.initialThumbnails += 1;
+      if (post.media?.deferredThumbnailUrl) acc.deferredThumbnails += 1;
       return acc;
-    }, { total: 0, playable: 0, botGateway: 0, mtprotoGateway: 0, unavailable: 0 });
+    }, { total: 0, playable: 0, botGateway: 0, mtprotoGateway: 0, unavailable: 0, initialThumbnails: 0, deferredThumbnails: 0 });
 
+    res.setHeader("X-V4-Initial-Thumbnails", String(stats.initialThumbnails));
     return res.status(200).json({
       success: true,
       mode: "v4-telegram-source-poc",
