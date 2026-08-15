@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
+const THUMBNAIL_TICKET_TTL_MS = 10 * 60 * 1000;
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -47,7 +50,30 @@ function pickMedia(raw, messageType) {
   };
 }
 
-function publicMedia(row, courseSlug) {
+function thumbnailGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_THUMBNAIL_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_THUMBNAIL_GATEWAY;
+}
+
+async function issueThumbnailTickets({ rows, courseSlug, sourceId, email }) {
+  const candidates = (rows || []).filter((row) => pickMedia(row.raw_message, row.message_type)?.hasThumbnail);
+  if (!candidates.length) return new Map();
+
+  const expiresAt = new Date(Date.now() + THUMBNAIL_TICKET_TTL_MS).toISOString();
+  const records = candidates.map((row) => ({
+    token: randomUUID(),
+    course_slug: courseSlug,
+    source_id: sourceId,
+    message_id: row.id,
+    email,
+    expires_at: expiresAt
+  }));
+  const { error } = await supabase.from("lms_v4_media_tickets").insert(records);
+  if (error) throw error;
+  return new Map(records.map((record) => [record.message_id, record.token]));
+}
+
+function publicMedia(row, courseSlug, thumbnailTicket) {
   const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
   let media = pickMedia(row.raw_message, row.message_type);
 
@@ -85,7 +111,11 @@ function publicMedia(row, courseSlug) {
     name: media.name || "",
     delivery,
     url: playable ? `${base}&endpoint=v4-telegram-media` : "",
-    thumbnailUrl: media.hasThumbnail ? `${base}&endpoint=v4-telegram-thumbnail` : ""
+    thumbnailUrl: media.hasThumbnail
+      ? (thumbnailTicket
+          ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(thumbnailTicket)}`
+          : `${base}&endpoint=v4-telegram-thumbnail`)
+      : ""
   };
 }
 
@@ -128,6 +158,18 @@ export default async function handler(req, res) {
       .limit(2000);
     if (rowsError) throw rowsError;
 
+    let thumbnailTickets = new Map();
+    try {
+      thumbnailTickets = await issueThumbnailTickets({
+        rows,
+        courseSlug,
+        sourceId: mapping.source_id,
+        email: access.email
+      });
+    } catch (error) {
+      console.warn("[v4-telegram-feed] batch thumbnail tickets failed; using protected fallback", error?.message || error);
+    }
+
     const posts = (rows || []).map((row) => ({
       id: row.id,
       telegramMessageId: row.source_message_id,
@@ -136,7 +178,7 @@ export default async function handler(req, res) {
       text: row.text || row.caption || "",
       isPinned: Boolean(row.is_pinned),
       date: row.source_date || row.updated_at,
-      media: publicMedia(row, courseSlug)
+      media: publicMedia(row, courseSlug, thumbnailTickets.get(row.id))
     }));
 
     const stats = posts.reduce((acc, post) => {
