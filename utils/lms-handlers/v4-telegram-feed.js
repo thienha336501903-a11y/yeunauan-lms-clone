@@ -24,13 +24,15 @@ function pickMedia(raw, messageType) {
       height: Number(item.height || 0),
       duration: 0,
       mimeType: "image/jpeg",
-      name: ""
+      name: "",
+      hasThumbnail: false
     };
   }
 
   const key = messageType === "video_note" ? "video_note" : messageType;
   const item = value[key] && typeof value[key] === "object" ? value[key] : null;
   if (!item) return null;
+  const thumbnail = item.thumbnail || item.thumb || null;
 
   return {
     type: messageType,
@@ -40,7 +42,8 @@ function pickMedia(raw, messageType) {
     height: Number(item.height || item.length || 0),
     duration: Number(item.duration || 0),
     mimeType: String(item.mime_type || ""),
-    name: String(item.file_name || "")
+    name: String(item.file_name || ""),
+    hasThumbnail: Boolean(thumbnail?.file_id)
   };
 }
 
@@ -57,7 +60,8 @@ function publicMedia(row, courseSlug) {
       height: 0,
       duration: 0,
       mimeType: "",
-      name: ""
+      name: "",
+      hasThumbnail: false
     };
   }
   if (!media) return null;
@@ -70,6 +74,7 @@ function publicMedia(row, courseSlug) {
   }
 
   const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
+  const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
   return {
     type: media.type,
     size: media.size,
@@ -79,9 +84,8 @@ function publicMedia(row, courseSlug) {
     mimeType: media.mimeType || "",
     name: media.name || "",
     delivery,
-    url: playable
-      ? `/api/lms/portal?endpoint=v4-telegram-media&course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`
-      : ""
+    url: playable ? `${base}&endpoint=v4-telegram-media` : "",
+    thumbnailUrl: media.hasThumbnail ? `${base}&endpoint=v4-telegram-thumbnail` : ""
   };
 }
 
