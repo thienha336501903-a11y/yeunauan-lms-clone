@@ -6,6 +6,7 @@ const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
 const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
 const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
+const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -65,8 +66,27 @@ async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
   const candidates = (rows || []).filter((row) => Boolean(pickMedia(row.raw_message, row.message_type)));
   if (!candidates.length) return new Map();
 
+  const messageIds = candidates.map((row) => row.id);
+  const reusableAfter = new Date(Date.now() + GATEWAY_TICKET_REUSE_BUFFER_MS).toISOString();
+  const { data: existing, error: existingError } = await supabase
+    .from("lms_v4_media_tickets")
+    .select("token,message_id,created_at")
+    .eq("course_slug", courseSlug)
+    .eq("source_id", sourceId)
+    .eq("email", email)
+    .is("revoked_at", null)
+    .gt("expires_at", reusableAfter)
+    .in("message_id", messageIds)
+    .order("created_at", { ascending: false });
+  if (existingError) throw existingError;
+
+  const tickets = new Map();
+  for (const ticket of existing || []) {
+    if (!tickets.has(ticket.message_id)) tickets.set(ticket.message_id, ticket.token);
+  }
+
   const expiresAt = new Date(Date.now() + GATEWAY_TICKET_TTL_MS).toISOString();
-  const records = candidates.map((row) => ({
+  const records = candidates.filter((row) => !tickets.has(row.id)).map((row) => ({
     token: randomUUID(),
     course_slug: courseSlug,
     source_id: sourceId,
@@ -74,9 +94,12 @@ async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
     email,
     expires_at: expiresAt
   }));
-  const { error } = await supabase.from("lms_v4_media_tickets").insert(records);
-  if (error) throw error;
-  return new Map(records.map((record) => [record.message_id, record.token]));
+  if (records.length) {
+    const { error } = await supabase.from("lms_v4_media_tickets").insert(records);
+    if (error) throw error;
+    for (const record of records) tickets.set(record.message_id, record.token);
+  }
+  return tickets;
 }
 
 function publicMedia(row, courseSlug, gatewayTicket) {
