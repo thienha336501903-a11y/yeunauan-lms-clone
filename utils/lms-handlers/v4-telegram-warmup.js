@@ -3,13 +3,17 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { findMtprotoVideoMessage, telegramVideoMessageTypes } from "../v4-telegram-media-meta.js";
 
-const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
+const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?stream=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
 
-function mediaGatewayUrl() {
-  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  return configured || DEFAULT_MEDIA_GATEWAY;
+function mtprotoGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MTPROTO_GATEWAY;
+}
+
+function gatewayUrlWithTicket(url, ticket) {
+  return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
 }
 
 export default async function handler(req, res) {
@@ -69,7 +73,7 @@ export default async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
     let upstream;
     try {
-      const url = `${mediaGatewayUrl()}?ticket=${encodeURIComponent(token)}`;
+      const url = gatewayUrlWithTicket(mtprotoGatewayUrl(), token);
       upstream = await fetch(url, {
         method: "HEAD",
         cache: "no-store",

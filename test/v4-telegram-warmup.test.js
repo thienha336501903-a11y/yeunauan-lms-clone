@@ -81,3 +81,20 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
 
   assert.deepEqual(config.regions, ["sin1"]);
 });
+
+test("MTProto warm-up skips the media redirect", () => {
+  const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
+
+  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1/);
+  assert.match(warmup, /gatewayUrlWithTicket\(mtprotoGatewayUrl\(\), token\)/);
+  assert.doesNotMatch(warmup, /DEFAULT_MEDIA_GATEWAY/);
+});
+
+test("V4 manually limits eager thumbnail requests", () => {
+  const v4 = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
+
+  assert.match(v4, /img data-lazy-src=/);
+  assert.match(v4, /images\.slice\(0,2\)/);
+  assert.match(v4, /rootMargin:'240px 0px'/);
+  assert.doesNotMatch(v4, /img loading="lazy" src=/);
+});
