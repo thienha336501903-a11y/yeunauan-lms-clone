@@ -24,3 +24,16 @@ export function findMtprotoVideoMessage(rows) {
     return Boolean(media && media.size > BOT_API_DOWNLOAD_LIMIT);
   }) || null;
 }
+
+export function findWarmupVideoMessages(rows) {
+  let bot = null;
+  let mtproto = null;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const media = videoMetadata(row?.raw_message, row?.message_type);
+    if (!media || media.size <= 0) continue;
+    if (!bot && media.fileId && media.size <= BOT_API_DOWNLOAD_LIMIT) bot = row;
+    if (!mtproto && media.size > BOT_API_DOWNLOAD_LIMIT) mtproto = row;
+    if (bot && mtproto) break;
+  }
+  return [bot, mtproto].filter(Boolean);
+}

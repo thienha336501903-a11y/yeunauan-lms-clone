@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { findMtprotoVideoMessage } from "../utils/v4-telegram-media-meta.js";
+import { findMtprotoVideoMessage, findWarmupVideoMessages } from "../utils/v4-telegram-media-meta.js";
 
 const MiB = 1024 * 1024;
 
@@ -49,6 +49,17 @@ test("selects only one MTProto video for one background warm-up", () => {
   assert.equal(findMtprotoVideoMessage([first, second])?.id, "first");
 });
 
+test("warms only the first Bot video and first MTProto video", () => {
+  const firstBot = videoRow(19 * MiB, { id: "first-bot" });
+  const secondBot = videoRow(8 * MiB, { id: "second-bot" });
+  const firstMtproto = videoRow(25 * MiB, { id: "first-mtproto" });
+  const secondMtproto = videoRow(30 * MiB, { id: "second-mtproto" });
+  assert.deepEqual(
+    findWarmupVideoMessages([firstBot, secondBot, firstMtproto, secondMtproto]).map((row) => row.id),
+    ["first-bot", "first-mtproto"]
+  );
+});
+
 test("V4 unauthenticated flow returns to V4 after the existing student login", () => {
   const v4 = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
   const entry = readFileSync(new URL("../v3-entry.html", import.meta.url), "utf8");
@@ -85,9 +96,10 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
 test("MTProto warm-up skips the media redirect", () => {
   const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
 
-  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1/);
-  assert.match(warmup, /gatewayUrlWithTicket\(mtprotoGatewayUrl\(\), token\)/);
-  assert.doesNotMatch(warmup, /DEFAULT_MEDIA_GATEWAY/);
+  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1&prepare=1/);
+  assert.match(warmup, /DEFAULT_MEDIA_GATEWAY = .*\/api\/telegram\/media\?prepare=1/);
+  assert.match(warmup, /ticket\.size > BOT_API_DOWNLOAD_LIMIT \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
+  assert.match(warmup, /Promise\.allSettled/);
 });
 
 test("V4 manually limits eager thumbnail requests", () => {
