@@ -96,7 +96,7 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
 test("MTProto warm-up skips the media redirect", () => {
   const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
 
-  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1&prepare=1/);
+  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?prepare=1/);
   assert.match(warmup, /DEFAULT_MEDIA_GATEWAY = .*\/api\/telegram\/media\?prepare=1/);
   assert.match(warmup, /ticket\.size > BOT_API_DOWNLOAD_LIMIT \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
   assert.match(warmup, /Promise\.allSettled/);

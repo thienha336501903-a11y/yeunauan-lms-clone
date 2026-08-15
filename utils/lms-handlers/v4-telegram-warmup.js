@@ -8,7 +8,7 @@ import {
 } from "../v4-telegram-media-meta.js";
 
 const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media?prepare=1";
-const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?stream=1&prepare=1";
+const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?prepare=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
 
