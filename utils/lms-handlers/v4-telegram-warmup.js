@@ -3,24 +3,13 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { findMtprotoVideoMessage, telegramVideoMessageTypes } from "../v4-telegram-media-meta.js";
 
-const DEFAULT_WARMUP_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup";
+const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
 
-function warmupGatewayUrl() {
-  const configured = String(process.env.TELEGRAM_WARMUP_GATEWAY_URL || "").trim();
-  if (configured) return configured;
-
-  const mediaGateway = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim();
-  if (!mediaGateway) return DEFAULT_WARMUP_GATEWAY;
-  try {
-    const url = new URL(mediaGateway);
-    url.pathname = url.pathname.replace(/\/media\/?$/, "/warmup");
-    url.search = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return DEFAULT_WARMUP_GATEWAY;
-  }
+function mediaGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MEDIA_GATEWAY;
 }
 
 export default async function handler(req, res) {
@@ -80,7 +69,7 @@ export default async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
     let upstream;
     try {
-      const url = `${warmupGatewayUrl()}?ticket=${encodeURIComponent(token)}`;
+      const url = `${mediaGatewayUrl()}?ticket=${encodeURIComponent(token)}`;
       upstream = await fetch(url, {
         method: "HEAD",
         cache: "no-store",
@@ -92,6 +81,8 @@ export default async function handler(req, res) {
 
     const serverTiming = upstream.headers.get("server-timing");
     if (serverTiming) res.setHeader("Server-Timing", serverTiming);
+    const transport = upstream.headers.get("x-telegram-media-transport");
+    if (transport) res.setHeader("X-Telegram-Media-Transport", transport);
     if (!upstream.ok) {
       console.warn("[v4-telegram-warmup] upstream rejected warm-up", upstream.status);
       return res.status(502).json({ success: false, code: "warmup_gateway_failed" });
