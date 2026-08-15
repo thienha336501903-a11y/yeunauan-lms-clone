@@ -49,7 +49,7 @@ test("selects only one MTProto video for one background warm-up", () => {
   assert.equal(findMtprotoVideoMessage([first, second])?.id, "first");
 });
 
-test("warms a bounded near-start window with two videos per transport", () => {
+test("warm window helper remains bounded for callers that need it", () => {
   const firstBot = videoRow(19 * MiB, { id: "first-bot" });
   const secondBot = videoRow(8 * MiB, { id: "second-bot" });
   const thirdBot = videoRow(6 * MiB, { id: "third-bot" });
@@ -115,16 +115,29 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
   assert.deepEqual(config.regions, ["sin1"]);
 });
 
-test("MTProto warm-up skips the media redirect and limits concurrency", () => {
+test("MTProto warm-up defers expensive work and prepares only the first large video", () => {
   const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
 
   assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?prepare=1/);
-  assert.match(warmup, /DEFAULT_MEDIA_GATEWAY = .*\/api\/telegram\/media\?prepare=1/);
-  assert.match(warmup, /ticket\.size > BOT_API_DOWNLOAD_LIMIT \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
-  assert.match(warmup, /Promise\.allSettled/);
-  assert.match(warmup, /WARMUP_CONCURRENCY = 2/);
-  assert.match(warmup, /X-Media-Warmup-Count/);
-  assert.match(warmup, /cleanupWarmupTickets/);
+  assert.match(warmup, /WARMUP_DEFER_MS = 1800/);
+  assert.match(warmup, /await sleep\(WARMUP_DEFER_MS\)/);
+  assert.match(warmup, /findMtprotoVideoMessage\(rows\)/);
+  assert.match(warmup, /searchParams\.delete\("stream"\)/);
+  assert.match(warmup, /searchParams\.set\("prepare", "1"\)/);
+  assert.match(warmup, /method: "HEAD"/);
+  assert.match(warmup, /X-Media-Warmup-Count", "1\/1"/);
+  assert.match(warmup, /cleanupWarmupTicket/);
+  assert.doesNotMatch(warmup, /DEFAULT_MEDIA_GATEWAY/);
+  assert.doesNotMatch(warmup, /WARMUP_CONCURRENCY/);
+});
+
+test("V4 feed caps the first-load thumbnail burst and keeps later poster URLs deferred", () => {
+  const feed = readFileSync(new URL("../utils/lms-handlers/v4-telegram-feed.js", import.meta.url), "utf8");
+
+  assert.match(feed, /INITIAL_THUMBNAIL_BUDGET = 4/);
+  assert.match(feed, /remainingInitialThumbnails = INITIAL_THUMBNAIL_BUDGET/);
+  assert.match(feed, /deferredThumbnailUrl/);
+  assert.match(feed, /X-V4-Initial-Thumbnails/);
 });
 
 test("V4 manually limits eager thumbnail requests", () => {
