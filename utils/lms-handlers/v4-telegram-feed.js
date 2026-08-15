@@ -3,8 +3,9 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
 const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
-const THUMBNAIL_TICKET_TTL_MS = 10 * 60 * 1000;
+const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -55,11 +56,16 @@ function thumbnailGatewayUrl() {
   return configured || DEFAULT_THUMBNAIL_GATEWAY;
 }
 
-async function issueThumbnailTickets({ rows, courseSlug, sourceId, email }) {
-  const candidates = (rows || []).filter((row) => pickMedia(row.raw_message, row.message_type)?.hasThumbnail);
+function mediaGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MEDIA_GATEWAY;
+}
+
+async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
+  const candidates = (rows || []).filter((row) => Boolean(pickMedia(row.raw_message, row.message_type)));
   if (!candidates.length) return new Map();
 
-  const expiresAt = new Date(Date.now() + THUMBNAIL_TICKET_TTL_MS).toISOString();
+  const expiresAt = new Date(Date.now() + GATEWAY_TICKET_TTL_MS).toISOString();
   const records = candidates.map((row) => ({
     token: randomUUID(),
     course_slug: courseSlug,
@@ -73,7 +79,7 @@ async function issueThumbnailTickets({ rows, courseSlug, sourceId, email }) {
   return new Map(records.map((record) => [record.message_id, record.token]));
 }
 
-function publicMedia(row, courseSlug, thumbnailTicket) {
+function publicMedia(row, courseSlug, gatewayTicket) {
   const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
   let media = pickMedia(row.raw_message, row.message_type);
 
@@ -101,6 +107,7 @@ function publicMedia(row, courseSlug, thumbnailTicket) {
 
   const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
   const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
+  const fallbackUrl = playable ? `${base}&endpoint=v4-telegram-media` : "";
   return {
     type: media.type,
     size: media.size,
@@ -110,10 +117,15 @@ function publicMedia(row, courseSlug, thumbnailTicket) {
     mimeType: media.mimeType || "",
     name: media.name || "",
     delivery,
-    url: playable ? `${base}&endpoint=v4-telegram-media` : "",
+    url: playable
+      ? (gatewayTicket
+          ? `${mediaGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
+          : fallbackUrl)
+      : "",
+    fallbackUrl,
     thumbnailUrl: media.hasThumbnail
-      ? (thumbnailTicket
-          ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(thumbnailTicket)}`
+      ? (gatewayTicket
+          ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
           : `${base}&endpoint=v4-telegram-thumbnail`)
       : ""
   };
@@ -158,16 +170,16 @@ export default async function handler(req, res) {
       .limit(2000);
     if (rowsError) throw rowsError;
 
-    let thumbnailTickets = new Map();
+    let gatewayTickets = new Map();
     try {
-      thumbnailTickets = await issueThumbnailTickets({
+      gatewayTickets = await issueGatewayTickets({
         rows,
         courseSlug,
         sourceId: mapping.source_id,
         email: access.email
       });
     } catch (error) {
-      console.warn("[v4-telegram-feed] batch thumbnail tickets failed; using protected fallback", error?.message || error);
+      console.warn("[v4-telegram-feed] batch gateway tickets failed; using protected fallback", error?.message || error);
     }
 
     const posts = (rows || []).map((row) => ({
@@ -178,7 +190,7 @@ export default async function handler(req, res) {
       text: row.text || row.caption || "",
       isPinned: Boolean(row.is_pinned),
       date: row.source_date || row.updated_at,
-      media: publicMedia(row, courseSlug, thumbnailTickets.get(row.id))
+      media: publicMedia(row, courseSlug, gatewayTickets.get(row.id))
     }));
 
     const stats = posts.reduce((acc, post) => {
