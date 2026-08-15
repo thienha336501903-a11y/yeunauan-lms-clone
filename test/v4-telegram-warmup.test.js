@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { findMtprotoVideoMessage } from "../utils/v4-telegram-media-meta.js";
 
 const MiB = 1024 * 1024;
@@ -40,4 +41,28 @@ test("ignores non-video documents even when they are large", () => {
 test("supports Telegram video notes", () => {
   const note = videoRow(25 * MiB, { id: "note", message_type: "video_note" });
   assert.equal(findMtprotoVideoMessage([note])?.id, "note");
+});
+
+test("selects only one MTProto video for one background warm-up", () => {
+  const first = videoRow(24 * MiB, { id: "first" });
+  const second = videoRow(30 * MiB, { id: "second" });
+  assert.equal(findMtprotoVideoMessage([first, second])?.id, "first");
+});
+
+test("V4 unauthenticated flow returns to V4 after the existing student login", () => {
+  const v4 = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
+  const entry = readFileSync(new URL("../v3-entry.html", import.meta.url), "utf8");
+
+  assert.match(v4, /\/v3\?return=v4&course=/);
+  assert.match(entry, /returnToV4=qs\.get\('return'\)==='v4'/);
+  assert.match(entry, /returnToV4\?'\/v4\.html\?course='/);
+});
+
+test("V4 feed sends large video tickets directly to MTProto streaming", () => {
+  const feed = readFileSync(new URL("../utils/lms-handlers/v4-telegram-feed.js", import.meta.url), "utf8");
+
+  assert.match(feed, /DEFAULT_MEDIA_GATEWAY = .*\/api\/telegram\/media/);
+  assert.match(feed, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1/);
+  assert.match(feed, /delivery === "telegram_gateway_mtproto" \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
+  assert.match(feed, /url\.includes\("\?"\) \? "&" : "\?"/);
 });

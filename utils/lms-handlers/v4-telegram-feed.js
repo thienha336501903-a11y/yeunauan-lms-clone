@@ -4,6 +4,7 @@ import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
 const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
+const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?stream=1";
 const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
@@ -60,6 +61,15 @@ function thumbnailGatewayUrl() {
 function mediaGatewayUrl() {
   const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
   return configured || DEFAULT_MEDIA_GATEWAY;
+}
+
+function mtprotoGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MTPROTO_GATEWAY;
+}
+
+function gatewayUrlWithTicket(url, ticket) {
+  return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
 }
 
 async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
@@ -131,6 +141,7 @@ function publicMedia(row, courseSlug, gatewayTicket) {
   const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
   const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
   const fallbackUrl = playable ? `${base}&endpoint=v4-telegram-media` : "";
+  const gatewayUrl = delivery === "telegram_gateway_mtproto" ? mtprotoGatewayUrl() : mediaGatewayUrl();
   return {
     type: media.type,
     size: media.size,
@@ -142,7 +153,7 @@ function publicMedia(row, courseSlug, gatewayTicket) {
     delivery,
     url: playable
       ? (gatewayTicket
-          ? `${mediaGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
+          ? gatewayUrlWithTicket(gatewayUrl, gatewayTicket)
           : fallbackUrl)
       : "",
     fallbackUrl,
