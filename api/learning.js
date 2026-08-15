@@ -1,5 +1,10 @@
 import { getRuntimeSnapshot } from "../utils/v3-runtime-controller.js";
 
+function isV4RoutingEnabled() {
+  const raw = String(process.env.LMS_V4_ROUTING_ENABLED || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on", "enabled"].includes(raw);
+}
+
 export default async function handler(req, res) {
   const state = await getRuntimeSnapshot();
   const mode = state.effectiveMode === "v3" ? "v3" : "v2";
@@ -14,7 +19,7 @@ export default async function handler(req, res) {
   const qs = params.toString();
   const hasCourse = Boolean(String(params.get("course") || "").trim());
   const target = mode === "v3"
-    ? "/v4-entry.html"
+    ? (isV4RoutingEnabled() ? "/v4-entry.html" : "/v3")
     : (hasCourse ? "/lms.html" : "/v2-entry.html");
 
   res.setHeader("Cache-Control", "no-store");
