@@ -11,6 +11,7 @@ const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/te
 const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?prepare=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
+const WARMUP_CONCURRENCY = 2;
 
 function mtprotoGatewayUrl() {
   const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
@@ -28,6 +29,25 @@ function mediaGatewayUrl() {
 
 function gatewayUrlWithTicket(url, ticket) {
   return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
+}
+
+async function allSettledInBatches(items, worker) {
+  const results = [];
+  for (let index = 0; index < items.length; index += WARMUP_CONCURRENCY) {
+    const batch = items.slice(index, index + WARMUP_CONCURRENCY);
+    results.push(...await Promise.allSettled(batch.map(worker)));
+  }
+  return results;
+}
+
+async function cleanupWarmupTickets(tickets) {
+  const tokens = tickets.map((ticket) => ticket.token).filter(Boolean);
+  if (!tokens.length) return;
+  const { error } = await supabase
+    .from("lms_v4_media_tickets")
+    .delete()
+    .in("token", tokens);
+  if (error) console.warn("[v4-telegram-warmup] ticket cleanup failed", error.message || error);
 }
 
 export default async function handler(req, res) {
@@ -86,7 +106,7 @@ export default async function handler(req, res) {
       .insert(tickets.map(({ size, ...ticket }) => ticket));
     if (ticketError) throw ticketError;
 
-    const upstreams = await Promise.allSettled(tickets.map(async (ticket) => {
+    const upstreams = await allSettledInBatches(tickets, async (ticket) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
       const gateway = ticket.size > BOT_API_DOWNLOAD_LIMIT ? mtprotoGatewayUrl() : mediaGatewayUrl();
@@ -99,17 +119,20 @@ export default async function handler(req, res) {
       } finally {
         clearTimeout(timeout);
       }
-    }));
+    });
 
     const ready = upstreams.flatMap((result, index) => (
       result.status === "fulfilled" && result.value.ok
         ? [{ response: result.value, ticket: tickets[index] }]
         : []
     ));
+    await cleanupWarmupTickets(tickets);
+
     const timings = ready.map(({ response }) => response.headers.get("server-timing")).filter(Boolean);
     if (timings.length) res.setHeader("Server-Timing", timings.join(", "));
     const transports = ready.map(({ response }) => response.headers.get("x-telegram-media-transport")).filter(Boolean);
     if (transports.length) res.setHeader("X-Telegram-Media-Transport", transports.join(","));
+    res.setHeader("X-Media-Warmup-Count", `${ready.length}/${tickets.length}`);
 
     if (!ready.length) {
       console.warn("[v4-telegram-warmup] all upstream warm-ups failed");

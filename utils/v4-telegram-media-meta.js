@@ -1,4 +1,6 @@
 export const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+export const WARMUP_WINDOW_MAX = 4;
+export const WARMUP_PER_TRANSPORT_MAX = 2;
 
 const VIDEO_MESSAGE_TYPES = new Set(["video", "animation", "video_note"]);
 
@@ -25,15 +27,33 @@ export function findMtprotoVideoMessage(rows) {
   }) || null;
 }
 
-export function findWarmupVideoMessages(rows) {
-  let bot = null;
-  let mtproto = null;
+export function findWarmupVideoMessages(
+  rows,
+  { maxTotal = WARMUP_WINDOW_MAX, maxPerTransport = WARMUP_PER_TRANSPORT_MAX } = {}
+) {
+  const totalLimit = Math.max(1, Math.min(8, Number(maxTotal) || WARMUP_WINDOW_MAX));
+  const perTransportLimit = Math.max(
+    1,
+    Math.min(totalLimit, Number(maxPerTransport) || WARMUP_PER_TRANSPORT_MAX)
+  );
+  const selected = [];
+  const counts = { bot: 0, mtproto: 0 };
+
   for (const row of Array.isArray(rows) ? rows : []) {
     const media = videoMetadata(row?.raw_message, row?.message_type);
     if (!media || media.size <= 0) continue;
-    if (!bot && media.fileId && media.size <= BOT_API_DOWNLOAD_LIMIT) bot = row;
-    if (!mtproto && media.size > BOT_API_DOWNLOAD_LIMIT) mtproto = row;
-    if (bot && mtproto) break;
+
+    const transport = media.size > BOT_API_DOWNLOAD_LIMIT
+      ? "mtproto"
+      : media.fileId
+        ? "bot"
+        : null;
+    if (!transport || counts[transport] >= perTransportLimit) continue;
+
+    selected.push(row);
+    counts[transport] += 1;
+    if (selected.length >= totalLimit) break;
   }
-  return [bot, mtproto].filter(Boolean);
+
+  return selected;
 }
