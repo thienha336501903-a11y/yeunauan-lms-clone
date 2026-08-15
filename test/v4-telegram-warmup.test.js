@@ -75,3 +75,9 @@ test("V4 starts non-blocking warm-up alongside feed and preconnects the gateway"
   assert.match(v4, /rel="preconnect" href="https:\/\/telegram-channel-cloner\.vercel\.app" crossorigin/);
   assert.doesNotMatch(v4, /render\(d\);if\(Number\(d\.stats\?\.mtprotoGateway/);
 });
+
+test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
+  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+
+  assert.deepEqual(config.regions, ["sin1"]);
+});
