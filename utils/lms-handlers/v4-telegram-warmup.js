@@ -2,51 +2,44 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import {
-  BOT_API_DOWNLOAD_LIMIT,
-  findWarmupVideoMessages,
+  findMtprotoVideoMessage,
   telegramVideoMessageTypes
 } from "../v4-telegram-media-meta.js";
 
-const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media?prepare=1";
 const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?prepare=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
-const WARMUP_CONCURRENCY = 2;
+const WARMUP_DEFER_MS = 1800;
 
-function mtprotoGatewayUrl() {
-  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  if (!configured) return DEFAULT_MTPROTO_GATEWAY;
-  if (/[?&]prepare=1(?:&|$)/.test(configured)) return configured;
-  return configured.includes("?") ? `${configured}&prepare=1` : `${configured}?prepare=1`;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mediaGatewayUrl() {
-  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  if (!configured) return DEFAULT_MEDIA_GATEWAY;
-  if (/[?&]prepare=1(?:&|$)/.test(configured)) return configured;
-  return configured.includes("?") ? `${configured}&prepare=1` : `${configured}?prepare=1`;
+function mtprotoPrepareGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim();
+  const base = configured || DEFAULT_MTPROTO_GATEWAY;
+  try {
+    const url = new URL(base);
+    url.searchParams.delete("stream");
+    url.searchParams.set("prepare", "1");
+    return url.toString();
+  } catch {
+    const clean = base.replace(/\/$/, "").replace(/([?&])stream=1(?:&|$)/, "$1").replace(/[?&]$/, "");
+    if (/[?&]prepare=1(?:&|$)/.test(clean)) return clean;
+    return clean.includes("?") ? `${clean}&prepare=1` : `${clean}?prepare=1`;
+  }
 }
 
 function gatewayUrlWithTicket(url, ticket) {
   return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
 }
 
-async function allSettledInBatches(items, worker) {
-  const results = [];
-  for (let index = 0; index < items.length; index += WARMUP_CONCURRENCY) {
-    const batch = items.slice(index, index + WARMUP_CONCURRENCY);
-    results.push(...await Promise.allSettled(batch.map(worker)));
-  }
-  return results;
-}
-
-async function cleanupWarmupTickets(tickets) {
-  const tokens = tickets.map((ticket) => ticket.token).filter(Boolean);
-  if (!tokens.length) return;
+async function cleanupWarmupTicket(token) {
+  if (!token) return;
   const { error } = await supabase
     .from("lms_v4_media_tickets")
     .delete()
-    .in("token", tokens);
+    .eq("token", token);
   if (error) console.warn("[v4-telegram-warmup] ticket cleanup failed", error.message || error);
 }
 
@@ -57,7 +50,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
+  let warmupToken = "";
   try {
+    // V4 currently fires this request beside the feed. Delay expensive work so
+    // the feed and first visible thumbnails get the network/DB critical path.
+    await sleep(WARMUP_DEFER_MS);
+
     const courseSlug = String(req.query?.course || "").trim();
     const access = await requireV4CourseAccess(req, courseSlug);
     if (!access.ok) {
@@ -84,71 +82,61 @@ export default async function handler(req, res) {
       .limit(2000);
     if (rowsError) throw rowsError;
 
-    const warmupRows = findWarmupVideoMessages(rows);
-    if (!warmupRows.length) {
-      res.setHeader("X-Media-Warmup", "skipped-no-video");
-      res.setHeader("X-MTProto-Warmup", "skipped-no-video");
+    const row = findMtprotoVideoMessage(rows);
+    if (!row) {
+      res.setHeader("X-MTProto-Warmup", "skipped-no-mtproto-video");
       return res.status(204).end();
     }
 
+    warmupToken = randomUUID();
     const expiresAt = new Date(Date.now() + TICKET_TTL_MS).toISOString();
-    const tickets = warmupRows.map((row) => ({
-      token: randomUUID(),
-      course_slug: courseSlug,
-      source_id: mapping.source_id,
-      message_id: row.id,
-      email: access.email,
-      expires_at: expiresAt,
-      size: Number(row.raw_message?.[row.message_type === "video_note" ? "video_note" : row.message_type]?.file_size || 0)
-    }));
     const { error: ticketError } = await supabase
       .from("lms_v4_media_tickets")
-      .insert(tickets.map(({ size, ...ticket }) => ticket));
+      .insert({
+        token: warmupToken,
+        course_slug: courseSlug,
+        source_id: mapping.source_id,
+        message_id: row.id,
+        email: access.email,
+        expires_at: expiresAt
+      });
     if (ticketError) throw ticketError;
 
-    const upstreams = await allSettledInBatches(tickets, async (ticket) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
-      const gateway = ticket.size > BOT_API_DOWNLOAD_LIMIT ? mtprotoGatewayUrl() : mediaGatewayUrl();
-      try {
-        return await fetch(gatewayUrlWithTicket(gateway, ticket.token), {
-          method: "HEAD",
-          cache: "no-store",
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
+    let upstream;
+    try {
+      upstream = await fetch(gatewayUrlWithTicket(mtprotoPrepareGatewayUrl(), warmupToken), {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
-    const ready = upstreams.flatMap((result, index) => (
-      result.status === "fulfilled" && result.value.ok
-        ? [{ response: result.value, ticket: tickets[index] }]
-        : []
-    ));
-    await cleanupWarmupTickets(tickets);
+    const timing = upstream.headers.get("server-timing");
+    if (timing) res.setHeader("Server-Timing", timing);
+    const transport = upstream.headers.get("x-telegram-media-transport");
+    if (transport) res.setHeader("X-Telegram-Media-Transport", transport);
+    const layout = upstream.headers.get("x-mp4-layout");
+    if (layout) res.setHeader("X-MP4-Layout", layout);
+    const cacheSource = upstream.headers.get("x-mp4-index-cache");
+    if (cacheSource) res.setHeader("X-MP4-Index-Cache", cacheSource);
 
-    const timings = ready.map(({ response }) => response.headers.get("server-timing")).filter(Boolean);
-    if (timings.length) res.setHeader("Server-Timing", timings.join(", "));
-    const transports = ready.map(({ response }) => response.headers.get("x-telegram-media-transport")).filter(Boolean);
-    if (transports.length) res.setHeader("X-Telegram-Media-Transport", transports.join(","));
-    res.setHeader("X-Media-Warmup-Count", `${ready.length}/${tickets.length}`);
-
-    if (!ready.length) {
-      console.warn("[v4-telegram-warmup] all upstream warm-ups failed");
+    if (!upstream.ok) {
+      console.warn("[v4-telegram-warmup] MTProto prepare failed", upstream.status);
+      res.setHeader("X-MTProto-Warmup", "failed");
       return res.status(502).json({ success: false, code: "warmup_gateway_failed" });
     }
-    if (ready.length !== tickets.length) {
-      console.warn("[v4-telegram-warmup] partial upstream warm-up", ready.length, tickets.length);
-    }
 
-    const hasMtproto = tickets.some((ticket) => ticket.size > BOT_API_DOWNLOAD_LIMIT);
-    const mtprotoReady = ready.some(({ ticket }) => ticket.size > BOT_API_DOWNLOAD_LIMIT);
-    res.setHeader("X-Media-Warmup", ready.length === tickets.length ? "ready" : "partial");
-    res.setHeader("X-MTProto-Warmup", hasMtproto ? (mtprotoReady ? "ready" : "failed") : "skipped-bot-api-only");
+    res.setHeader("X-MTProto-Warmup", "ready");
+    res.setHeader("X-Media-Warmup-Count", "1/1");
     return res.status(204).end();
   } catch (error) {
     console.error("[v4-telegram-warmup]", error?.name || "Error", error?.message || error);
     return res.status(500).json({ success: false, error: "Server error" });
+  } finally {
+    await cleanupWarmupTicket(warmupToken);
   }
 }
