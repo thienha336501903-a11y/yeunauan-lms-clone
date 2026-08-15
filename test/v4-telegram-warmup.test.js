@@ -66,3 +66,12 @@ test("V4 feed sends large video tickets directly to MTProto streaming", () => {
   assert.match(feed, /delivery === "telegram_gateway_mtproto" \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
   assert.match(feed, /url\.includes\("\?"\) \? "&" : "\?"/);
 });
+
+test("V4 starts non-blocking warm-up alongside feed and preconnects the gateway", () => {
+  const v4 = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
+  const warmAt = v4.indexOf("warmMtprotoInBackground();try{const r=await fetch('/api/lms/portal?endpoint=v4-telegram-feed");
+
+  assert.ok(warmAt > 0);
+  assert.match(v4, /rel="preconnect" href="https:\/\/telegram-channel-cloner\.vercel\.app" crossorigin/);
+  assert.doesNotMatch(v4, /render\(d\);if\(Number\(d\.stats\?\.mtprotoGateway/);
+});
