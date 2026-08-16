@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
@@ -41,6 +41,14 @@ function pickVideo(raw, messageType) {
 function leaseTtlMs(durationSeconds) {
   const requested = Math.max(0, Number(durationSeconds || 0)) * 2000 + LEASE_GRACE_MS;
   return Math.min(MAX_LEASE_MS, Math.max(MIN_LEASE_MS, requested));
+}
+
+function createPlaybackKeyPair() {
+  const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  return {
+    publicJwk: publicKey.export({ format: "jwk" }),
+    privateJwk: privateKey.export({ format: "jwk" })
+  };
 }
 
 export default async function handler(req, res) {
@@ -89,8 +97,8 @@ export default async function handler(req, res) {
     }
 
     const token = randomUUID();
-    const proof = randomBytes(32).toString("base64url");
     const leaseId = randomUUID();
+    const keys = createPlaybackKeyPair();
     const expiresAt = new Date(Date.now() + leaseTtlMs(video.duration)).toISOString();
     const userAgent = clean(req.headers?.["user-agent"]);
     const ip = requestIp(req);
@@ -105,7 +113,7 @@ export default async function handler(req, res) {
         email: access.email,
         expires_at: expiresAt,
         purpose: "playback",
-        playback_proof_hash: sha256(proof),
+        playback_public_key_jwk: JSON.stringify(keys.publicJwk),
         bound_ua_hash: userAgent ? sha256(userAgent) : null,
         bound_ip_hash: ip ? sha256(ip) : null
       });
@@ -115,7 +123,7 @@ export default async function handler(req, res) {
       success: true,
       leaseId,
       token,
-      proof,
+      signingKey: keys.privateJwk,
       gateway: mediaGatewayUrl(),
       expiresAt,
       email: access.email
