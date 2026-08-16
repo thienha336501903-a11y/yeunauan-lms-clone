@@ -12,12 +12,17 @@ self.addEventListener("message", event => {
     const proof = String(data.proof || "").trim();
     const gateway = String(data.gateway || "").trim();
     const expiresAt = Date.parse(String(data.expiresAt || ""));
-    if (!leaseId || !token || !proof || !gateway || !Number.isFinite(expiresAt)) return;
+    if (!leaseId || !token || !proof || !gateway || !Number.isFinite(expiresAt)) {
+      event.ports?.[0]?.postMessage({ ok: false });
+      return;
+    }
     leases.set(leaseId, { token, proof, gateway, expiresAt });
+    event.ports?.[0]?.postMessage({ ok: true });
     return;
   }
   if (data.type === "V4_MEDIA_REVOKE") {
     leases.delete(String(data.leaseId || "").trim());
+    event.ports?.[0]?.postMessage({ ok: true });
   }
 });
 
