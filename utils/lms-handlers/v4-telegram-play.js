@@ -124,6 +124,7 @@ export default async function handler(req, res) {
       leaseId,
       token,
       signingKey: keys.privateJwk,
+      proof: keys.privateJwk,
       gateway: mediaGatewayUrl(),
       expiresAt,
       email: access.email
