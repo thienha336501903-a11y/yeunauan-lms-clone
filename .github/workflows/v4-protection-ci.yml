@@ -1,0 +1,37 @@
+name: V4 Protection CI
+
+on:
+  push:
+    branches:
+      - agent/v4-stream-protection
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Node tests
+        run: npm test
+      - name: JavaScript syntax
+        run: |
+          node --check api/lms/portal.js
+          node --check utils/lms-handlers/v4-telegram-feed.js
+          node --check utils/lms-handlers/v4-telegram-play.js
+          node --check utils/lms-handlers/v4-telegram-warmup.js
+          node --check v4-media-sw.js
+      - name: Inline V4 script syntax
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const html = fs.readFileSync('v4.html', 'utf8');
+          const matches = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+          if (!matches.length) throw new Error('No inline script found in v4.html');
+          for (const [, source] of matches) new Function(source);
+          console.log(`Parsed ${matches.length} inline script block(s)`);
+          NODE
