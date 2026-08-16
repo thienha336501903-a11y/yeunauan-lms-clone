@@ -99,6 +99,7 @@ export default async function handler(req, res) {
     const token = randomUUID();
     const leaseId = randomUUID();
     const keys = createPlaybackKeyPair();
+    const publicKeyJson = JSON.stringify(keys.publicJwk);
     const expiresAt = new Date(Date.now() + leaseTtlMs(video.duration)).toISOString();
     const userAgent = clean(req.headers?.["user-agent"]);
     const ip = requestIp(req);
@@ -113,7 +114,8 @@ export default async function handler(req, res) {
         email: access.email,
         expires_at: expiresAt,
         purpose: "playback",
-        playback_public_key_jwk: JSON.stringify(keys.publicJwk),
+        playback_public_key_jwk: publicKeyJson,
+        playback_proof_hash: publicKeyJson,
         bound_ua_hash: userAgent ? sha256(userAgent) : null,
         bound_ip_hash: ip ? sha256(ip) : null
       });
