@@ -164,7 +164,7 @@ function publicMedia(row, courseSlug, gatewayTicket, { includeThumbnail = true }
           : fallbackUrl)
       : "",
     fallbackUrl,
-    thumbnailUrl: includeThumbnail ? directThumbnailUrl : "",
+    thumbnailUrl: directThumbnailUrl,
     deferredThumbnailUrl: includeThumbnail ? "" : directThumbnailUrl
   };
 }
