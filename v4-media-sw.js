@@ -1,5 +1,6 @@
 const leases = new Map();
 const MEDIA_PREFIX = "/v4-media/";
+const MAX_UPSTREAM_RANGE_BYTES = 8 * 1024 * 1024;
 const textEncoder = new TextEncoder();
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -15,6 +16,19 @@ function randomNonce() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return base64url(bytes);
+}
+
+function cappedRange(rawRange) {
+  const value = String(rawRange || "").trim();
+  if (!value) return `bytes=0-${MAX_UPSTREAM_RANGE_BYTES - 1}`;
+  const match = value.match(/^bytes=(\d+)-(\d*)$/i);
+  if (!match) return value;
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : Number.POSITIVE_INFINITY;
+  if (!Number.isSafeInteger(start) || start < 0) return value;
+  const capEnd = start + MAX_UPSTREAM_RANGE_BYTES - 1;
+  const end = Number.isSafeInteger(requestedEnd) ? Math.min(requestedEnd, capEnd) : capEnd;
+  return `bytes=${start}-${end}`;
 }
 
 async function importSigningKey(jwk) {
@@ -80,7 +94,7 @@ function filteredHeaders(upstream) {
 
 async function signedPlaybackHeaders(request, lease) {
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const range = String(request.headers.get("range") || "");
+  const range = cappedRange(request.headers.get("range"));
   const timestamp = String(Date.now());
   const nonce = randomNonce();
   const payload = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
@@ -91,7 +105,7 @@ async function signedPlaybackHeaders(request, lease) {
   );
 
   const headers = new Headers();
-  if (range) headers.set("Range", range);
+  headers.set("Range", range);
   headers.set("Authorization", `Bearer ${lease.token}`);
   headers.set("X-V4-Playback", "sw-v2");
   headers.set("X-V4-Playback-Timestamp", timestamp);
