@@ -35,7 +35,8 @@ self.addEventListener("message", event => {
       const token = String(data.token || "").trim();
       const gateway = String(data.gateway || "").trim();
       const expiresAt = Date.parse(String(data.expiresAt || ""));
-      const signingKey = data.signingKey && typeof data.signingKey === "object" ? data.signingKey : null;
+      const candidateKey = data.signingKey || data.proof;
+      const signingKey = candidateKey && typeof candidateKey === "object" ? candidateKey : null;
       if (!leaseId || !token || !gateway || !signingKey || !Number.isFinite(expiresAt)) {
         event.ports?.[0]?.postMessage({ ok: false });
         return;
