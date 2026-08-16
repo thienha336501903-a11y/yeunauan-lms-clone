@@ -1,23 +1,53 @@
 const leases = new Map();
 const MEDIA_PREFIX = "/v4-media/";
+const textEncoder = new TextEncoder();
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
 
+function base64url(bytes) {
+  let binary = "";
+  for (const value of new Uint8Array(bytes)) binary += String.fromCharCode(value);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function randomNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return base64url(bytes);
+}
+
+async function importSigningKey(jwk) {
+  return crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+}
+
 self.addEventListener("message", event => {
   const data = event.data || {};
   if (data.type === "V4_MEDIA_LEASE") {
-    const leaseId = String(data.leaseId || "").trim();
-    const token = String(data.token || "").trim();
-    const proof = String(data.proof || "").trim();
-    const gateway = String(data.gateway || "").trim();
-    const expiresAt = Date.parse(String(data.expiresAt || ""));
-    if (!leaseId || !token || !proof || !gateway || !Number.isFinite(expiresAt)) {
-      event.ports?.[0]?.postMessage({ ok: false });
-      return;
-    }
-    leases.set(leaseId, { token, proof, gateway, expiresAt });
-    event.ports?.[0]?.postMessage({ ok: true });
+    event.waitUntil((async () => {
+      const leaseId = String(data.leaseId || "").trim();
+      const token = String(data.token || "").trim();
+      const gateway = String(data.gateway || "").trim();
+      const expiresAt = Date.parse(String(data.expiresAt || ""));
+      const signingKey = data.signingKey && typeof data.signingKey === "object" ? data.signingKey : null;
+      if (!leaseId || !token || !gateway || !signingKey || !Number.isFinite(expiresAt)) {
+        event.ports?.[0]?.postMessage({ ok: false });
+        return;
+      }
+      try {
+        const key = await importSigningKey(signingKey);
+        leases.set(leaseId, { token, key, gateway, expiresAt });
+        event.ports?.[0]?.postMessage({ ok: true });
+      } catch {
+        event.ports?.[0]?.postMessage({ ok: false });
+      }
+    })());
     return;
   }
   if (data.type === "V4_MEDIA_REVOKE") {
@@ -47,6 +77,28 @@ function filteredHeaders(upstream) {
   return headers;
 }
 
+async function signedPlaybackHeaders(request, lease) {
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const range = String(request.headers.get("range") || "");
+  const timestamp = String(Date.now());
+  const nonce = randomNonce();
+  const payload = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    lease.key,
+    textEncoder.encode(payload)
+  );
+
+  const headers = new Headers();
+  if (range) headers.set("Range", range);
+  headers.set("Authorization", `Bearer ${lease.token}`);
+  headers.set("X-V4-Playback", "sw-v2");
+  headers.set("X-V4-Playback-Timestamp", timestamp);
+  headers.set("X-V4-Playback-Nonce", nonce);
+  headers.set("X-V4-Playback-Signature", base64url(signature));
+  return headers;
+}
+
 async function proxyMedia(request, leaseId) {
   const lease = leases.get(leaseId);
   if (!lease || lease.expiresAt <= Date.now()) {
@@ -57,14 +109,8 @@ async function proxyMedia(request, leaseId) {
     });
   }
 
-  const headers = new Headers();
-  const range = request.headers.get("range");
-  if (range) headers.set("Range", range);
-  headers.set("Authorization", `Bearer ${lease.token}`);
-  headers.set("X-V4-Playback-Proof", lease.proof);
-  headers.set("X-V4-Playback", "sw-v1");
-
   try {
+    const headers = await signedPlaybackHeaders(request, lease);
     const upstream = await fetch(lease.gateway, {
       method: request.method === "HEAD" ? "HEAD" : "GET",
       headers,
