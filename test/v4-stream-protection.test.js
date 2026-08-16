@@ -14,12 +14,13 @@ test('V4 feed marks feed tickets and does not expose direct video URL', () => {
   assert.match(feed, /url:\s*protectedVideo\s*\?\s*""\s*:\s*directUrl/);
 });
 
-test('V4 play endpoint issues proof-bound playback leases', () => {
+test('V4 play endpoint issues ephemeral ECDSA-bound playback leases', () => {
   assert.match(play, /purpose:\s*"playback"/);
-  assert.match(play, /playback_proof_hash:\s*sha256\(proof\)/);
+  assert.match(play, /generateKeyPairSync\("ec"/);
+  assert.match(play, /playback_public_key_jwk:\s*publicKeyJson/);
+  assert.match(play, /signingKey:\s*keys\.privateJwk/);
   assert.match(play, /bound_ua_hash/);
   assert.match(play, /bound_ip_hash/);
-  assert.match(play, /randomBytes\(32\)/);
 });
 
 test('portal exposes the protected play endpoint without adding a top-level function', () => {
@@ -35,9 +36,12 @@ test('V4 player uses a service-worker virtual URL and hides download controls', 
   assert.match(page, /media-watermark/);
 });
 
-test('service worker keeps gateway token out of video src and sends it in headers', () => {
+test('service worker keeps gateway token/key out of video src and signs each upstream request', () => {
+  assert.match(worker, /crypto\.subtle\.importKey/);
+  assert.match(worker, /crypto\.subtle\.sign/);
   assert.match(worker, /Authorization/);
-  assert.match(worker, /X-V4-Playback-Proof/);
-  assert.match(worker, /X-V4-Playback/);
+  assert.match(worker, /X-V4-Playback-Timestamp/);
+  assert.match(worker, /X-V4-Playback-Nonce/);
+  assert.match(worker, /X-V4-Playback-Signature/);
   assert.match(worker, /MEDIA_PREFIX = "\/v4-media\/"/);
 });
