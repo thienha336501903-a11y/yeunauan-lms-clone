@@ -162,5 +162,3 @@ self.addEventListener("fetch", event => {
   }
   event.respondWith(proxyMedia(event.request, leaseId));
 });
-
-// Build marker: student email watermark removed; playback protection behavior unchanged.
