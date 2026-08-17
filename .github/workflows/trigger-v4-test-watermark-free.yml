@@ -1,0 +1,42 @@
+name: Trigger V4 Test Watermark-Free Build
+
+on:
+  push:
+    branches:
+      - agent/v4-stream-protection
+    paths:
+      - .github/workflows/trigger-v4-test-watermark-free.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v4-stream-protection
+      - name: Mark V4 page without changing runtime
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('v4.html')
+          text = path.read_text(encoding='utf-8')
+          marker = '<!-- V4 protected player: student email watermark disabled -->'
+          anchor = '<title>Kênh bài học</title>'
+          assert "mark.textContent=(lease.email||data?.email||'Học viên')+' • YeuNauAn'" not in text
+          assert 'mark.hidden=true' in text
+          if marker not in text:
+              assert anchor in text
+              text = text.replace(anchor, anchor + '\n' + marker, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit V4 page marker
+        run: |
+          git config user.name "thienha336501903-a11y"
+          git config user.email "thienha336501903@gmail.com"
+          git add v4.html
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: mark V4 watermark-free test build"
+          git push origin HEAD:agent/v4-stream-protection
