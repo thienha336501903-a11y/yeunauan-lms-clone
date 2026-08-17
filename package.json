@@ -1,7 +1,6 @@
 {
 "name": "landing-page",
 "version": "1.0.0",
-"description": "YeuNauAn LMS V4 protected player",
 "type": "module",
 "scripts": {
 "test": "node --test"
