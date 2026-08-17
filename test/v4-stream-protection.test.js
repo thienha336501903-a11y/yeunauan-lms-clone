@@ -28,12 +28,13 @@ test('portal exposes the protected play endpoint without adding a top-level func
   assert.match(portal, /v4TelegramPlayHandler/);
 });
 
-test('V4 player uses a service-worker virtual URL and hides download controls', () => {
+test('V4 player uses a service-worker virtual URL, hides download controls, and does not display student email watermark', () => {
   assert.match(page, /navigator\.serviceWorker\.register\('\/v4-media-sw\.js/);
   assert.match(page, /endpoint=v4-telegram-play/);
   assert.match(page, /video\.src='\/v4-media\/'/);
   assert.match(page, /nodownload noremoteplayback/);
-  assert.match(page, /media-watermark/);
+  assert.match(page, /mark\.hidden=true/);
+  assert.doesNotMatch(page, /mark\.textContent=\(lease\.email\|\|data\?\.email/);
 });
 
 test('service worker keeps gateway token/key out of video src and signs each upstream request', () => {
