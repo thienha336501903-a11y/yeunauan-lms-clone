@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Khóa học của tôi</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f4ef;color:#2d211b}body{padding-bottom:max(28px,env(safe-area-inset-bottom))}.wrap{width:min(720px,100%);margin:0 auto;padding:18px 14px 36px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.brand{display:flex;align-items:center;gap:10px;font-weight:900;color:#2d5b38;font-size:19px}.brand i{font-style:normal;font-size:29px}.account{font-size:11px;color:#786d65;text-align:right;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hero{background:linear-gradient(135deg,#294c32,#3e6b45);color:#fff;border-radius:24px;padding:22px 20px;box-shadow:0 12px 34px rgba(39,77,49,.18)}.hero h1{font-size:28px;line-height:1.1;margin:0 0 8px;font-weight:900}.hero p{margin:0;color:rgba(255,255,255,.82);font-size:13px;line-height:1.55}.notice{margin-top:14px;border:1px solid #f0c988;background:#fff8e9;color:#76531d;border-radius:18px;padding:14px 15px;font-size:13px;line-height:1.55}.notice strong{display:block;color:#5d4015;margin-bottom:3px}.panel{margin-top:16px;background:#fff;border:1px solid #e8e0d8;border-radius:24px;padding:18px;box-shadow:0 10px 30px rgba(56,39,28,.06)}.panel h2{font-size:18px;margin:0 0 4px}.sub{font-size:12px;color:#83786f;margin:0 0 14px;line-height:1.5}.signin{text-align:center;padding:22px 8px}.signin .icon{font-size:44px;margin-bottom:8px}.signin p{font-size:13px;color:#6f645c;line-height:1.55;margin:0 auto 14px;max-width:420px}.btn{border:0;border-radius:14px;padding:12px 16px;font-weight:850;font-size:13px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px}.btn-google{background:#fff;color:#263238;box-shadow:inset 0 0 0 1px #d7dfe2,0 4px 12px rgba(20,30,35,.06)}.btn-primary{background:#2f6240;color:#fff}.btn-muted{background:#eee8e2;color:#6b5e54}.btn:disabled{opacity:.5;cursor:not-allowed}.loading{text-align:center;color:#7c7067;padding:28px 10px;font-size:13px}.spin{width:32px;height:32px;border:3px solid #e6ddd5;border-top-color:#356443;border-radius:50%;margin:0 auto 10px;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}.list{display:grid;gap:12px}.course{border:1px solid #ebe2da;background:#fff;border-radius:20px;padding:14px;display:grid;grid-template-columns:64px 1fr;gap:13px}.thumb{width:64px;height:64px;border-radius:15px;background:linear-gradient(135deg,#e8efe8,#f5e6d8);object-fit:cover}.meta{min-width:0}.title{font-weight:900;font-size:15px;line-height:1.35;margin-bottom:3px}.slug{font-size:10px;color:#9a8f87;margin-bottom:9px}.status{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}.st-pending{background:#fff4d8;color:#8b6414}.st-wait{background:#e9f0ff;color:#365c9a}.st-ready{background:#e3f6e8;color:#28703b}.st-rejected{background:#fde7e7;color:#9b3737}.st-inactive{background:#efefef;color:#666}.desc{font-size:11px;color:#756a61;line-height:1.5;margin:8px 0 10px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions .btn{padding:10px 12px;font-size:11px}.empty{text-align:center;padding:26px 8px;color:#766b63}.empty b{display:block;color:#3c302a;margin-bottom:6px}.foot{text-align:center;font-size:11px;color:#9a8f86;margin-top:18px}.error{border:1px solid #efcaca;background:#fff0f0;color:#943b3b;border-radius:16px;padding:12px;font-size:12px;line-height:1.5;margin-bottom:12px}.refresh{border:0;background:transparent;color:#356443;font-weight:850;font-size:11px;padding:5px;cursor:pointer}@media(max-width:420px){.hero h1{font-size:25px}.course{grid-template-columns:54px 1fr}.thumb{width:54px;height:54px}.panel{padding:14px}.wrap{padding-left:10px;padding-right:10px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><i>🍳</i><span>Culinary Academy</span></div>
+    <div id="account" class="account"></div>
+  </div>
+
+  <section class="hero">
+    <h1>Khóa học của tôi</h1>
+    <p>Theo dõi trạng thái đăng ký, duyệt học và vào lớp tại một nơi.</p>
+  </section>
+
+  <div id="registeredNotice" class="notice" hidden>
+    <strong>✓ Đã nhận đăng ký và bill chuyển khoản</strong>
+    Đơn của bạn đang được kiểm tra. Đăng nhập đúng Gmail vừa đăng ký để theo dõi trạng thái. Khi Admin duyệt và khóa học ở trạng thái Sẵn sàng, nút <b>Vào học</b> sẽ xuất hiện.
+  </div>
+
+  <section class="panel">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+      <div><h2>Danh sách khóa học</h2><p class="sub">Trạng thái được cập nhật trực tiếp từ hệ thống.</p></div>
+      <button id="refreshBtn" class="refresh" type="button" hidden>Làm mới</button>
+    </div>
+    <div id="content"><div class="loading"><div class="spin"></div>Đang kiểm tra phiên học viên…</div></div>
+  </section>
+  <div class="foot">© 2026 Culinary Academy</div>
+</div>
+<script>
+(()=>{
+const qs=new URLSearchParams(location.search),registered=qs.get('registered')==='1',focusCourse=String(qs.get('course')||'').trim();
+const content=document.getElementById('content'),account=document.getElementById('account'),notice=document.getElementById('registeredNotice'),refreshBtn=document.getElementById('refreshBtn');
+if(registered)notice.hidden=false;
+let tokenClient=null,sessionToken='';
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+function sessionHeaders(){try{const sid=localStorage.getItem('lms_verified_session_id')||localStorage.getItem('lms_session_id')||'',did=localStorage.getItem('lms_device_id')||'';return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{}}catch{return {}}}
+async function dashboard(payload={}){const body={...payload};if(sessionToken&&!body.accessToken&&!body.credential)body.sessionToken=sessionToken;const r=await fetch('/api/lms/portal?endpoint=student-dashboard',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...sessionHeaders()},body:JSON.stringify(body),cache:'no-store'});let d={};try{d=await r.json()}catch{}return {r,d}}
+function stateInfo(course){switch(course.state){case'ready':return{label:'🟢 Sẵn sàng vào học',cls:'st-ready',desc:'Khóa học đã được duyệt và nội dung đã sẵn sàng.'};case'approved_waiting_content':return{label:'🔵 Đã duyệt – Chờ lên bài',cls:'st-wait',desc:'Bạn đã được cấp quyền. Admin chưa chuyển nội dung khóa sang trạng thái Sẵn sàng.'};case'rejected':return{label:'🔴 Không được duyệt',cls:'st-rejected',desc:'Đơn đăng ký hiện không được duyệt. Vui lòng liên hệ hỗ trợ nếu cần kiểm tra.'};case'inactive':return{label:'⚪ Chưa hoạt động',cls:'st-inactive',desc:'Quyền học hiện chưa hoạt động.'};default:return{label:'🟠 Chờ duyệt',cls:'st-pending',desc:'Bill đã được ghi nhận và đang chờ Admin kiểm tra thanh toán.'}}}
+function render(data){sessionToken=String(data.sessionToken||sessionToken||'');account.textContent=data.email||'';refreshBtn.hidden=false;const courses=Array.isArray(data.courses)?data.courses:[];if(!courses.length){content.innerHTML='<div class="empty"><b>Chưa có khóa học nào</b>Không tìm thấy đơn đăng ký hoặc quyền học cho Gmail này.</div>';return}const ordered=[...courses].sort((a,b)=>{if(focusCourse&&a.slug===focusCourse)return-1;if(focusCourse&&b.slug===focusCourse)return 1;return 0});content.innerHTML='<div class="list">'+ordered.map(c=>{const st=stateInfo(c);const img=c.imageUrl?`<img class="thumb" src="${esc(c.imageUrl)}" alt="">`:'<div class="thumb"></div>';const action=c.state==='ready'?`<a class="btn btn-primary" href="/learning?course=${encodeURIComponent(c.slug)}">▶ Vào học</a>`:`<button class="btn btn-muted" type="button" disabled>Chưa thể vào học</button>`;return`<article class="course" data-course="${esc(c.slug)}">${img}<div class="meta"><div class="title">${esc(c.title||c.slug)}</div><div class="slug">${esc(c.slug)} · ${esc((c.deliveryMode||'lms').toUpperCase())}</div><span class="status ${st.cls}">${st.label}</span><div class="desc">${st.desc}</div><div class="actions">${action}</div></div></article>`}).join('')+'</div>'}
+function showLogin(message=''){account.textContent='';refreshBtn.hidden=true;content.innerHTML=`<div class="signin"><div class="icon">🔐</div><p>${esc(message||'Đăng nhập đúng Gmail đã dùng khi đăng ký khóa học để xem trạng thái.')}</p><button id="googleLogin" class="btn btn-google" type="button">G&nbsp; Chọn tài khoản Google</button></div>`;document.getElementById('googleLogin').addEventListener('click',chooseAccount)}
+function showError(message){content.innerHTML=`<div class="error">${esc(message)}</div><div class="signin"><button class="btn btn-muted" onclick="location.reload()">Tải lại trang</button></div>`}
+function waitGoogle(){return new Promise((ok,no)=>{let n=0,t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);ok()}else if(++n>100){clearInterval(t);no(new Error('Google Identity chưa tải được'))}},100)})}
+async function ensureOAuth(){if(tokenClient)return;const cfg=await fetch('/api/lms/portal?endpoint=public-config',{credentials:'same-origin',cache:'no-store'}).then(r=>r.json());if(!cfg?.googleClientId)throw new Error('Hệ thống đăng nhập Google chưa sẵn sàng.');await waitGoogle();tokenClient=google.accounts.oauth2.initTokenClient({client_id:cfg.googleClientId,scope:'openid email profile',prompt:'select_account',callback:async resp=>{if(!resp?.access_token){showLogin('Không nhận được quyền đăng nhập Google.');return}content.innerHTML='<div class="loading"><div class="spin"></div>Đang tải khóa học của bạn…</div>';const {r,d}=await dashboard({accessToken:resp.access_token});if(r.ok&&d.success){render(d);return}showLogin(d.error||'Không xác thực được tài khoản học viên.')},error_callback:()=>showLogin('Không mở được cửa sổ Google. Nếu đang mở trong ứng dụng chat, hãy mở trang bằng Safari hoặc Chrome.')});}
+async function chooseAccount(){try{await ensureOAuth();tokenClient.requestAccessToken({prompt:'select_account'})}catch(e){showError(e.message||String(e))}}
+async function refresh(){content.innerHTML='<div class="loading"><div class="spin"></div>Đang cập nhật trạng thái…</div>';const {r,d}=await dashboard();if(r.ok&&d.success){render(d);return}if(r.status===401){sessionToken='';showLogin();return}showError(d.error||'Không tải được trạng thái khóa học.')}
+refreshBtn.addEventListener('click',refresh);
+(async()=>{try{const {r,d}=await dashboard();if(r.ok&&d.success){render(d);return}if(r.status===401){showLogin(registered?'Đã nhận bill. Hãy chọn đúng Gmail vừa đăng ký để theo dõi đơn.':'Đăng nhập đúng Gmail đã đăng ký khóa học.');return}showError(d.error||'Không tải được trang quản lý khóa học.')}catch(e){showError(e.message||String(e))}})();
+})();
+</script>
+</body>
+</html>
