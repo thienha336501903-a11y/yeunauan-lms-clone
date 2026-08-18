@@ -31,7 +31,7 @@
       <div class="step"><div class="num">3</div><div><b>Tiếp tục tại “Khóa học của tôi”</b><span>Khi Safari mở, hệ thống sẽ tự chuyển sang trang khóa học của bạn để đăng nhập Gmail và theo dõi trạng thái.</span></div></div>
     </div>
     <div class="note"><b>Lưu ý:</b> Bill của bạn đã được ghi nhận. Không cần đăng ký hoặc up bill lại.</div>
-    <a id="manualContinue" class="continue" href="/my-courses.html">Tiếp tục đến Khóa học của tôi</a>
+    <a id="manualContinue" class="continue" href="/my-courses.html">Tôi đã mở Safari — Tiếp tục</a>
   </main>
   <main id="checking" class="card checking" hidden><div class="spin"></div>Đang mở “Khóa học của tôi” trong Safari…</main>
 </div>
@@ -50,22 +50,21 @@
   const manual=document.getElementById('manualContinue');
   manual.href=target;
 
-  // In the embedded browser, keep the legacy guide visible. Once the same URL
-  // is opened in real Safari (or a regular desktop browser), forward immediately
-  // to My Courses. Referrer is intentionally NOT used to block this handoff,
-  // because iOS can preserve the Commerce referrer when choosing Open in Safari.
-  if(iosSafari||regularBrowser){
+  // Always keep the first post-checkout arrival on the guide. Some iOS embedded
+  // browsers report a Safari-like user agent, so UA detection alone is not safe.
+  // After the user chooses "Open in Safari", the new browser normally has a new
+  // navigation context and can forward straight to My Courses.
+  if(!fromCommerce&&(iosSafari||regularBrowser)){
     document.getElementById('guide').hidden=true;
     document.getElementById('checking').hidden=false;
     setTimeout(()=>location.replace(target),80);
     return;
   }
 
-  // Unknown embedded browsers stay on the safe guide. Only expose a manual
-  // continue fallback when the navigation does not look like the checkout handoff.
-  setTimeout(()=>{
-    if(!knownInApp&&!fromCommerce) manual.style.display='block';
-  },1800);
+  // If iOS preserves the checkout referrer across the handoff, keep a clear
+  // fallback button. In the embedded browser the guide itself still tells users
+  // to open Safari first, so Google auth is never attempted on this page.
+  setTimeout(()=>{manual.style.display='block'},1600);
 })();
 </script>
 </body>
