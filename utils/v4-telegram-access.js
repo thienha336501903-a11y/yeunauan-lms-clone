@@ -80,5 +80,23 @@ export async function requireV4CourseAccess(req, courseSlug) {
     };
   }
 
+  // V4 follows the same release gate as the legacy course manager:
+  // approving an enrollment is not enough; course content must also be marked ready.
+  const { data: course, error: courseError } = await supabase
+    .from("courses")
+    .select("is_published")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (courseError) throw courseError;
+  if (!course?.is_published) {
+    return {
+      ok: false,
+      status: 403,
+      code: "course_not_ready",
+      error: "Khóa học chưa ở trạng thái Sẵn sàng. Vui lòng quay lại Quản lý khóa học và thử lại sau."
+    };
+  }
+
   return { ok: true, email, courseSlug: slug };
 }
