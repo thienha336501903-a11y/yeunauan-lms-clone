@@ -12,6 +12,7 @@
 <script>
 (()=>{
 const K='v4_course_session_token',qs=new URLSearchParams(location.search),requested=String(qs.get('course')||'').trim(),status=document.getElementById('status'),signin=document.getElementById('signin'),signinText=document.getElementById('signinText'),chooseGoogle=document.getElementById('chooseGoogle'),list=document.getElementById('courses');
+const fromCommerce=/^https:\/\/yeunauan-commerce-clone\.vercel\.app(?:\/|$)/i.test(String(document.referrer||''));if(fromCommerce){location.replace('/my-courses.html?registered=1'+(requested?'&course='+encodeURIComponent(requested):''));return;}
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])),norm=v=>String(v||'').trim().toLowerCase();let tokenClient=null;
 function headers(){try{const sid=localStorage.getItem('lms_verified_session_id')||localStorage.getItem('lms_session_id')||'',did=localStorage.getItem('lms_device_id')||'';return sid&&did?{'X-LMS-Session-Id':sid,'X-LMS-Device-Id':did}:{}}catch{return {}}}
 function token(){try{return sessionStorage.getItem(K)||''}catch{return ''}}function save(t){try{if(t)sessionStorage.setItem(K,String(t))}catch{}}function clear(){try{sessionStorage.removeItem(K)}catch{}}
