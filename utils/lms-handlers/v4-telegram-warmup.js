@@ -52,8 +52,6 @@ export default async function handler(req, res) {
 
   let warmupToken = "";
   try {
-    // V4 currently fires this request beside the feed. Delay expensive work so
-    // the feed and first visible thumbnails get the network/DB critical path.
     await sleep(WARMUP_DEFER_MS);
 
     const courseSlug = String(req.query?.course || "").trim();
@@ -98,7 +96,8 @@ export default async function handler(req, res) {
         source_id: mapping.source_id,
         message_id: row.id,
         email: access.email,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        purpose: "warmup"
       });
     if (ticketError) throw ticketError;
 

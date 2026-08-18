@@ -9,6 +9,7 @@ const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/ap
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
 const INITIAL_THUMBNAIL_BUDGET = 4;
+const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -85,6 +86,7 @@ async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
     .eq("course_slug", courseSlug)
     .eq("source_id", sourceId)
     .eq("email", email)
+    .eq("purpose", "feed")
     .is("revoked_at", null)
     .gt("expires_at", reusableAfter)
     .in("message_id", messageIds)
@@ -103,7 +105,8 @@ async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
     source_id: sourceId,
     message_id: row.id,
     email,
-    expires_at: expiresAt
+    expires_at: expiresAt,
+    purpose: "feed"
   }));
   if (records.length) {
     const { error } = await supabase.from("lms_v4_media_tickets").insert(records);
@@ -140,9 +143,13 @@ function publicMedia(row, courseSlug, gatewayTicket, { includeThumbnail = true }
   }
 
   const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
+  const protectedVideo = playable && VIDEO_TYPES.has(media.type);
   const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
   const fallbackUrl = playable ? `${base}&endpoint=v4-telegram-media` : "";
   const gatewayUrl = delivery === "telegram_gateway_mtproto" ? mtprotoGatewayUrl() : mediaGatewayUrl();
+  const directUrl = playable
+    ? (gatewayTicket ? gatewayUrlWithTicket(gatewayUrl, gatewayTicket) : fallbackUrl)
+    : "";
   const directThumbnailUrl = media.hasThumbnail
     ? (gatewayTicket
         ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
@@ -158,13 +165,10 @@ function publicMedia(row, courseSlug, gatewayTicket, { includeThumbnail = true }
     mimeType: media.mimeType || "",
     name: media.name || "",
     delivery,
-    url: playable
-      ? (gatewayTicket
-          ? gatewayUrlWithTicket(gatewayUrl, gatewayTicket)
-          : fallbackUrl)
-      : "",
-    fallbackUrl,
-    thumbnailUrl: directThumbnailUrl,
+    url: protectedVideo ? "" : directUrl,
+    fallbackUrl: protectedVideo ? "" : fallbackUrl,
+    playbackRequired: protectedVideo,
+    thumbnailUrl: includeThumbnail ? directThumbnailUrl : "",
     deferredThumbnailUrl: includeThumbnail ? "" : directThumbnailUrl
   };
 }
