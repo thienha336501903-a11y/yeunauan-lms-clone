@@ -7,7 +7,8 @@ assert.match(page, /Mở bằng Safari để tiếp tục/);
 assert.match(page, /Nhấn dấu •••/);
 assert.match(page, /Chọn “Mở bằng Safari”/);
 assert.match(page, /\/my-courses\.html\?registered=1/);
-assert.match(page, /if\(iosSafari\|\|regularBrowser\)/);
+assert.match(page, /if\(!fromCommerce&&\(iosSafari\|\|regularBrowser\)\)/);
+assert.match(page, /Tôi đã mở Safari — Tiếp tục/);
 assert.doesNotMatch(page, /accounts\.google\.com\/gsi\/client/);
 assert.doesNotMatch(page, /requestAccessToken/);
 
