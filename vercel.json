@@ -1,5 +1,19 @@
 {
   "regions": ["sin1"],
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "header",
+          "key": "referer",
+          "value": "https://yeunauan-commerce-clone\\.vercel\\.app(?:/.*)?"
+        }
+      ],
+      "destination": "/my-courses.html?registered=1",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/learning", "destination": "/api/learning" },
     { "source": "/v3", "destination": "/v3-entry.html" },
