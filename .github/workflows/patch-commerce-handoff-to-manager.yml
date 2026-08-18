@@ -1,0 +1,48 @@
+name: Patch Commerce Handoff To Manager
+
+on:
+  push:
+    branches: [agent/student-course-manager]
+    paths: [.github/workflows/patch-commerce-handoff-to-manager.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/student-course-manager
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Redirect Commerce arrivals before V4 auth
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('v4-entry.html'); s=p.read_text()
+          needle="const K='v4_course_session_token',qs=new URLSearchParams(location.search),requested=String(qs.get('course')||'').trim(),status=document.getElementById('status'),signin=document.getElementById('signin'),signinText=document.getElementById('signinText'),chooseGoogle=document.getElementById('chooseGoogle'),list=document.getElementById('courses');\n"
+          insert=needle+"const fromCommerce=/^https:\\/\\/yeunauan-commerce-clone\\.vercel\\.app(?:\\/|$)/i.test(String(document.referrer||''));if(fromCommerce){location.replace('/my-courses.html?registered=1'+(requested?'&course='+encodeURIComponent(requested):''));return;}\n"
+          if needle not in s: raise SystemExit('V4 entry bootstrap line missing')
+          p.write_text(s.replace(needle,insert,1))
+          PY
+          node - <<'NODE'
+          const fs=require('fs'),html=fs.readFileSync('v4-entry.html','utf8');
+          for(const [,src] of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)){if(src.trim())new Function(src)}
+          NODE
+          npm ci
+          npm test
+          grep -q 'fromCommerce' v4-entry.html
+          git diff --check
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-commerce-handoff-to-manager.yml
+          git add v4-entry.html
+          git commit -m "fix: send Commerce V4 arrivals to course manager"
+          git push origin HEAD:agent/student-course-manager
