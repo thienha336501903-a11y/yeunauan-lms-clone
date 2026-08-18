@@ -50,18 +50,19 @@
   const manual=document.getElementById('manualContinue');
   manual.href=target;
 
-  // Initial checkout happens inside an app browser: always show the legacy guide.
-  // Opening the same URL with "Open in Safari" creates a real Safari navigation;
-  // then this page immediately hands off to the course manager.
-  if(!fromCommerce&&(iosSafari||regularBrowser)){
+  // In the embedded browser, keep the legacy guide visible. Once the same URL
+  // is opened in real Safari (or a regular desktop browser), forward immediately
+  // to My Courses. Referrer is intentionally NOT used to block this handoff,
+  // because iOS can preserve the Commerce referrer when choosing Open in Safari.
+  if(iosSafari||regularBrowser){
     document.getElementById('guide').hidden=true;
     document.getElementById('checking').hidden=false;
     setTimeout(()=>location.replace(target),80);
     return;
   }
 
-  // If an unknown browser does not match our detector, keep the safe guide visible.
-  // The manual link is only surfaced after a delay as a fallback for real browsers.
+  // Unknown embedded browsers stay on the safe guide. Only expose a manual
+  // continue fallback when the navigation does not look like the checkout handoff.
   setTimeout(()=>{
     if(!knownInApp&&!fromCommerce) manual.style.display='block';
   },1800);
