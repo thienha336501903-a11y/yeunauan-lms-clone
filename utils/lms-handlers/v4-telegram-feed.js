@@ -1,7 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
+const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?stream=1";
+const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
+const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
+const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
+const INITIAL_THUMBNAIL_BUDGET = 4;
+const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const MEDIA_MESSAGE_TYPES = new Set([
   "photo",
   "video",
@@ -47,7 +55,68 @@ function pickMedia(raw, messageType) {
   };
 }
 
-function publicMedia(row, courseSlug) {
+function thumbnailGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_THUMBNAIL_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_THUMBNAIL_GATEWAY;
+}
+
+function mediaGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MEDIA_GATEWAY;
+}
+
+function mtprotoGatewayUrl() {
+  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
+  return configured || DEFAULT_MTPROTO_GATEWAY;
+}
+
+function gatewayUrlWithTicket(url, ticket) {
+  return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
+}
+
+async function issueGatewayTickets({ rows, courseSlug, sourceId, email }) {
+  const candidates = (rows || []).filter((row) => Boolean(pickMedia(row.raw_message, row.message_type)));
+  if (!candidates.length) return new Map();
+
+  const messageIds = candidates.map((row) => row.id);
+  const reusableAfter = new Date(Date.now() + GATEWAY_TICKET_REUSE_BUFFER_MS).toISOString();
+  const { data: existing, error: existingError } = await supabase
+    .from("lms_v4_media_tickets")
+    .select("token,message_id,created_at")
+    .eq("course_slug", courseSlug)
+    .eq("source_id", sourceId)
+    .eq("email", email)
+    .eq("purpose", "feed")
+    .is("revoked_at", null)
+    .gt("expires_at", reusableAfter)
+    .in("message_id", messageIds)
+    .order("created_at", { ascending: false });
+  if (existingError) throw existingError;
+
+  const tickets = new Map();
+  for (const ticket of existing || []) {
+    if (!tickets.has(ticket.message_id)) tickets.set(ticket.message_id, ticket.token);
+  }
+
+  const expiresAt = new Date(Date.now() + GATEWAY_TICKET_TTL_MS).toISOString();
+  const records = candidates.filter((row) => !tickets.has(row.id)).map((row) => ({
+    token: randomUUID(),
+    course_slug: courseSlug,
+    source_id: sourceId,
+    message_id: row.id,
+    email,
+    expires_at: expiresAt,
+    purpose: "feed"
+  }));
+  if (records.length) {
+    const { error } = await supabase.from("lms_v4_media_tickets").insert(records);
+    if (error) throw error;
+    for (const record of records) tickets.set(record.message_id, record.token);
+  }
+  return tickets;
+}
+
+function publicMedia(row, courseSlug, gatewayTicket, { includeThumbnail = true } = {}) {
   const fromHistoricalReader = Boolean(row.raw_message?.from_reader);
   let media = pickMedia(row.raw_message, row.message_type);
 
@@ -74,7 +143,19 @@ function publicMedia(row, courseSlug) {
   }
 
   const playable = delivery === "telegram_gateway_bot" || delivery === "telegram_gateway_mtproto";
+  const protectedVideo = playable && VIDEO_TYPES.has(media.type);
   const base = `/api/lms/portal?course=${encodeURIComponent(courseSlug)}&message=${encodeURIComponent(row.id)}`;
+  const fallbackUrl = playable ? `${base}&endpoint=v4-telegram-media` : "";
+  const gatewayUrl = delivery === "telegram_gateway_mtproto" ? mtprotoGatewayUrl() : mediaGatewayUrl();
+  const directUrl = playable
+    ? (gatewayTicket ? gatewayUrlWithTicket(gatewayUrl, gatewayTicket) : fallbackUrl)
+    : "";
+  const directThumbnailUrl = media.hasThumbnail
+    ? (gatewayTicket
+        ? `${thumbnailGatewayUrl()}?ticket=${encodeURIComponent(gatewayTicket)}`
+        : `${base}&endpoint=v4-telegram-thumbnail`)
+    : "";
+
   return {
     type: media.type,
     size: media.size,
@@ -84,8 +165,11 @@ function publicMedia(row, courseSlug) {
     mimeType: media.mimeType || "",
     name: media.name || "",
     delivery,
-    url: playable ? `${base}&endpoint=v4-telegram-media` : "",
-    thumbnailUrl: media.hasThumbnail ? `${base}&endpoint=v4-telegram-thumbnail` : ""
+    url: protectedVideo ? "" : directUrl,
+    fallbackUrl: protectedVideo ? "" : fallbackUrl,
+    playbackRequired: protectedVideo,
+    thumbnailUrl: includeThumbnail ? directThumbnailUrl : "",
+    deferredThumbnailUrl: includeThumbnail ? "" : directThumbnailUrl
   };
 }
 
@@ -128,16 +212,35 @@ export default async function handler(req, res) {
       .limit(2000);
     if (rowsError) throw rowsError;
 
-    const posts = (rows || []).map((row) => ({
-      id: row.id,
-      telegramMessageId: row.source_message_id,
-      mediaGroupId: row.media_group_id || "",
-      type: row.message_type,
-      text: row.text || row.caption || "",
-      isPinned: Boolean(row.is_pinned),
-      date: row.source_date || row.updated_at,
-      media: publicMedia(row, courseSlug)
-    }));
+    let gatewayTickets = new Map();
+    try {
+      gatewayTickets = await issueGatewayTickets({
+        rows,
+        courseSlug,
+        sourceId: mapping.source_id,
+        email: access.email
+      });
+    } catch (error) {
+      console.warn("[v4-telegram-feed] batch gateway tickets failed; using protected fallback", error?.message || error);
+    }
+
+    let remainingInitialThumbnails = INITIAL_THUMBNAIL_BUDGET;
+    const posts = (rows || []).map((row) => {
+      const rawMedia = pickMedia(row.raw_message, row.message_type);
+      const hasThumbnail = Boolean(rawMedia?.hasThumbnail);
+      const includeThumbnail = hasThumbnail && remainingInitialThumbnails > 0;
+      if (includeThumbnail) remainingInitialThumbnails -= 1;
+      return {
+        id: row.id,
+        telegramMessageId: row.source_message_id,
+        mediaGroupId: row.media_group_id || "",
+        type: row.message_type,
+        text: row.text || row.caption || "",
+        isPinned: Boolean(row.is_pinned),
+        date: row.source_date || row.updated_at,
+        media: publicMedia(row, courseSlug, gatewayTickets.get(row.id), { includeThumbnail })
+      };
+    });
 
     const stats = posts.reduce((acc, post) => {
       acc.total += 1;
@@ -150,9 +253,12 @@ export default async function handler(req, res) {
         acc.mtprotoGateway += 1;
       }
       if (post.media && post.media.delivery === "metadata_only") acc.unavailable += 1;
+      if (post.media?.thumbnailUrl) acc.initialThumbnails += 1;
+      if (post.media?.deferredThumbnailUrl) acc.deferredThumbnails += 1;
       return acc;
-    }, { total: 0, playable: 0, botGateway: 0, mtprotoGateway: 0, unavailable: 0 });
+    }, { total: 0, playable: 0, botGateway: 0, mtprotoGateway: 0, unavailable: 0, initialThumbnails: 0, deferredThumbnails: 0 });
 
+    res.setHeader("X-V4-Initial-Thumbnails", String(stats.initialThumbnails));
     return res.status(200).json({
       success: true,
       mode: "v4-telegram-source-poc",
