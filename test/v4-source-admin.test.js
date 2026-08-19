@@ -23,6 +23,11 @@ test('V4 source endpoint is admin-only and course-scoped', () => {
   assert.match(handler, /Nguồn Telegram đang inactive/);
 });
 
+test('published V4 courses cannot change or disable their live source', () => {
+  assert.match(handler, /checked\.isPublished && \(sourceChanged \|\| sourceDisabled\)/);
+  assert.match(handler, /Hãy Tạm ẩn khóa học trước khi đổi hoặc tắt nguồn Telegram V4/);
+});
+
 test('dedicated V4 admin page manages source and release', () => {
   assert.match(page, /Quản trị khóa học V4/);
   assert.match(page, /endpoint=v4-source/);
