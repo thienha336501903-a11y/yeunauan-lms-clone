@@ -40,6 +40,15 @@ export default async function handler(req, res) {
   const hasCourse = Boolean(courseSlug);
   const requestedV4 = hasCourse ? await courseUsesV4(courseSlug) : false;
 
+  // A bare /learning URL has no course context. Send students to the course
+  // manager instead of guessing a legacy runtime and accidentally opening an
+  // empty Telegram/V3 feed. Course-specific links continue through the normal
+  // V4/legacy routing below.
+  if (!hasCourse) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.redirect(307, "/my-courses.html");
+  }
+
   // Per-course V4 is independent from the global V4 routing flag. This lets new
   // V4 Web courses use V4 while all existing LMS courses stay on their legacy flow.
   const target = requestedV4
