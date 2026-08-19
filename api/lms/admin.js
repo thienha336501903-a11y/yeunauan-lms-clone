@@ -18,6 +18,7 @@ import adminVerifyMediaHandler from "../../utils/lms-handlers/admin-verify-media
 import adminStudentTraceHandler from "../../utils/lms-handlers/admin-student-trace.js";
 import adminAccountSharingAlertsHandler from "../../utils/lms-handlers/admin-account-sharing-alerts.js";
 import adminLearningModeHandler from "../../utils/lms-handlers/admin-learning-mode.js";
+import adminV4SourceHandler from "../../utils/lms-handlers/admin-v4-source.js";
 
 export const config = {
   api: {
@@ -89,6 +90,9 @@ export default async function handler(req, res) {
   }
   if (endpoint === "learning-mode") {
     return adminLearningModeHandler(req, res);
+  }
+  if (endpoint === "v4-source") {
+    return adminV4SourceHandler(req, res);
   }
 
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
