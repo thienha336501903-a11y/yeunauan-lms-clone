@@ -21,11 +21,19 @@ export default async function handler(req, res) {
       // 1. Get course slugs from courses table
       const { data: courseRows, error: courseErr } = await supabase
         .from("courses")
-        .select("slug, title, subtitle, image_url, raw_data")
+        .select("slug, title, subtitle, image_url, raw_data, is_published, delivery_mode")
         .order("sort_order", { ascending: true });
 
       if (courseErr) throw courseErr;
       const courses = (courseRows || []).map(c => c.slug);
+      const courseMeta = Object.fromEntries(
+        (courseRows || [])
+          .filter(c => c.slug)
+          .map(c => [c.slug, {
+            isPublished: Boolean(c.is_published),
+            deliveryMode: String(c.delivery_mode || "lms").trim().toLowerCase()
+          }])
+      );
 
       // 2. Read Config from site_config
       const { data: configRows, error: configErr } = await supabase
@@ -68,12 +76,45 @@ export default async function handler(req, res) {
         }
       }
 
-      return res.status(200).json({ success: true, courses, config });
+      return res.status(200).json({ success: true, courses, config, courseMeta });
     }
 
     // ── POST: Update Config ───────────────────────────────────────────────────
     if (req.method === "POST") {
       const { action, course, config: newConfig } = req.body || {};
+
+      if (action === "setPublished") {
+        if (!course) {
+          return res.status(400).json({ success: false, error: "Thiếu tham số course" });
+        }
+
+        const { data: courseRow, error: courseLookupError } = await supabase
+          .from("courses")
+          .select("slug,delivery_mode")
+          .eq("slug", course)
+          .maybeSingle();
+        if (courseLookupError) throw courseLookupError;
+        if (!courseRow) {
+          return res.status(404).json({ success: false, error: "Không tìm thấy khóa học" });
+        }
+        if (String(courseRow.delivery_mode || "").trim().toLowerCase() !== "v4") {
+          return res.status(400).json({ success: false, error: "Chỉ khóa học V4 mới dùng trạng thái Sẵn sàng/Tạm ẩn tại đây" });
+        }
+
+        const published = req.body?.published === true;
+        const { error: publishError } = await supabase
+          .from("courses")
+          .update({ is_published: published, updated_at: new Date().toISOString() })
+          .eq("slug", course);
+        if (publishError) throw publishError;
+
+        return res.status(200).json({
+          success: true,
+          course,
+          deliveryMode: "v4",
+          isPublished: published
+        });
+      }
 
       if (action !== "updateConfig") {
         return res.status(400).json({ success: false, error: "action không hợp lệ" });

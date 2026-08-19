@@ -186,6 +186,21 @@
                   </div>
                 </div>
                 <button onclick="saveCourseMeta()" class="w-full bg-brandGreen hover:bg-brandGreenLight text-white text-xs font-bold py-2.5 rounded-xl transition shadow-sm">Lưu cấu hình</button>
+
+                <div id="v4ReleaseBox" class="hidden pt-3 border-t border-slate-100 space-y-2">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">Phát hành V4</div>
+                      <div id="v4ReleaseStatus" class="mt-1 text-xs font-extrabold text-slate-700">Đang kiểm tra...</div>
+                    </div>
+                    <span id="v4ReleaseBadge" class="text-[10px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-500">V4</span>
+                  </div>
+                  <p class="text-[10px] leading-relaxed text-slate-500">Sẵn sàng cho phép học viên đã được cấp quyền mở nội dung V4. Tạm ẩn chặn nội dung nhưng không xóa bài, quyền học hay nguồn Telegram.</p>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button id="v4ReadyBtn" type="button" onclick="setV4Release(true)" class="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-2.5 px-2 rounded-xl transition">✅ Sẵn sàng</button>
+                    <button id="v4HideBtn" type="button" onclick="setV4Release(false)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold py-2.5 px-2 rounded-xl transition border border-slate-200">⏸ Tạm ẩn</button>
+                  </div>
+                </div>
                 
                 <div class="pt-3 border-t border-slate-100 space-y-2 hidden">
                   <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tiện ích Google Drive</h4>
@@ -696,6 +711,7 @@
       driveTokenClient: null,
       courses: [],
       globalConfig: {},
+      courseMeta: {},
       lessons: [],
       isEditMode: false,
       originalCourse: "",
@@ -1004,6 +1020,7 @@
 
         STATE.courses = d.courses || [];
         STATE.globalConfig = d.config || {};
+        STATE.courseMeta = d.courseMeta || {};
 
         // Populate course dropdowns if select element exists
         const courseSelect = document.getElementById("courseSelect");
@@ -1108,6 +1125,7 @@
         document.getElementById("lessonList").innerHTML = "";
         const shareLinksBox = document.getElementById("shareLinksBox");
         if (shareLinksBox) shareLinksBox.classList.add("hidden");
+        document.getElementById("v4ReleaseBox")?.classList.add("hidden");
         initNewLesson();
         return;
       }
@@ -1116,7 +1134,7 @@
       const shareCourseUrl = document.getElementById("shareCourseUrl");
       const shareLessonUrlContainer = document.getElementById("shareLessonUrlContainer");
       if (shareLinksBox) shareLinksBox.classList.remove("hidden");
-      if (shareCourseUrl) shareCourseUrl.value = `${window.location.origin}/lms.html?course=${encodeURIComponent(course)}`;
+      if (shareCourseUrl) shareCourseUrl.value = `${window.location.origin}/learning?course=${encodeURIComponent(course)}`;
       if (shareLessonUrlContainer) shareLessonUrlContainer.classList.add("hidden");
 
       // Fill configs
@@ -1125,6 +1143,7 @@
       document.getElementById("metaHeroImage").value = STATE.globalConfig[`${course}_heroImage`] || "";
       document.getElementById("metaPosterImage").value = STATE.globalConfig[`${course}_posterImage`] || "";
       document.getElementById("metaQrImage").value = STATE.globalConfig[`${course}_qrImage`] || "";
+      renderV4ReleaseControls(course);
       
       const statusDiv = document.getElementById("driveUtilStatus");
       if (statusDiv) {
@@ -1134,6 +1153,66 @@
 
       // Load lessons list
       await loadLessonsList(course);
+    }
+
+    function renderV4ReleaseControls(course) {
+      const box = document.getElementById("v4ReleaseBox");
+      const status = document.getElementById("v4ReleaseStatus");
+      const badge = document.getElementById("v4ReleaseBadge");
+      const readyBtn = document.getElementById("v4ReadyBtn");
+      const hideBtn = document.getElementById("v4HideBtn");
+      if (!box || !status || !badge || !readyBtn || !hideBtn) return;
+
+      const meta = STATE.courseMeta?.[course] || {};
+      const isV4 = String(meta.deliveryMode || "").trim().toLowerCase() === "v4";
+      if (!isV4) {
+        box.classList.add("hidden");
+        return;
+      }
+
+      box.classList.remove("hidden");
+      const published = Boolean(meta.isPublished);
+      status.textContent = published ? "Đang Sẵn sàng cho học viên" : "Đang Tạm ẩn nội dung";
+      status.className = "mt-1 text-xs font-extrabold " + (published ? "text-emerald-700" : "text-amber-700");
+      badge.textContent = published ? "SẴN SÀNG" : "TẠM ẨN";
+      badge.className = "text-[10px] font-black px-2.5 py-1 rounded-full " + (published ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700");
+      readyBtn.disabled = published;
+      hideBtn.disabled = !published;
+      readyBtn.classList.toggle("opacity-40", published);
+      hideBtn.classList.toggle("opacity-40", !published);
+    }
+
+    async function setV4Release(published) {
+      const course = document.getElementById("courseSelect")?.value || "";
+      if (!course) {
+        toast("Vui lòng chọn khóa học trước", "error");
+        return;
+      }
+      const meta = STATE.courseMeta?.[course] || {};
+      if (String(meta.deliveryMode || "").trim().toLowerCase() !== "v4") {
+        toast("Khóa học này không phải V4", "error");
+        return;
+      }
+      const verb = published ? "mở nội dung V4 cho học viên đã được cấp quyền" : "tạm ẩn nội dung V4 với học viên";
+      if (!confirm(`Xác nhận ${verb}?`)) return;
+
+      showLoader(published ? "Đang bật Sẵn sàng..." : "Đang tạm ẩn khóa học...");
+      try {
+        const res = await fetch("/api/lms/admin?endpoint=courses", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ action: "setPublished", course, published })
+        });
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.error || "Không cập nhật được trạng thái");
+        STATE.courseMeta[course] = { ...meta, deliveryMode: "v4", isPublished: Boolean(d.isPublished) };
+        renderV4ReleaseControls(course);
+        toast(d.isPublished ? "Đã bật Sẵn sàng cho khóa V4" : "Đã Tạm ẩn khóa V4");
+      } catch (err) {
+        toast(err?.message || "Lỗi cập nhật trạng thái V4", "error");
+      } finally {
+        hideLoader();
+      }
     }
 
     // ── Save Course Meta Config ────────────────────────────────────────────
