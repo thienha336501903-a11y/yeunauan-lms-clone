@@ -84,6 +84,18 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /healthRefreshBtn/);
 });
 
+test('V4 health dashboard can search, filter and prioritise attention rows', () => {
+  assert.match(page, /id="healthSearch"/);
+  assert.match(page, /id="healthFilter"/);
+  assert.match(page, /id="healthCount"/);
+  assert.match(page, /function healthPriority/);
+  assert.match(page, /function healthMatches/);
+  assert.match(page, /function renderHealthRows/);
+  assert.match(page, /Cần chú ý trước/);
+  assert.match(page, /\['broken','setup'\]\.includes/);
+  assert.match(page, /localeCompare/);
+});
+
 test('V4 admin links to safe Cloner source registration and can reload sources', () => {
   assert.match(page, /id="registerSourceLink"/);
   assert.match(page, /telegram-channel-cloner\.vercel\.app\/\?mode=v4-source/);
