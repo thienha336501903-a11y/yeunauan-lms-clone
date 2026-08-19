@@ -28,7 +28,7 @@ async function requireV4Course(course) {
 async function listSources() {
   const { data: rows, error } = await supabase
     .from("tgcloner_sources")
-    .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
+    .select("id,title,username,active,indexed_at,indexed_message_count,last_ingested_at,last_source_date,updated_at")
     .order("updated_at", { ascending: false });
   if (error) throw error;
 
@@ -41,6 +41,8 @@ async function listSources() {
     v4Eligible: true,
     indexedAt: source.indexed_at || null,
     indexedMessageCount: Number(source.indexed_message_count || 0),
+    lastIngestedAt: source.last_ingested_at || null,
+    lastSourceDate: source.last_source_date || null,
     updatedAt: source.updated_at || null
   }));
 }
@@ -69,7 +71,7 @@ async function listV4Health() {
   if (sourceIds.length) {
     const { data, error } = await supabase
       .from("tgcloner_sources")
-      .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
+      .select("id,title,username,active,indexed_at,indexed_message_count,last_ingested_at,last_source_date,updated_at")
       .in("id", sourceIds);
     if (error) throw error;
     sources = data || [];
@@ -117,6 +119,8 @@ async function listV4Health() {
         v4Eligible: true,
         indexedAt: source.indexed_at || null,
         indexedMessageCount,
+        lastIngestedAt: source.last_ingested_at || null,
+        lastSourceDate: source.last_source_date || null,
         updatedAt: source.updated_at || null
       } : null,
       mapping: mapping ? {
@@ -142,7 +146,7 @@ async function sourceWithCount(sourceId) {
   if (!sourceId) return null;
   const { data: source, error: sourceError } = await supabase
     .from("tgcloner_sources")
-    .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
+    .select("id,title,username,active,indexed_at,indexed_message_count,last_ingested_at,last_source_date,updated_at")
     .eq("id", sourceId)
     .maybeSingle();
   if (sourceError) throw sourceError;
@@ -164,6 +168,8 @@ async function sourceWithCount(sourceId) {
     indexedAt: source.indexed_at || null,
     indexedMessageCount: Number(source.indexed_message_count || 0),
     actualMessageCount: Number(count || 0),
+    lastIngestedAt: source.last_ingested_at || null,
+    lastSourceDate: source.last_source_date || null,
     updatedAt: source.updated_at || null
   };
 }

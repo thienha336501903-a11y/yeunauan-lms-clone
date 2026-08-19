@@ -72,7 +72,12 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(handler, /listV4Health/);
   assert.match(handler, /sourceHealthy/);
   assert.match(handler, /indexed_message_count/);
+  assert.match(handler, /last_ingested_at/);
+  assert.match(handler, /last_source_date/);
   assert.match(page, /Tổng quan sức khỏe V4/);
+  assert.match(page, /Hệ thống ghi nhận/);
+  assert.match(page, /Bài Telegram gần nhất/);
+  assert.match(page, /Kênh lâu không đăng bài không bị coi là lỗi/);
   assert.match(page, /endpoint=v4-source&mode=health/);
   assert.match(page, /healthAttention/);
   assert.match(page, /healthRefreshBtn/);
