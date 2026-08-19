@@ -1,5 +1,6 @@
 name: Patch V4 course manager
 
+# one-time branch patch trigger
 on:
   push:
     branches:
