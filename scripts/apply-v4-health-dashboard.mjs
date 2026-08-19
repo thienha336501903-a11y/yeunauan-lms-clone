@@ -106,9 +106,9 @@ const helper = `async function listV4Health() {
 ${helperAnchor}`;
 handler = replaceOnce(handler, helperAnchor, helper, 'health helper insertion');
 
-const authAnchor = `    const admin = getAdminFromRequest(req);\n    if (!admin) return res.status(401).json({ success: false, error: "Chưa đăng nhập admin" });\n\n    const mode = String(req.query?.mode || "").trim();`;
-const authReplacement = `    const admin = getAdminFromRequest(req);\n    if (!admin) return res.status(401).json({ success: false, error: "Chưa đăng nhập admin" });\n\n    const mode = String(req.query?.mode || "").trim();\n    if (req.method === "GET" && mode === "health") {\n      const health = await listV4Health();\n      return res.status(200).json({ success: true, ...health });\n    }`;
-handler = replaceOnce(handler, authAnchor, authReplacement, 'health route insertion');
+const modeAnchor = `    if (req.method === "GET" && String(req.query?.mode || "") === "sources") {\n      return res.status(200).json({ success: true, sources: await listSources() });\n    }`;
+const modeReplacement = `    const mode = String(req.query?.mode || "").trim();\n    if (req.method === "GET" && mode === "health") {\n      const health = await listV4Health();\n      return res.status(200).json({ success: true, ...health });\n    }\n    if (req.method === "GET" && mode === "sources") {\n      return res.status(200).json({ success: true, sources: await listSources() });\n    }`;
+handler = replaceOnce(handler, modeAnchor, modeReplacement, 'health route insertion');
 fs.writeFileSync(handlerPath, handler);
 
 const pagePath = 'v4-admin.html';
