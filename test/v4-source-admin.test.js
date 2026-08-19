@@ -65,6 +65,17 @@ test('main admin exposes a direct V4 admin shortcut', () => {
   assert.match(adminPage, /V4 Admin/);
 });
 
+test('V4 health dashboard remains read-only and admin-scoped', () => {
+  assert.match(handler, /mode \|\| ""\) === "health"/);
+  assert.match(handler, /listV4Health/);
+  assert.match(handler, /sourceHealthy/);
+  assert.match(handler, /indexed_message_count/);
+  assert.match(page, /Tổng quan sức khỏe V4/);
+  assert.match(page, /endpoint=v4-source&mode=health/);
+  assert.match(page, /healthAttention/);
+  assert.match(page, /healthRefreshBtn/);
+});
+
 test('publishing a V4 course requires a live non-empty source', () => {
   assert.match(courses, /published\)[\s\S]*lms_v4_telegram_course_sources/);
   assert.match(courses, /tgcloner_sources/);
