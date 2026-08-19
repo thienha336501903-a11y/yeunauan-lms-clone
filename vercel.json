@@ -1,9 +1,11 @@
 {
   "regions": ["sin1"],
+  "redirects": [
+    { "source": "/", "destination": "https://yeunauan.live/my-courses", "permanent": false },
+    { "source": "/my-courses", "destination": "https://yeunauan.live/my-courses", "permanent": false },
+    { "source": "/post/:id", "destination": "https://yeunauan.live/post/:id", "permanent": false }
+  ],
   "rewrites": [
-    { "source": "/", "destination": "/legacy-root.html" },
-    { "source": "/my-courses", "destination": "/legacy-my-courses.html" },
-    { "source": "/post/:id", "destination": "/legacy-post.html?id=:id" },
     { "source": "/learning", "destination": "/api/learning" },
     { "source": "/v3", "destination": "/v3-entry.html" },
     { "source": "/v3-admin", "destination": "/channel-admin-candidate.html" },
