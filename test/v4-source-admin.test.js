@@ -1,4 +1,4 @@
-// Regression scope: V4 source eligibility is independent from mirror MASTER; Admin safely links to Cloner source registration.
+// Regression scope: V4 source eligibility is independent from mirror MASTER; Admin supports safe source registration plus searchable/sortable health rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -82,6 +82,18 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /endpoint=v4-source&mode=health/);
   assert.match(page, /healthAttention/);
   assert.match(page, /healthRefreshBtn/);
+});
+
+test('V4 health dashboard can search, filter and prioritise attention rows', () => {
+  assert.match(page, /id="healthSearch"/);
+  assert.match(page, /id="healthFilter"/);
+  assert.match(page, /id="healthCount"/);
+  assert.match(page, /function healthPriority/);
+  assert.match(page, /function healthMatches/);
+  assert.match(page, /function renderHealthRows/);
+  assert.match(page, /Cần chú ý trước/);
+  assert.match(page, /\['broken','setup'\]\.includes/);
+  assert.match(page, /localeCompare/);
 });
 
 test('V4 admin links to safe Cloner source registration and can reload sources', () => {
