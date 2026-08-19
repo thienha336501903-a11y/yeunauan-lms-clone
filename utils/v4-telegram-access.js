@@ -24,6 +24,12 @@ function isActiveEnrollment(status) {
   return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
 }
 
+function isEnrollmentExpired(expiredAt, now = Date.now()) {
+  if (!expiredAt) return false;
+  const time = Date.parse(expiredAt);
+  return Number.isFinite(time) && time <= now;
+}
+
 function getLmsSessionHeaders(req) {
   return {
     lmsSessionId: String(req.headers["x-lms-session-id"] || "").trim(),
@@ -65,7 +71,7 @@ export async function requireV4CourseAccess(req, courseSlug) {
 
   const { data: enrollment, error: enrollmentError } = await supabase
     .from("student_enrollments")
-    .select("status")
+    .select("status,expired_at")
     .eq("email", email)
     .eq("course_slug", slug)
     .maybeSingle();
@@ -77,6 +83,14 @@ export async function requireV4CourseAccess(req, courseSlug) {
       status: 403,
       code: "course_not_enrolled",
       error: `Tài khoản ${email} chưa có quyền vào khóa học này.`
+    };
+  }
+  if (isEnrollmentExpired(enrollment.expired_at)) {
+    return {
+      ok: false,
+      status: 403,
+      code: "course_not_enrolled",
+      error: `Quyền học khóa này của tài khoản ${email} đã hết hạn.`
     };
   }
 
