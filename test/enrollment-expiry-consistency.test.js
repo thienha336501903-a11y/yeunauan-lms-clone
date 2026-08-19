@@ -1,3 +1,4 @@
+// Regression scope: all LMS course-selection and V4 access paths share one status/expiry contract.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
