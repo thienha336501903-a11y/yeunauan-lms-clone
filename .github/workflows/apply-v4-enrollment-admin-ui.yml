@@ -1,0 +1,47 @@
+name: Apply V4 enrollment admin UI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'feat/v4-enrollment-admin-expiry-20260820'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/v4-enrollment-admin-expiry-20260820
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Apply V4 enrollment UI
+        run: |
+          node scripts/apply-v4-enrollment-ui-1.mjs
+          node scripts/apply-v4-enrollment-ui-2.mjs
+      - name: Validate
+        run: |
+          npm test
+          node --check utils/lms-handlers/admin-v4-enrollments.js
+          node --check utils/v4-telegram-access.js
+          node --check api/lms/admin.js
+      - name: Commit functional UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v4-admin.html
+          git commit -m "feat: manage V4 students from V4 Admin"
+      - name: Remove one-time tooling
+        run: |
+          rm -f scripts/apply-v4-enrollment-ui-1.mjs scripts/apply-v4-enrollment-ui-2.mjs .github/workflows/apply-v4-enrollment-admin-ui.yml
+          git add -A
+          git commit -m "chore: remove V4 enrollment UI tooling"
+      - name: Push
+        run: git push origin HEAD:feat/v4-enrollment-admin-expiry-20260820
