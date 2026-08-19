@@ -1,0 +1,38 @@
+name: Align V4 admin multi-source copy
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-copy:
+    if: github.event.pull_request.head.ref == 'fix/v4-multi-source-eligibility-20260819'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v4-multi-source-eligibility-20260819
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Patch copy
+        run: node scripts/fix-v4-admin-copy.mjs
+      - name: Validate
+        run: npm test
+      - name: Commit and clean tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v4-admin.html
+          git commit -m "fix: align V4 admin multi-source wording"
+          rm -f scripts/fix-v4-admin-copy.mjs .github/workflows/fix-v4-admin-copy.yml
+          git add -A
+          git commit -m "chore: remove V4 admin copy patch tooling"
+          git push origin HEAD:fix/v4-multi-source-eligibility-20260819
