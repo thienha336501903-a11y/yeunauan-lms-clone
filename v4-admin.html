@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quản trị V4 Telegram</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f5f7f5;color:#243127}body{padding-bottom:max(28px,env(safe-area-inset-bottom))}.wrap{width:min(760px,100%);margin:0 auto;padding:18px 14px 40px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.brand{display:flex;align-items:center;gap:10px;font-weight:900;color:#2d5b38}.brand i{font-style:normal;font-size:28px}.back{font-size:12px;font-weight:800;color:#386443;text-decoration:none}.hero{background:linear-gradient(135deg,#294c32,#3e6b45);color:#fff;border-radius:24px;padding:22px 20px;box-shadow:0 12px 34px rgba(39,77,49,.18)}.hero h1{font-size:27px;line-height:1.15;margin:0 0 7px;font-weight:950}.hero p{margin:0;color:rgba(255,255,255,.82);font-size:13px;line-height:1.55}.panel{margin-top:15px;background:#fff;border:1px solid #e1e7e1;border-radius:22px;padding:17px;box-shadow:0 8px 28px rgba(38,58,42,.06)}.panel h2{font-size:16px;margin:0 0 4px}.sub{font-size:11px;color:#748078;margin:0 0 12px;line-height:1.5}.label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:900;color:#7c887f;margin:0 0 6px}select{width:100%;border:1px solid #d7ded8;background:#fff;border-radius:13px;padding:11px 12px;font-size:13px;outline:none}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.between{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.badge{display:inline-flex;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:950;background:#eef1ee;color:#667068}.badge.ok{background:#e4f5e8;color:#286c3c}.badge.warn{background:#fff2d9;color:#8a6117}.badge.bad{background:#fde7e7;color:#973a3a}.status{font-size:13px;font-weight:900;margin-top:3px}.details{margin-top:10px;background:#f7f9f7;border:1px solid #e6ebe6;border-radius:14px;padding:12px;font-size:12px;color:#59665c;line-height:1.6}.details b{color:#2e3b31}.btn{border:0;border-radius:13px;padding:11px 14px;font-size:12px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}.btn:disabled{opacity:.45;cursor:not-allowed}.primary{background:#326443;color:#fff}.blue{background:#2766c2;color:#fff}.muted{background:#edf1ed;color:#526056}.danger{background:#9c4444;color:#fff}.actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}.check{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:12px;font-weight:800;color:#536057}.check input{width:17px;height:17px}.notice{margin-top:10px;border-radius:13px;padding:10px 12px;font-size:11px;line-height:1.5;background:#fff8e9;border:1px solid #f0d59e;color:#75561d}.error{margin-top:12px;border-radius:14px;padding:11px 12px;font-size:12px;line-height:1.5;background:#fff0f0;border:1px solid #eccaca;color:#913f3f}.loading{text-align:center;padding:22px 8px;color:#758079;font-size:12px}.spin{width:28px;height:28px;border:3px solid #e1e7e2;border-top-color:#376a47;border-radius:50%;margin:0 auto 9px;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:min(520px,calc(100% - 24px));background:#243127;color:#fff;padding:11px 15px;border-radius:13px;font-size:12px;font-weight:800;box-shadow:0 8px 26px rgba(0,0,0,.18);z-index:10}.hidden{display:none!important}@media(max-width:480px){.wrap{padding-left:10px;padding-right:10px}.hero h1{font-size:24px}.actions{grid-template-columns:1fr}.top{align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><i>🍳</i><span>Culinary V4 Admin</span></div>
+    <a class="back" href="/admin.html">← Admin chính</a>
+  </div>
+
+  <section class="hero">
+    <h1>Quản trị khóa học V4</h1>
+    <p>Gắn nguồn Telegram, kiểm tra dữ liệu đã index và kiểm soát trạng thái Sẵn sàng mà không cần sửa Supabase thủ công.</p>
+  </section>
+
+  <section class="panel">
+    <label class="label" for="courseSelect">Khóa học V4</label>
+    <select id="courseSelect" disabled><option>Đang tải...</option></select>
+    <div id="courseError" class="error hidden"></div>
+  </section>
+
+  <div id="workspace" class="hidden">
+    <section class="panel">
+      <div class="between">
+        <div><h2>Phát hành</h2><p class="sub">Chỉ học viên đã được cấp quyền mới vào được nội dung.</p></div>
+        <span id="releaseBadge" class="badge">Đang tải</span>
+      </div>
+      <div id="releaseStatus" class="status">Đang kiểm tra...</div>
+      <div class="actions">
+        <button id="readyBtn" class="btn primary" type="button">✅ Sẵn sàng</button>
+        <button id="hideBtn" class="btn muted" type="button">⏸ Tạm ẩn</button>
+      </div>
+      <div class="notice">Khi bật <b>Sẵn sàng</b>, hệ thống sẽ kiểm tra nguồn Telegram đang bật, nguồn còn hoạt động và đã có ít nhất một bài được index.</div>
+    </section>
+
+    <section class="panel">
+      <div class="between">
+        <div><h2>Nguồn Telegram</h2><p class="sub">Nguồn bài học V4 đang ánh xạ vào khóa được chọn.</p></div>
+        <span id="sourceBadge" class="badge">Đang tải</span>
+      </div>
+      <label class="label" for="sourceSelect">Kênh nguồn</label>
+      <select id="sourceSelect"><option value="">-- Chọn nguồn Telegram --</option></select>
+      <label class="check"><input id="sourceEnabled" type="checkbox"> Bật nguồn này cho học viên V4</label>
+      <div id="sourceDetails" class="details">Đang kiểm tra nguồn...</div>
+      <div class="actions">
+        <button id="saveSourceBtn" class="btn blue" type="button">💾 Lưu nguồn</button>
+        <button id="refreshBtn" class="btn muted" type="button">↻ Kiểm tra lại</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Kiểm tra học viên</h2>
+      <p class="sub">Mở đúng đường dẫn canonical của khóa đang chọn.</p>
+      <a id="studentLink" class="btn primary" href="#" target="_blank" rel="noopener">▶ Mở trang học</a>
+    </section>
+  </div>
+
+  <div id="loading" class="panel loading"><div class="spin"></div>Đang kiểm tra phiên Admin và dữ liệu V4...</div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const state={courses:[],meta:{},config:{},course:'',sourceData:null};
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function toast(msg){const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.add('hidden'),3200)}
+async function jsonFetch(url,options={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});let d={};try{d=await r.json()}catch{}if(r.status===401){location.replace('/admin.html');throw new Error('Phiên Admin đã hết hạn')}return{r,d}}
+function titleFor(slug){return state.config[`${slug}_title`]||slug.toUpperCase()}
+function setReleaseUi(){const meta=state.meta[state.course]||{};const published=Boolean(meta.isPublished);$('releaseStatus').textContent=published?'Đang Sẵn sàng cho học viên':'Đang Tạm ẩn nội dung';$('releaseBadge').textContent=published?'SẴN SÀNG':'TẠM ẨN';$('releaseBadge').className='badge '+(published?'ok':'warn');$('readyBtn').disabled=published;$('hideBtn').disabled=!published}
+function setSourceUi(data){state.sourceData=data;const mapping=data?.mapping||null,current=data?.source||null,sources=Array.isArray(data?.sources)?data.sources:[];$('sourceSelect').innerHTML='<option value="">-- Chọn nguồn Telegram --</option>'+sources.map(s=>`<option value="${esc(s.id)}">${esc(s.title||s.username||s.id)}${s.active?'':' · inactive'}</option>`).join('');$('sourceSelect').value=mapping?.sourceId||'';$('sourceEnabled').checked=Boolean(mapping?.enabled);if(!mapping){$('sourceBadge').textContent='CHƯA GẮN';$('sourceBadge').className='badge warn';$('sourceDetails').innerHTML=sources.length?`Có <b>${sources.length}</b> nguồn Telegram khả dụng. Chọn nguồn rồi bấm <b>Lưu nguồn</b>.`:'Chưa có nguồn Telegram nào trong hệ thống Clone.';return}const healthy=Boolean(mapping.enabled&&current?.active&&Number(current?.actualMessageCount||0)>0);$('sourceBadge').textContent=healthy?'HOẠT ĐỘNG':(mapping.enabled?'CẢNH BÁO':'ĐANG TẮT');$('sourceBadge').className='badge '+(healthy?'ok':'warn');if(!current){$('sourceDetails').innerHTML='Mapping hiện tại đang trỏ tới nguồn không còn tồn tại.';return}const when=current.indexedAt?new Date(current.indexedAt).toLocaleString('vi-VN'):'chưa index';$('sourceDetails').innerHTML=`<b>${esc(current.title||'Telegram')}</b><br>Đã index: <b>${Number(current.indexedMessageCount||0)}</b> · Dữ liệu thực tế: <b>${Number(current.actualMessageCount||0)}</b> bài<br>Lần index: ${esc(when)} · Mode: ${esc(mapping.mediaMode||'telegram_bot_poc')}`}
+async function loadSource(){if(!state.course)return;$('sourceDetails').textContent='Đang kiểm tra nguồn...';const{r,d}=await jsonFetch(`/api/lms/admin?endpoint=v4-source&course=${encodeURIComponent(state.course)}`);if(!r.ok||!d.success)throw new Error(d.error||'Không tải được nguồn Telegram V4');setSourceUi(d)}
+async function selectCourse(slug){state.course=slug;$('studentLink').href=`/learning?course=${encodeURIComponent(slug)}`;setReleaseUi();await loadSource()}
+async function loadCourses(){const{r,d}=await jsonFetch('/api/lms/admin?endpoint=courses');if(!r.ok||!d.success)throw new Error(d.error||'Không tải được danh sách khóa học');state.meta=d.courseMeta||{};state.config=d.config||{};state.courses=(d.courses||[]).filter(slug=>String(state.meta?.[slug]?.deliveryMode||'').toLowerCase()==='v4');if(!state.courses.length)throw new Error('Chưa có khóa học V4 nào');const select=$('courseSelect');select.innerHTML=state.courses.map(slug=>`<option value="${esc(slug)}">${esc(titleFor(slug))} (${esc(slug)})</option>`).join('');const requested=new URLSearchParams(location.search).get('course')||'';const initial=state.courses.includes(requested)?requested:state.courses[0];select.value=initial;select.disabled=false;$('loading').classList.add('hidden');$('workspace').classList.remove('hidden');await selectCourse(initial)}
+async function setPublished(published){if(!state.course)return;const verb=published?'bật Sẵn sàng':'Tạm ẩn';if(!confirm(`Xác nhận ${verb} khóa ${titleFor(state.course)}?`))return;const btn=published?$('readyBtn'):$('hideBtn');btn.disabled=true;try{const{r,d}=await jsonFetch('/api/lms/admin?endpoint=courses',{method:'POST',body:JSON.stringify({action:'setPublished',course:state.course,published})});if(!r.ok||!d.success)throw new Error(d.error||'Không cập nhật được trạng thái');state.meta[state.course]={...(state.meta[state.course]||{}),deliveryMode:'v4',isPublished:Boolean(d.isPublished)};setReleaseUi();toast(d.isPublished?'Đã bật Sẵn sàng':'Đã Tạm ẩn khóa V4')}catch(e){setReleaseUi();alert(e.message||String(e))}}
+async function saveSource(){const sourceId=$('sourceSelect').value,enabled=$('sourceEnabled').checked;if(!sourceId){alert('Vui lòng chọn nguồn Telegram');return}const current=state.sourceData?.mapping||null;const changing=Boolean(current?.sourceId&&current.sourceId!==sourceId),disabling=Boolean(current?.enabled&&!enabled);if(changing||disabling){const text=changing?'Đổi nguồn sẽ thay đổi nội dung học viên nhìn thấy ngay nếu khóa đang Sẵn sàng.':'Tắt nguồn sẽ làm feed V4 không mở được cho đến khi bật lại.';if(!confirm(text+'\n\nXác nhận tiếp tục?'))return}$('saveSourceBtn').disabled=true;try{const{r,d}=await jsonFetch('/api/lms/admin?endpoint=v4-source',{method:'POST',body:JSON.stringify({action:'saveSource',course:state.course,sourceId,enabled,mediaMode:current?.mediaMode||'telegram_bot_poc'})});if(!r.ok||!d.success)throw new Error(d.error||'Không lưu được nguồn Telegram');toast('Đã lưu nguồn Telegram V4');await loadSource()}catch(e){alert(e.message||String(e))}finally{$('saveSourceBtn').disabled=false}}
+$('courseSelect').addEventListener('change',()=>selectCourse($('courseSelect').value).catch(e=>alert(e.message||String(e))));$('refreshBtn').addEventListener('click',()=>loadSource().catch(e=>alert(e.message||String(e))));$('readyBtn').addEventListener('click',()=>setPublished(true));$('hideBtn').addEventListener('click',()=>setPublished(false));$('saveSourceBtn').addEventListener('click',saveSource);
+loadCourses().catch(e=>{$('loading').classList.add('hidden');$('courseError').textContent=e.message||String(e);$('courseError').classList.remove('hidden')});
+})();
+</script>
+</body>
+</html>

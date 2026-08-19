@@ -102,6 +102,41 @@ export default async function handler(req, res) {
         }
 
         const published = req.body?.published === true;
+
+        // Do not let an admin publish an empty/broken V4 course. The student
+        // feed depends on an enabled Telegram mapping, an active source and at
+        // least one indexed message.
+        if (published) {
+          const { data: mapping, error: mappingError } = await supabase
+            .from("lms_v4_telegram_course_sources")
+            .select("source_id,enabled")
+            .eq("course_slug", course)
+            .maybeSingle();
+          if (mappingError) throw mappingError;
+          if (!mapping || !mapping.enabled) {
+            return res.status(400).json({ success: false, error: "Chưa bật nguồn Telegram V4 cho khóa học" });
+          }
+
+          const { data: source, error: sourceError } = await supabase
+            .from("tgcloner_sources")
+            .select("id,active")
+            .eq("id", mapping.source_id)
+            .maybeSingle();
+          if (sourceError) throw sourceError;
+          if (!source || !source.active) {
+            return res.status(400).json({ success: false, error: "Nguồn Telegram V4 đang không hoạt động" });
+          }
+
+          const { count, error: countError } = await supabase
+            .from("tgcloner_source_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("source_id", mapping.source_id);
+          if (countError) throw countError;
+          if (!Number(count || 0)) {
+            return res.status(400).json({ success: false, error: "Chưa có bài Telegram nào được index cho khóa học" });
+          }
+        }
+
         const { error: publishError } = await supabase
           .from("courses")
           .update({ is_published: published, updated_at: new Date().toISOString() })
