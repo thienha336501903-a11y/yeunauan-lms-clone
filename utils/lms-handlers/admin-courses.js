@@ -104,8 +104,8 @@ export default async function handler(req, res) {
         const published = req.body?.published === true;
 
         // Do not let an admin publish an empty/broken V4 course. The student
-        // feed depends on an enabled Telegram mapping, an active source and at
-        // least one indexed message.
+        // feed depends on an enabled Telegram mapping, a registered source and
+        // at least one indexed message. tgcloner_sources.active is only the mirror MASTER flag.
         if (published) {
           const { data: mapping, error: mappingError } = await supabase
             .from("lms_v4_telegram_course_sources")
@@ -119,12 +119,12 @@ export default async function handler(req, res) {
 
           const { data: source, error: sourceError } = await supabase
             .from("tgcloner_sources")
-            .select("id,active")
+            .select("id")
             .eq("id", mapping.source_id)
             .maybeSingle();
           if (sourceError) throw sourceError;
-          if (!source || !source.active) {
-            return res.status(400).json({ success: false, error: "Nguồn Telegram V4 đang không hoạt động" });
+          if (!source) {
+            return res.status(400).json({ success: false, error: "Không tìm thấy nguồn Telegram V4 đã đăng ký" });
           }
 
           const { count, error: countError } = await supabase

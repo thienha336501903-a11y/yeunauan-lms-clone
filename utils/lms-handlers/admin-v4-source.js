@@ -37,6 +37,8 @@ async function listSources() {
     title: source.title || source.username || "Telegram",
     username: source.username || "",
     active: Boolean(source.active),
+    mirrorActive: Boolean(source.active),
+    v4Eligible: true,
     indexedAt: source.indexed_at || null,
     indexedMessageCount: Number(source.indexed_message_count || 0),
     updatedAt: source.updated_at || null
@@ -79,7 +81,7 @@ async function listV4Health() {
     const mapping = mappingByCourse.get(course.slug) || null;
     const source = mapping?.source_id ? sourceById.get(mapping.source_id) || null : null;
     const indexedMessageCount = Number(source?.indexed_message_count || 0);
-    const sourceHealthy = Boolean(mapping?.enabled && source?.active && indexedMessageCount > 0);
+    const sourceHealthy = Boolean(mapping?.enabled && source && indexedMessageCount > 0);
     let health = "setup";
     let issue = "Chưa gắn nguồn Telegram";
     if (mapping && !source) {
@@ -88,9 +90,6 @@ async function listV4Health() {
     } else if (mapping && !mapping.enabled) {
       health = course.is_published ? "broken" : "setup";
       issue = "Nguồn đang tắt";
-    } else if (source && !source.active) {
-      health = course.is_published ? "broken" : "setup";
-      issue = "Nguồn Telegram inactive";
     } else if (source && indexedMessageCount <= 0) {
       health = course.is_published ? "broken" : "setup";
       issue = "Nguồn chưa có bài index";
@@ -114,6 +113,8 @@ async function listV4Health() {
         id: source.id,
         title: source.title || source.username || "Telegram",
         active: Boolean(source.active),
+        mirrorActive: Boolean(source.active),
+        v4Eligible: true,
         indexedAt: source.indexed_at || null,
         indexedMessageCount,
         updatedAt: source.updated_at || null
@@ -158,6 +159,8 @@ async function sourceWithCount(sourceId) {
     title: source.title || source.username || "Telegram",
     username: source.username || "",
     active: Boolean(source.active),
+    mirrorActive: Boolean(source.active),
+    v4Eligible: true,
     indexedAt: source.indexed_at || null,
     indexedMessageCount: Number(source.indexed_message_count || 0),
     actualMessageCount: Number(count || 0),
@@ -192,10 +195,6 @@ async function createV4Course(req, res) {
 
   const source = await sourceWithCount(sourceId);
   if (!source) return res.status(404).json({ success: false, error: "Không tìm thấy nguồn Telegram" });
-  if (!source.active) {
-    return res.status(400).json({ success: false, error: "Nguồn Telegram đang inactive, chưa thể tạo khóa V4" });
-  }
-
   const now = new Date().toISOString();
   const { error: courseError } = await supabase
     .from("courses")
@@ -253,7 +252,7 @@ async function createV4Course(req, res) {
       updatedAt: now
     },
     source,
-    readyEligible: Boolean(source.active && Number(source.actualMessageCount || 0) > 0)
+    readyEligible: Boolean(Number(source.actualMessageCount || 0) > 0)
   });
 }
 
@@ -327,10 +326,6 @@ export default async function handler(req, res) {
       if (!sourceRow) return res.status(404).json({ success: false, error: "Không tìm thấy nguồn Telegram" });
 
       const enabled = req.body?.enabled !== false;
-      if (enabled && !sourceRow.active) {
-        return res.status(400).json({ success: false, error: "Nguồn Telegram đang inactive, không thể bật cho học viên" });
-      }
-
       const { data: existing, error: existingError } = await supabase
         .from("lms_v4_telegram_course_sources")
         .select("source_id,enabled,media_mode")
