@@ -43,6 +43,100 @@ async function listSources() {
   }));
 }
 
+async function listV4Health() {
+  const { data: courses, error: coursesError } = await supabase
+    .from("courses")
+    .select("slug,title,is_published,active,updated_at")
+    .eq("delivery_mode", "v4")
+    .order("updated_at", { ascending: false });
+  if (coursesError) throw coursesError;
+
+  const slugs = (courses || []).map((row) => row.slug).filter(Boolean);
+  let mappings = [];
+  if (slugs.length) {
+    const { data, error } = await supabase
+      .from("lms_v4_telegram_course_sources")
+      .select("course_slug,source_id,enabled,media_mode,updated_at")
+      .in("course_slug", slugs);
+    if (error) throw error;
+    mappings = data || [];
+  }
+
+  const sourceIds = [...new Set(mappings.map((row) => row.source_id).filter(Boolean))];
+  let sources = [];
+  if (sourceIds.length) {
+    const { data, error } = await supabase
+      .from("tgcloner_sources")
+      .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
+      .in("id", sourceIds);
+    if (error) throw error;
+    sources = data || [];
+  }
+
+  const mappingByCourse = new Map(mappings.map((row) => [row.course_slug, row]));
+  const sourceById = new Map(sources.map((row) => [row.id, row]));
+  const rows = (courses || []).map((course) => {
+    const mapping = mappingByCourse.get(course.slug) || null;
+    const source = mapping?.source_id ? sourceById.get(mapping.source_id) || null : null;
+    const indexedMessageCount = Number(source?.indexed_message_count || 0);
+    const sourceHealthy = Boolean(mapping?.enabled && source?.active && indexedMessageCount > 0);
+    let health = "setup";
+    let issue = "Chưa gắn nguồn Telegram";
+    if (mapping && !source) {
+      health = "broken";
+      issue = "Mapping đang trỏ tới nguồn không tồn tại";
+    } else if (mapping && !mapping.enabled) {
+      health = course.is_published ? "broken" : "setup";
+      issue = "Nguồn đang tắt";
+    } else if (source && !source.active) {
+      health = course.is_published ? "broken" : "setup";
+      issue = "Nguồn Telegram inactive";
+    } else if (source && indexedMessageCount <= 0) {
+      health = course.is_published ? "broken" : "setup";
+      issue = "Nguồn chưa có bài index";
+    } else if (sourceHealthy && course.is_published) {
+      health = "healthy";
+      issue = "Hoạt động bình thường";
+    } else if (sourceHealthy) {
+      health = "draft";
+      issue = "Nguồn tốt, khóa đang Tạm ẩn";
+    }
+
+    return {
+      course: course.slug,
+      title: course.title || course.slug,
+      active: course.active !== false,
+      isPublished: Boolean(course.is_published),
+      health,
+      issue,
+      sourceHealthy,
+      source: source ? {
+        id: source.id,
+        title: source.title || source.username || "Telegram",
+        active: Boolean(source.active),
+        indexedAt: source.indexed_at || null,
+        indexedMessageCount,
+        updatedAt: source.updated_at || null
+      } : null,
+      mapping: mapping ? {
+        enabled: Boolean(mapping.enabled),
+        mediaMode: mapping.media_mode || "telegram_bot_poc",
+        updatedAt: mapping.updated_at || null
+      } : null
+    };
+  });
+
+  const summary = rows.reduce((acc, row) => {
+    acc.total += 1;
+    if (row.health === "healthy") acc.healthy += 1;
+    else if (row.health === "draft") acc.draft += 1;
+    else acc.attention += 1;
+    return acc;
+  }, { total: 0, healthy: 0, draft: 0, attention: 0 });
+
+  return { rows, summary };
+}
+
 async function sourceWithCount(sourceId) {
   if (!sourceId) return null;
   const { data: source, error: sourceError } = await supabase
@@ -173,6 +267,11 @@ export default async function handler(req, res) {
   try {
     const admin = getAdminFromRequest(req);
     if (!admin) return res.status(401).json({ success: false, error: "Chưa đăng nhập admin" });
+
+    if (req.method === "GET" && String(req.query?.mode || "") === "health") {
+      const health = await listV4Health();
+      return res.status(200).json({ success: true, ...health });
+    }
 
     if (req.method === "GET" && String(req.query?.mode || "") === "sources") {
       return res.status(200).json({ success: true, sources: await listSources() });
