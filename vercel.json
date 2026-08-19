@@ -1,9 +1,7 @@
 {
   "regions": ["sin1"],
-  "redirects": [
-    { "source": "/", "destination": "/my-courses", "permanent": false }
-  ],
   "rewrites": [
+    { "source": "/", "destination": "/legacy-root.html" },
     { "source": "/my-courses", "destination": "/legacy-my-courses.html" },
     { "source": "/post/:id", "destination": "/legacy-post.html?id=:id" },
     { "source": "/learning", "destination": "/api/learning" },
