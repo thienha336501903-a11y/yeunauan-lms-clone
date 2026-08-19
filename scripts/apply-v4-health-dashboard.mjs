@@ -106,9 +106,9 @@ const helper = `async function listV4Health() {
 ${helperAnchor}`;
 handler = replaceOnce(handler, helperAnchor, helper, 'health helper insertion');
 
-const modeAnchor = `    if (req.method === "GET" && String(req.query?.mode || "") === "sources") {\n      return res.status(200).json({ success: true, sources: await listSources() });\n    }`;
-const modeReplacement = `    const mode = String(req.query?.mode || "").trim();\n    if (req.method === "GET" && mode === "health") {\n      const health = await listV4Health();\n      return res.status(200).json({ success: true, ...health });\n    }\n    if (req.method === "GET" && mode === "sources") {\n      return res.status(200).json({ success: true, sources: await listSources() });\n    }`;
-handler = replaceOnce(handler, modeAnchor, modeReplacement, 'health route insertion');
+const sourcesAnchor = `    if (req.method === "GET" && String(req.query?.mode || "") === "sources") {\n      return res.status(200).json({ success: true, sources: await listSources() });\n    }`;
+const sourcesReplacement = `    if (req.method === "GET" && String(req.query?.mode || "") === "health") {\n      const health = await listV4Health();\n      return res.status(200).json({ success: true, ...health });\n    }\n\n${sourcesAnchor}`;
+handler = replaceOnce(handler, sourcesAnchor, sourcesReplacement, 'health route insertion');
 fs.writeFileSync(handlerPath, handler);
 
 const pagePath = 'v4-admin.html';
@@ -156,7 +156,7 @@ fs.writeFileSync(pagePath, page);
 const testPath = 'test/v4-source-admin.test.js';
 let test = fs.readFileSync(testPath, 'utf8');
 const testAnchor = `test('publishing a V4 course requires a live non-empty source', () => {`;
-const newTests = `test('V4 admin exposes a read-only health dashboard', () => {\n  assert.match(handler, /mode === "health"/);\n  assert.match(handler, /listV4Health/);\n  assert.match(handler, /sourceHealthy/);\n  assert.match(handler, /indexed_message_count/);\n  assert.match(page, /Tổng quan sức khỏe V4/);\n  assert.match(page, /endpoint=v4-source&mode=health/);\n  assert.match(page, /healthAttention/);\n  assert.match(page, /healthRefreshBtn/);\n});\n\n${testAnchor}`;
+const newTests = `test('V4 admin exposes a read-only health dashboard', () => {\n  assert.match(handler, /mode \\|\\| ""\\) === "health"/);\n  assert.match(handler, /listV4Health/);\n  assert.match(handler, /sourceHealthy/);\n  assert.match(handler, /indexed_message_count/);\n  assert.match(page, /Tổng quan sức khỏe V4/);\n  assert.match(page, /endpoint=v4-source&mode=health/);\n  assert.match(page, /healthAttention/);\n  assert.match(page, /healthRefreshBtn/);\n});\n\n${testAnchor}`;
 test = replaceOnce(test, testAnchor, newTests, 'health tests');
 fs.writeFileSync(testPath, test);
 
