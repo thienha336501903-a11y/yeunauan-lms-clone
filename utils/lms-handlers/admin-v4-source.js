@@ -2,6 +2,11 @@ import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
 
 const ALLOWED_MEDIA_MODES = new Set(["telegram_bot_poc", "mtproto_gateway", "mirror"]);
+const NEW_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function normalizeNewSlug(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
 async function requireV4Course(course) {
   const slug = String(course || "").trim();
@@ -18,6 +23,24 @@ async function requireV4Course(course) {
     return { ok: false, status: 400, error: "Khóa học này không phải V4" };
   }
   return { ok: true, slug, isPublished: Boolean(data.is_published) };
+}
+
+async function listSources() {
+  const { data: rows, error } = await supabase
+    .from("tgcloner_sources")
+    .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  return (rows || []).map(source => ({
+    id: source.id,
+    title: source.title || source.username || "Telegram",
+    username: source.username || "",
+    active: Boolean(source.active),
+    indexedAt: source.indexed_at || null,
+    indexedMessageCount: Number(source.indexed_message_count || 0),
+    updatedAt: source.updated_at || null
+  }));
 }
 
 async function sourceWithCount(sourceId) {
@@ -48,6 +71,98 @@ async function sourceWithCount(sourceId) {
   };
 }
 
+async function createV4Course(req, res) {
+  const title = String(req.body?.title || "").trim();
+  const slug = normalizeNewSlug(req.body?.slug);
+  const sourceId = String(req.body?.sourceId || "").trim();
+
+  if (!title) return res.status(400).json({ success: false, error: "Chưa nhập tên khóa học" });
+  if (title.length > 160) return res.status(400).json({ success: false, error: "Tên khóa học quá dài" });
+  if (!slug || slug.length > 80 || !NEW_SLUG_RE.test(slug)) {
+    return res.status(400).json({
+      success: false,
+      error: "Slug chỉ dùng chữ thường a-z, số và dấu gạch ngang"
+    });
+  }
+  if (!sourceId) return res.status(400).json({ success: false, error: "Chưa chọn nguồn Telegram" });
+
+  const { data: existingCourse, error: existingError } = await supabase
+    .from("courses")
+    .select("slug")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existingCourse) {
+    return res.status(409).json({ success: false, error: "Slug khóa học đã tồn tại" });
+  }
+
+  const source = await sourceWithCount(sourceId);
+  if (!source) return res.status(404).json({ success: false, error: "Không tìm thấy nguồn Telegram" });
+  if (!source.active) {
+    return res.status(400).json({ success: false, error: "Nguồn Telegram đang inactive, chưa thể tạo khóa V4" });
+  }
+
+  const now = new Date().toISOString();
+  const { error: courseError } = await supabase
+    .from("courses")
+    .insert({
+      slug,
+      title,
+      active: true,
+      is_published: false,
+      delivery_mode: "v4",
+      raw_data: { studentDisplayTitle: title },
+      updated_at: now
+    });
+
+  if (courseError) {
+    if (courseError.code === "23505") {
+      return res.status(409).json({ success: false, error: "Slug khóa học đã tồn tại" });
+    }
+    throw courseError;
+  }
+
+  const { error: mappingError } = await supabase
+    .from("lms_v4_telegram_course_sources")
+    .insert({
+      course_slug: slug,
+      source_id: sourceId,
+      enabled: true,
+      media_mode: "telegram_bot_poc",
+      updated_at: now
+    });
+
+  if (mappingError) {
+    // Best-effort rollback so a failed mapping never leaves a half-created V4
+    // course in the shared Clone database.
+    await supabase
+      .from("lms_v4_telegram_course_sources")
+      .delete()
+      .eq("course_slug", slug);
+    await supabase
+      .from("courses")
+      .delete()
+      .eq("slug", slug);
+    throw mappingError;
+  }
+
+  return res.status(201).json({
+    success: true,
+    course: slug,
+    title,
+    deliveryMode: "v4",
+    isPublished: false,
+    mapping: {
+      sourceId,
+      enabled: true,
+      mediaMode: "telegram_bot_poc",
+      updatedAt: now
+    },
+    source,
+    readyEligible: Boolean(source.active && Number(source.actualMessageCount || 0) > 0)
+  });
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -58,6 +173,14 @@ export default async function handler(req, res) {
   try {
     const admin = getAdminFromRequest(req);
     if (!admin) return res.status(401).json({ success: false, error: "Chưa đăng nhập admin" });
+
+    if (req.method === "GET" && String(req.query?.mode || "") === "sources") {
+      return res.status(200).json({ success: true, sources: await listSources() });
+    }
+
+    if (req.method === "POST" && String(req.body?.action || "").trim() === "createCourse") {
+      return createV4Course(req, res);
+    }
 
     const course = String(req.query?.course || req.body?.course || "").trim();
     const checked = await requireV4Course(course);
@@ -71,23 +194,7 @@ export default async function handler(req, res) {
         .maybeSingle();
       if (mappingError) throw mappingError;
 
-      const { data: sourceRows, error: sourcesError } = await supabase
-        .from("tgcloner_sources")
-        .select("id,title,username,active,indexed_at,indexed_message_count,updated_at")
-        .order("updated_at", { ascending: false });
-      if (sourcesError) throw sourcesError;
-
       const currentSource = mapping?.source_id ? await sourceWithCount(mapping.source_id) : null;
-      const sources = (sourceRows || []).map(source => ({
-        id: source.id,
-        title: source.title || source.username || "Telegram",
-        username: source.username || "",
-        active: Boolean(source.active),
-        indexedAt: source.indexed_at || null,
-        indexedMessageCount: Number(source.indexed_message_count || 0),
-        updatedAt: source.updated_at || null
-      }));
-
       return res.status(200).json({
         success: true,
         course: checked.slug,
@@ -99,7 +206,7 @@ export default async function handler(req, res) {
           updatedAt: mapping.updated_at || null
         } : null,
         source: currentSource,
-        sources
+        sources: await listSources()
       });
     }
 
