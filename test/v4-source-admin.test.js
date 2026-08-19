@@ -21,7 +21,8 @@ test('V4 source endpoint is admin-only and course-scoped', () => {
   assert.match(handler, /tgcloner_sources/);
   assert.match(handler, /tgcloner_source_messages/);
   assert.match(handler, /onConflict: "course_slug"/);
-  assert.match(handler, /Nguồn Telegram đang inactive/);
+  assert.match(handler, /v4Eligible: true/);
+  assert.match(handler, /mirrorActive: Boolean\(source\.active\)/);
 });
 
 test('admin can create a hidden V4 course with a registered Telegram source', () => {
@@ -76,9 +77,19 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /healthRefreshBtn/);
 });
 
-test('publishing a V4 course requires a live non-empty source', () => {
+test('publishing a V4 course requires a registered non-empty source', () => {
   assert.match(courses, /published\)[\s\S]*lms_v4_telegram_course_sources/);
   assert.match(courses, /tgcloner_sources/);
   assert.match(courses, /tgcloner_source_messages/);
   assert.match(courses, /Chưa có bài Telegram nào/);
+  assert.doesNotMatch(courses, /!source\.active/);
+});
+
+test('V4 multi-source eligibility is independent from clone mirror MASTER', () => {
+  assert.match(handler, /const sourceHealthy = Boolean\(mapping\?\.enabled && source && indexedMessageCount > 0\)/);
+  assert.match(handler, /readyEligible: Boolean\(Number\(source\.actualMessageCount \|\| 0\) > 0\)/);
+  assert.doesNotMatch(handler, /Nguồn Telegram đang inactive/);
+  assert.doesNotMatch(handler, /Nguồn Telegram inactive/);
+  assert.match(page, /v4Eligible/);
+  assert.match(page, /MASTER mirror/);
 });
