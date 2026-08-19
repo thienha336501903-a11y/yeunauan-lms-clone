@@ -23,14 +23,20 @@ handler=replaceAllChecked(
   handler,
   'indexedMessageCount: Number(source.indexed_message_count || 0),\n    updatedAt: source.updated_at || null',
   'indexedMessageCount: Number(source.indexed_message_count || 0),\n    lastIngestedAt: source.last_ingested_at || null,\n    lastSourceDate: source.last_source_date || null,\n    updatedAt: source.updated_at || null',
-  2,
-  'flat source DTO ingest fields'
+  1,
+  'list source DTO ingest fields'
 );
 handler=replaceChecked(
   handler,
   'indexedMessageCount,\n        updatedAt: source.updated_at || null',
   'indexedMessageCount,\n        lastIngestedAt: source.last_ingested_at || null,\n        lastSourceDate: source.last_source_date || null,\n        updatedAt: source.updated_at || null',
   'health source DTO ingest fields'
+);
+handler=replaceChecked(
+  handler,
+  'indexedMessageCount: Number(source.indexed_message_count || 0),\n    actualMessageCount: Number(count || 0),\n    updatedAt: source.updated_at || null',
+  'indexedMessageCount: Number(source.indexed_message_count || 0),\n    actualMessageCount: Number(count || 0),\n    lastIngestedAt: source.last_ingested_at || null,\n    lastSourceDate: source.last_source_date || null,\n    updatedAt: source.updated_at || null',
+  'sourceWithCount DTO ingest fields'
 );
 fs.writeFileSync(handlerPath,handler);
 
