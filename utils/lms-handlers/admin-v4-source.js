@@ -127,10 +127,22 @@ export default async function handler(req, res) {
 
       const { data: existing, error: existingError } = await supabase
         .from("lms_v4_telegram_course_sources")
-        .select("media_mode")
+        .select("source_id,enabled,media_mode")
         .eq("course_slug", checked.slug)
         .maybeSingle();
       if (existingError) throw existingError;
+
+      // Do not let a live course change its delivery source underneath active
+      // learners. Hide the course first, then change/disable its source, verify
+      // the new mapping, and publish it again.
+      const sourceChanged = Boolean(existing?.source_id && existing.source_id !== sourceId);
+      const sourceDisabled = Boolean(existing?.enabled && !enabled);
+      if (checked.isPublished && (sourceChanged || sourceDisabled)) {
+        return res.status(409).json({
+          success: false,
+          error: "Hãy Tạm ẩn khóa học trước khi đổi hoặc tắt nguồn Telegram V4"
+        });
+      }
 
       const requestedMode = String(req.body?.mediaMode || existing?.media_mode || "telegram_bot_poc").trim();
       const mediaMode = ALLOWED_MEDIA_MODES.has(requestedMode) ? requestedMode : "telegram_bot_poc";
