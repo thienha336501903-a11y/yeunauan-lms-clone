@@ -1,33 +1,7 @@
 import crypto from "crypto";
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest, normalizeEmail } from "../lms.js";
-
-const ACTIVE_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizedStatus(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveStatus(value) {
-  return ACTIVE_STATUSES.has(normalizedStatus(value));
-}
-
-function isExpired(expiredAt, now = Date.now()) {
-  if (!expiredAt) return false;
-  const time = Date.parse(expiredAt);
-  return Number.isFinite(time) && time <= now;
-}
+import { isActiveEnrollmentStatus, isEnrollmentExpired, normalizeEnrollmentStatus } from "../lms-enrollment-status.js";
 
 function normalizeExpiry(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -91,14 +65,14 @@ async function listEnrollments(courseSlug, search = "") {
   const now = Date.now();
   const enrollments = (rows || []).map(row => {
     const student = byId.get(row.student_id) || byEmail.get(normalizeEmail(row.email)) || null;
-    const expired = isExpired(row.expired_at, now);
-    const active = isActiveStatus(row.status) && !expired;
+    const expired = isEnrollmentExpired(row.expired_at, now);
+    const active = isActiveEnrollmentStatus(row.status) && !expired;
     return {
       ...row,
       email: normalizeEmail(row.email),
       active,
       expired,
-      effectiveStatus: expired ? "expired" : normalizedStatus(row.status),
+      effectiveStatus: expired ? "expired" : normalizeEnrollmentStatus(row.status),
       student: student ? {
         fullName: student.full_name || "",
         phone: student.phone || "",

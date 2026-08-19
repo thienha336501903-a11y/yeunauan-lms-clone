@@ -16,29 +16,10 @@ import {
   verifyLmsVerifiedSessionAccess
 } from "../lms-session-guard.js";
 import { resolveMainMediaInfo } from "../lms-media.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
 const API_VERSION = "premium-bunny-stream-v1";
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
-}
 
 function getLmsSessionHeaders(req) {
   return {
@@ -352,13 +333,13 @@ export default async function handler(req, res) {
     // 1. Fetch all course enrollments for this student and normalize status locally.
     const { data: enrollments, error: enrollError } = await supabase
       .from("student_enrollments")
-      .select("course_slug, status")
+      .select("course_slug, status, expired_at")
       .eq("email", email);
 
     if (enrollError) throw enrollError;
 
     const allowedCourses = (enrollments || [])
-      .filter(e => isActiveEnrollment(e.status))
+      .filter(e => isEnrollmentUsable(e))
       .map(e => String(e.course_slug || "").trim())
       .filter(Boolean);
 
