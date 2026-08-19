@@ -84,6 +84,14 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /healthRefreshBtn/);
 });
 
+test('V4 admin links to safe Cloner source registration and can reload sources', () => {
+  assert.match(page, /id="registerSourceLink"/);
+  assert.match(page, /telegram-channel-cloner\.vercel\.app\/\?mode=v4-source/);
+  assert.match(page, /id="reloadSourcesBtn"/);
+  assert.match(page, /Đăng ký nguồn V4 không thay đổi MASTER mirror/);
+  assert.match(page, /await loadSources\(\);await loadHealth\(\)/);
+});
+
 test('V4 ingest activity is maintained by an idempotent database trigger', () => {
   assert.match(ingestMigration, /add column if not exists last_ingested_at timestamptz/);
   assert.match(ingestMigration, /add column if not exists last_source_date timestamptz/);
