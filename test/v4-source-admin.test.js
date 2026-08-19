@@ -8,6 +8,7 @@ const handler = fs.readFileSync(new URL('../utils/lms-handlers/admin-v4-source.j
 const courses = fs.readFileSync(new URL('../utils/lms-handlers/admin-courses.js', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../v4-admin.html', import.meta.url), 'utf8');
 const adminPage = fs.readFileSync(new URL('../admin.html', import.meta.url), 'utf8');
+const ingestMigration = fs.readFileSync(new URL('../supabase/migrations/20260819_add_v4_source_ingest_activity.sql', import.meta.url), 'utf8');
 
 test('admin router exposes V4 Telegram source endpoint', () => {
   assert.match(router, /admin-v4-source\.js/);
@@ -81,6 +82,17 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /endpoint=v4-source&mode=health/);
   assert.match(page, /healthAttention/);
   assert.match(page, /healthRefreshBtn/);
+});
+
+test('V4 ingest activity is maintained by an idempotent database trigger', () => {
+  assert.match(ingestMigration, /add column if not exists last_ingested_at timestamptz/);
+  assert.match(ingestMigration, /add column if not exists last_source_date timestamptz/);
+  assert.match(ingestMigration, /max\(updated_at\) as last_ingested_at/);
+  assert.match(ingestMigration, /max\(source_date\) as last_source_date/);
+  assert.match(ingestMigration, /create or replace function public\.tgcloner_update_source_ingest_activity/);
+  assert.match(ingestMigration, /after insert or update of updated_at, source_date/);
+  assert.match(ingestMigration, /greatest\(last_ingested_at, new\.updated_at\)/);
+  assert.match(ingestMigration, /greatest\(last_source_date, new\.source_date\)/);
 });
 
 test('publishing a V4 course requires a registered non-empty source', () => {
