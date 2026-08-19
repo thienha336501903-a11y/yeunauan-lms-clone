@@ -1,20 +1,11 @@
 {
   "regions": ["sin1"],
   "redirects": [
-    {
-      "source": "/",
-      "has": [
-        {
-          "type": "header",
-          "key": "referer",
-          "value": "https://yeunauan-commerce-clone\\.vercel\\.app(?:/.*)?"
-        }
-      ],
-      "destination": "/my-courses.html?registered=1",
-      "permanent": false
-    }
+    { "source": "/", "destination": "/my-courses", "permanent": false }
   ],
   "rewrites": [
+    { "source": "/my-courses", "destination": "/legacy-my-courses.html" },
+    { "source": "/post/:id", "destination": "/legacy-post.html?id=:id" },
     { "source": "/learning", "destination": "/api/learning" },
     { "source": "/v3", "destination": "/v3-entry.html" },
     { "source": "/v3-admin", "destination": "/channel-admin-candidate.html" },
