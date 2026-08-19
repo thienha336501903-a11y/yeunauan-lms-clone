@@ -1,4 +1,4 @@
-// Regression scope: V4 enrollment admin is course-scoped, Drive-free, and the access gate enforces expiry.
+// Regression scope: V4 enrollment admin is course-scoped, Drive-free, and the access gate enforces expiry through the shared enrollment helper.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,7 +35,8 @@ test('V4 enrollment admin grants, revokes and reactivates without deleting histo
 });
 
 test('V4 direct access rejects an active enrollment after its expiry', () => {
-  assert.match(access, /function isEnrollmentExpired/);
+  assert.match(access, /lms-enrollment-status\.js/);
+  assert.match(access, /isActiveEnrollmentStatus, isEnrollmentExpired/);
   assert.match(access, /\.select\("status,expired_at"\)/);
   assert.match(access, /isEnrollmentExpired\(enrollment\.expired_at\)/);
   assert.match(access, /Quyền học khóa này.*đã hết hạn/);
