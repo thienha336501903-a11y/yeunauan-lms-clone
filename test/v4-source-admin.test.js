@@ -6,6 +6,7 @@ const router = fs.readFileSync(new URL('../api/lms/admin.js', import.meta.url), 
 const handler = fs.readFileSync(new URL('../utils/lms-handlers/admin-v4-source.js', import.meta.url), 'utf8');
 const courses = fs.readFileSync(new URL('../utils/lms-handlers/admin-courses.js', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../v4-admin.html', import.meta.url), 'utf8');
+const adminPage = fs.readFileSync(new URL('../admin.html', import.meta.url), 'utf8');
 
 test('admin router exposes V4 Telegram source endpoint', () => {
   assert.match(router, /admin-v4-source\.js/);
@@ -57,6 +58,11 @@ test('dedicated V4 admin page manages creation, source and release', () => {
   assert.match(page, /actualMessageCount/);
   assert.match(page, /\/learning\?course=/);
   assert.match(page, /is_published=false/);
+});
+
+test('main admin exposes a direct V4 admin shortcut', () => {
+  assert.match(adminPage, /href="\/v4-admin\.html"/);
+  assert.match(adminPage, /V4 Admin/);
 });
 
 test('publishing a V4 course requires a live non-empty source', () => {
