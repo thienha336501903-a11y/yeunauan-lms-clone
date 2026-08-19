@@ -93,4 +93,6 @@ test('V4 multi-source eligibility is independent from clone mirror MASTER', () =
   assert.doesNotMatch(handler, /Nguồn Telegram inactive/);
   assert.match(page, /v4Eligible/);
   assert.match(page, /MASTER mirror/);
+  assert.match(page, /nguồn Telegram đã đăng ký/);
+  assert.doesNotMatch(page, /nguồn Telegram còn active/);
 });
