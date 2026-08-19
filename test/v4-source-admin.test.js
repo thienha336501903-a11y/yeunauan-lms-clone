@@ -1,4 +1,4 @@
-// Regression scope: V4 source eligibility is independent from the clone/mirror MASTER flag.
+// Regression scope: V4 source eligibility is independent from mirror MASTER; Admin safely links to Cloner source registration.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -82,6 +82,14 @@ test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(page, /endpoint=v4-source&mode=health/);
   assert.match(page, /healthAttention/);
   assert.match(page, /healthRefreshBtn/);
+});
+
+test('V4 admin links to safe Cloner source registration and can reload sources', () => {
+  assert.match(page, /id="registerSourceLink"/);
+  assert.match(page, /telegram-channel-cloner\.vercel\.app\/\?mode=v4-source/);
+  assert.match(page, /id="reloadSourcesBtn"/);
+  assert.match(page, /Đăng ký nguồn V4 không thay đổi MASTER mirror/);
+  assert.match(page, /await loadSources\(\);await loadHealth\(\)/);
 });
 
 test('V4 ingest activity is maintained by an idempotent database trigger', () => {
