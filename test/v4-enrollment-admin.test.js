@@ -1,3 +1,4 @@
+// Regression scope: V4 enrollment admin is course-scoped, Drive-free, and the access gate enforces expiry.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
