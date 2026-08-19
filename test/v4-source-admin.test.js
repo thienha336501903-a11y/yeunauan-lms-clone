@@ -65,7 +65,7 @@ test('main admin exposes a direct V4 admin shortcut', () => {
   assert.match(adminPage, /V4 Admin/);
 });
 
-test('V4 admin exposes a read-only health dashboard', () => {
+test('V4 health dashboard remains read-only and admin-scoped', () => {
   assert.match(handler, /mode \|\| ""\) === "health"/);
   assert.match(handler, /listV4Health/);
   assert.match(handler, /sourceHealthy/);
