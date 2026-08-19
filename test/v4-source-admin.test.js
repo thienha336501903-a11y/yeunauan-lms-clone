@@ -1,4 +1,4 @@
-// Regression scope: V4 source eligibility is independent from the clone/mirror MASTER flag.
+// Regression scope: V4 source eligibility is independent from mirror MASTER; Admin safely links to Cloner source registration.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
