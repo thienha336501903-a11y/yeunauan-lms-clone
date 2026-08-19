@@ -1,0 +1,31 @@
+name: LMS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Node tests
+        run: npm test
+      - name: Critical syntax checks
+        run: |
+          node --check api/learning.js
+          node --check api/lms/portal.js
+          node --check utils/lms-handlers/student-dashboard.js
+          node --check utils/lms-handlers/v4-telegram-feed.js
+          node --check utils/v4-telegram-access.js

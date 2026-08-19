@@ -7,9 +7,9 @@ const page = fs.readFileSync(new URL('../my-courses.html', import.meta.url), 'ut
 
 assert.match(handler, /\.from\("orders"\)/);
 assert.match(handler, /\.from\("student_enrollments"\)/);
-assert.match(handler, /state = "ready"/);
-assert.match(handler, /state = "approved_waiting_content"/);
-assert.match(handler, /state = "pending_approval"/);
+assert.match(handler, /state\s*=\s*"ready"/);
+assert.match(handler, /state\s*=\s*"approved_waiting_content"/);
+assert.match(handler, /state\s*=\s*"pending_approval"/);
 assert.match(portal, /endpoint === "student-dashboard"/);
 assert.match(page, /Đã nhận đăng ký và bill chuyển khoản/);
 assert.match(page, /Đã duyệt – Chờ lên bài/);
