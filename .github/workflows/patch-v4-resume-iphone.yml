@@ -1,0 +1,36 @@
+name: Apply V4 iPhone resume fix
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/patch-v4-resume-iphone.mjs'
+      - 'test/v4-mobile-resume-menu.test.js'
+      - '.github/workflows/patch-v4-resume-iphone.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.head_ref == 'fix/v4-resume-iphone-scroll-20260820'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply resume fix
+        run: node scripts/patch-v4-resume-iphone.mjs
+      - name: Validate
+        run: npm test
+      - name: Commit functional changes and remove one-time tooling
+        run: |
+          rm -f scripts/patch-v4-resume-iphone.mjs .github/workflows/patch-v4-resume-iphone.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: make V4 resume navigation reliable on iPhone'
+          git push origin HEAD:${{ github.head_ref }}
