@@ -4,10 +4,11 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync(new URL('../v4.html', import.meta.url), 'utf8');
 
-// Final scope: repair Resume behavior and remove the unused top-right dots only.
-test('V4 resume targets the next unseen lesson after last seen', () => {
-  assert.match(page, /function getResumeLesson\(\)[\s\S]*lastIndex[\s\S]*lastIndex\+1[\s\S]*!seen\.has\(lessons\[i\]\.id\)/);
-  assert.match(page, /const resume=\(\)=>\{const l=getResumeLesson\(\);if\(!l\)return;[\s\S]*applyFilter\('all'\)[\s\S]*scrollToLesson\(l\.id,false\)/);
+// Final scope: reliable Resume navigation on iPhone; the unused top-right dots stay removed.
+test('V4 resume always advances to the next lesson from the current saved position', () => {
+  assert.match(page, /function getResumeLesson\(\)[\s\S]*lastIndex<0[\s\S]*lessons\[\(lastIndex\+1\)%lessons\.length\]/);
+  assert.match(page, /function scrollToLessonFromResume\(id\)[\s\S]*window\.scrollTo\(\{top,behavior:'smooth'\}\)/);
+  assert.match(page, /const resume=\(\)=>\{const l=getResumeLesson\(\);if\(!l\)return;[\s\S]*applyFilter\('all'\)[\s\S]*scrollToLessonFromResume\(l\.id\)/);
 });
 
 test('V4 removes the unused top-right options button', () => {
