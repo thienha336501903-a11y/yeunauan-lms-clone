@@ -1,3 +1,4 @@
+// Final PR head marker: mobile resume/menu behavior is covered without touching course data.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
