@@ -1,0 +1,36 @@
+name: Apply V4 resume-only fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/v4-mobile-resume-menu-20260820'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply resume-only patch
+        run: node scripts/patch-v4-resume-only.mjs
+      - name: Validate
+        run: npm test
+      - name: Commit functional changes and remove one-time tooling
+        run: |
+          rm -f scripts/patch-v4-resume-only.mjs .github/workflows/apply-v4-resume-only.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: repair V4 resume and remove options button"
+          git push origin HEAD:${{ github.head_ref }}
