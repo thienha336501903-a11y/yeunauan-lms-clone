@@ -4,11 +4,19 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync(new URL('../v4.html', import.meta.url), 'utf8');
 
-// Final scope: reliable Resume navigation on iPhone; the unused top-right dots stay removed.
-test('V4 resume always advances to the next lesson from the current saved position', () => {
-  assert.match(page, /function getResumeLesson\(\)[\s\S]*lastIndex<0[\s\S]*lessons\[\(lastIndex\+1\)%lessons\.length\]/);
-  assert.match(page, /function scrollToLessonFromResume\(id\)[\s\S]*window\.scrollTo\(\{top,behavior:'smooth'\}\)/);
-  assert.match(page, /const resume=\(\)=>\{const l=getResumeLesson\(\);if\(!l\)return;[\s\S]*applyFilter\('all'\)[\s\S]*scrollToLessonFromResume\(l\.id\)/);
+test('V4 resume prioritizes the latest unfinished video', () => {
+  assert.match(page, /videoProgressKey=`v4_video_progress_/);
+  assert.match(page, /function loadVideoProgress\(\)/);
+  assert.match(page, /function saveVideoProgress\(state\)/);
+  assert.match(page, /function getResumeTarget\(\)[\s\S]*videoProgress[\s\S]*messageId/);
+  assert.match(page, /function scrollToResumeTarget\(target\)[\s\S]*data-message-id/);
+});
+
+test('V4 persists playback position and restores it on replay', () => {
+  assert.match(page, /timeupdate/);
+  assert.match(page, /currentTime/);
+  assert.match(page, /loadedmetadata[\s\S]*videoProgress[\s\S]*video\.currentTime/);
+  assert.match(page, /ended[\s\S]*clearVideoProgress/);
 });
 
 test('V4 removes the unused top-right options button', () => {
