@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync(new URL('../v4.html', import.meta.url), 'utf8');
 
-// Real-device contract: Resume returns to the latest unfinished video and restores its position.
+// Real-device contract: Resume returns to the latest unfinished video via a native anchor and restores its position.
 test('V4 resume prioritizes the latest unfinished video', () => {
   assert.match(page, /videoProgressKey=`v4_video_progress_/);
   assert.match(page, /function loadVideoProgress\(\)/);
@@ -25,4 +25,12 @@ test('V4 removes the unused top-right options button', () => {
   assert.doesNotMatch(page, /id="sideMenuBtn"/);
   assert.doesNotMatch(page, /id="courseMenu"/);
   assert.doesNotMatch(page, /aria-label="Tùy chọn"/);
+});
+
+test('V4 mobile resume uses a native anchor to the exact unfinished video', () => {
+  assert.match(page, /<a class="resume-float" id="resumeFloat" href="#" hidden>/);
+  assert.match(page, /id="resume-video-\$\{esc\(item\.id\|\|''\)\}"/);
+  assert.match(page, /function updateResumeControl\(\)[\s\S]*a\.href='#'\+id/);
+  assert.match(page, /scroll-margin-top:92px/);
+  assert.match(page, /touch-action:manipulation/);
 });
