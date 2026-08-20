@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync(new URL('../v4.html', import.meta.url), 'utf8');
 
-// Real-device contract: Resume returns to the latest unfinished video and restores its position.
+// Real-device contract: Resume returns to the latest unfinished video via a native anchor and restores its position.
 test('V4 resume prioritizes the latest unfinished video', () => {
   assert.match(page, /videoProgressKey=`v4_video_progress_/);
   assert.match(page, /function loadVideoProgress\(\)/);
