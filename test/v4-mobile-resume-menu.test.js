@@ -26,3 +26,11 @@ test('V4 removes the unused top-right options button', () => {
   assert.doesNotMatch(page, /id="courseMenu"/);
   assert.doesNotMatch(page, /aria-label="Tùy chọn"/);
 });
+
+test('V4 mobile resume uses a native anchor to the exact unfinished video', () => {
+  assert.match(page, /<a class="resume-float" id="resumeFloat" href="#" hidden>/);
+  assert.match(page, /id="resume-video-\$\{esc\(item\.id\|\|''\)\}"/);
+  assert.match(page, /function updateResumeControl\(\)[\s\S]*a\.href='#'\+id/);
+  assert.match(page, /scroll-margin-top:92px/);
+  assert.match(page, /touch-action:manipulation/);
+});
