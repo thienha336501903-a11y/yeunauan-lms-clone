@@ -1,4 +1,4 @@
-// Final PR head marker: student expiry UX is covered without changing enrollment data.
+// Production retrigger marker: student expiry UX is covered without changing enrollment data or runtime behavior.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
