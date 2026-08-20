@@ -1,3 +1,4 @@
+// Final PR head marker: student expiry UX is covered without changing enrollment data.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
