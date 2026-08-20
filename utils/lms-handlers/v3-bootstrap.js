@@ -7,23 +7,9 @@ import {
   cookieOptions
 } from "../lms.js";
 import { verifyLmsVerifiedSessionAccess } from "../lms-session-guard.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
-}
 function getLmsSessionHeaders(req) {
   return {
     lmsSessionId: String(req.headers["x-lms-session-id"] || "").trim(),
@@ -83,12 +69,12 @@ export default async function handler(req, res) {
 
     const { data: enrollments, error: enrollError } = await supabase
       .from("student_enrollments")
-      .select("course_slug,status")
+      .select("course_slug,status,expired_at")
       .eq("email", email);
     if (enrollError) throw enrollError;
 
     const slugs = [...new Set((enrollments || [])
-      .filter(row => isActiveEnrollment(row.status))
+      .filter(row => isEnrollmentUsable(row))
       .map(row => String(row.course_slug || "").trim())
       .filter(Boolean))];
 

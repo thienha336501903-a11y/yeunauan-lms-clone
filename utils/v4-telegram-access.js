@@ -1,34 +1,9 @@
 import { supabase } from "./supabase.js";
 import { parseCookies, verifyStudentSession } from "./lms.js";
 import { verifyLmsVerifiedSessionAccess } from "./lms-session-guard.js";
+import { isActiveEnrollmentStatus, isEnrollmentExpired } from "./lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
-}
-
-function isEnrollmentExpired(expiredAt, now = Date.now()) {
-  if (!expiredAt) return false;
-  const time = Date.parse(expiredAt);
-  return Number.isFinite(time) && time <= now;
-}
 
 function getLmsSessionHeaders(req) {
   return {
@@ -77,7 +52,7 @@ export async function requireV4CourseAccess(req, courseSlug) {
     .maybeSingle();
 
   if (enrollmentError) throw enrollmentError;
-  if (!enrollment || !isActiveEnrollment(enrollment.status)) {
+  if (!enrollment || !isActiveEnrollmentStatus(enrollment.status)) {
     return {
       ok: false,
       status: 403,
