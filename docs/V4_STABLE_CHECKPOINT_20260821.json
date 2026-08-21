@@ -1,0 +1,69 @@
+{
+  "checkpoint": "v4-stable-20260821",
+  "audit_date": "2026-08-21",
+  "lms": {
+    "repository": "thienha336501903-a11y/yeunauan-lms-clone",
+    "stable_branch": "stable/v4-20260821",
+    "stable_sha": "2b65d8081d58bab44596cfc2ed89cb8300ffaf7e",
+    "production_deployment": "dpl_Byq5W13zzbvgDHKshoifagrh7wKn",
+    "canonical": "https://yeunauan-lms-clone.vercel.app",
+    "vercel_project": "prj_0mFDJL5lV9q0NBjgBphs0Y6j1Xtc"
+  },
+  "cloner": {
+    "repository": "thienha336501903-a11y/telegram-channel-cloner",
+    "stable_branch": "stable/v4-20260821",
+    "stable_sha": "21af2826ff5ba33ec8ad25444b25fd3bc0cc0bcb",
+    "production_deployment": "dpl_8MapEpfePHpRXeDTBPECNDZQjfLt",
+    "canonical": "https://telegram-channel-cloner.vercel.app",
+    "vercel_project": "prj_5cwOs0JpEUgC5PfpOdn0ffX4Ly0j"
+  },
+  "infrastructure": {
+    "vercel_team": "team_cAthcmyw4079BDgelX0YjG9i",
+    "supabase_project": "yyiavtiwtekkocqpephr"
+  },
+  "database_snapshot": {
+    "courses_total": 8,
+    "courses_lms": 7,
+    "courses_v4": 1,
+    "lessons_total": 45,
+    "students_total": 9,
+    "enrollments_total": 22,
+    "enrollments_lms": 20,
+    "v4_active_enrollments_legacy_metadata": 2,
+    "v4_mappings": 1,
+    "telegram_sources": 1,
+    "telegram_source_messages": 14,
+    "telegram_destinations": 0,
+    "clone_jobs": 0,
+    "clone_job_items": 0,
+    "internal_links": 0,
+    "message_mappings": 0,
+    "sync_events": 2,
+    "v4_media_tickets": 523,
+    "test_media_tickets_remaining": 0
+  },
+  "stable_v4_course": {
+    "slug": "cagiatay",
+    "published": true,
+    "delivery_mode": "v4",
+    "mapping_enabled": true,
+    "media_mode": "telegram_bot_poc",
+    "source_master": true,
+    "indexed_messages": 14,
+    "actual_messages": 14,
+    "media_messages": 13,
+    "media_missing_file_id": 0,
+    "active_enrollments": 2
+  },
+  "audit": {
+    "open_pull_requests": 0,
+    "expired_test_media_tickets_deleted": 16,
+    "current_cloner_health": "pass",
+    "current_lms_wizard_http": 200,
+    "anonymous_lms_prepublish_http": 401,
+    "current_cloner_error_logs_one_hour": 0,
+    "known_nonblocking_warning": "DEP0169 url.parse() dependency warning"
+  },
+  "contains_secrets": false,
+  "physical_database_dump": false
+}
