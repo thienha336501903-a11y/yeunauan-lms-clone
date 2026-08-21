@@ -1,0 +1,1 @@
+Checkpoint manifest files are versioned by Git commit. Use Git commit SHA / branch ref as the integrity anchor; no separate generated binary hash is required.
