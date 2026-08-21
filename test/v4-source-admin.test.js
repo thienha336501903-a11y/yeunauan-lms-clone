@@ -49,8 +49,8 @@ test('published V4 courses cannot change or disable their live source', () => {
   assert.match(handler, /Hãy Tạm ẩn khóa học trước khi đổi hoặc tắt nguồn Telegram V4/);
 });
 
-test('dedicated V4 admin page manages creation, source and release', () => {
-  assert.match(page, /Quản trị khóa học V4/);
+test('advanced V4 admin page still manages creation, source and release', () => {
+  assert.match(page, /Quản trị V4 nâng cao/);
   assert.match(page, /id="newCourseTitle"/);
   assert.match(page, /id="newCourseSlug"/);
   assert.match(page, /id="newCourseSource"/);
@@ -63,9 +63,9 @@ test('dedicated V4 admin page manages creation, source and release', () => {
   assert.match(page, /is_published=false/);
 });
 
-test('main admin exposes a direct V4 admin shortcut', () => {
-  assert.match(adminPage, /href="\/v4-admin\.html"/);
-  assert.match(adminPage, /V4 Admin/);
+test('main admin exposes the V4 launch Wizard as the primary shortcut', () => {
+  assert.match(adminPage, /href="\/v4-course-wizard\.html"/);
+  assert.match(adminPage, /Mở khóa V4/);
 });
 
 test('V4 health dashboard remains read-only and admin-scoped', () => {

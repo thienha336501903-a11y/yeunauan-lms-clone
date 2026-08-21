@@ -10,6 +10,9 @@
 <style>
 .healthSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.healthStat{background:#f7f9f7;border:1px solid #e5ebe6;border-radius:14px;padding:10px}.healthStat b{display:block;font-size:20px;color:#2f4936}.healthStat span{font-size:10px;color:#748078;font-weight:800}.healthTools{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px;margin-top:12px}.healthTools input,.healthTools select{margin:0}.healthCount{font-size:10px;color:#748078;margin-top:7px;text-align:right}.healthList{display:grid;gap:8px;margin-top:9px}.healthItem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid #e5ebe6;background:#fafcfa;border-radius:15px;padding:11px 12px;cursor:pointer}.healthItem:hover{background:#f3f8f4}.healthName{font-size:12px;font-weight:950;color:#2f3c32}.healthMeta{font-size:10px;color:#728078;margin-top:4px;line-height:1.45}.healthPill{font-size:9px;font-weight:950;border-radius:999px;padding:6px 8px;white-space:nowrap}.healthPill.healthy{background:#e4f5e8;color:#286c3c}.healthPill.draft{background:#e8f0fb;color:#35629b}.healthPill.setup{background:#fff2d9;color:#8a6117}.healthPill.broken{background:#fde7e7;color:#973a3a}.enrollSummary{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.enrollList{display:grid;gap:8px;margin-top:10px}.enrollItem{border:1px solid #e5ebe6;background:#fafcfa;border-radius:14px;padding:11px}.enrollTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.enrollEmail{font-size:12px;font-weight:950;color:#2f3c32;word-break:break-all}.enrollMeta{font-size:10px;color:#728078;line-height:1.5;margin-top:4px}.enrollAction{margin-top:8px;display:flex;justify-content:flex-end}.enrollAction .btn{padding:8px 10px;font-size:10px}@media(max-width:560px){.healthSummary{grid-template-columns:1fr 1fr}.healthTools{grid-template-columns:1fr}.healthCount{text-align:left}.healthItem{grid-template-columns:1fr}}
 </style>
+<script>
+(()=>{const params=new URLSearchParams(location.search);if(!params.get('course')&&params.get('advanced')!=='1'){location.replace('/v4-course-wizard.html')}})();
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -19,8 +22,9 @@
   </div>
 
   <section class="hero">
-    <h1>Quản trị khóa học V4</h1>
-    <p>Tạo khóa mới, gắn nguồn Telegram, kiểm tra dữ liệu đã index và phát hành mà không cần sửa Supabase thủ công.</p>
+    <h1>Quản trị V4 nâng cao</h1>
+    <p>Health dashboard, nguồn Telegram, học viên và thao tác nâng cao. Khóa mới nên được mở bằng Wizard để có Draft gate + Preflight đầy đủ.</p>
+    <div class="actions" style="margin-top:14px"><a class="btn primary" href="/v4-course-wizard.html">🚀 Mở khóa mới bằng Wizard</a><a class="btn muted" href="#healthPanel">♥ Xem health dashboard</a></div>
   </section>
 
   <section class="panel" id="healthPanel">
@@ -41,7 +45,7 @@
   </section>
 
   <section class="panel" id="createPanel">
-    <div class="sectionTitle"><span>＋</span><div><h2>Tạo khóa V4 mới</h2><p class="sub">Khóa mới luôn được tạo ở trạng thái Tạm ẩn để kiểm tra trước khi mở cho học viên.</p></div></div>
+    <div class="sectionTitle"><span>＋</span><div><h2>Tạo nhanh (nâng cao)</h2><p class="sub">Fallback cho Admin kỹ thuật. Luồng vận hành chuẩn là dùng Wizard để tạo Draft, cấp quyền test, chạy Preflight rồi mới Publish.</p></div></div>
     <div class="grid2">
       <div>
         <label class="label" for="newCourseTitle">Tên khóa học</label>
