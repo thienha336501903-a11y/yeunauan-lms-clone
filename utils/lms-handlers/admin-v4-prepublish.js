@@ -1,10 +1,13 @@
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
 
-const MEDIA_TYPES = new Set(["photo", "video", "document", "audio", "voice", "animation", "video_note"]);
+const MEDIA_TYPE_LIST = ["photo", "video", "document", "audio", "voice", "animation", "video_note"];
+const MEDIA_TYPES = new Set(MEDIA_TYPE_LIST);
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const DEFAULT_CLONER_HEALTH_URL = "https://telegram-channel-cloner.vercel.app/api/health";
 const GATEWAY_TIMEOUT_MS = 2500;
+const MEDIA_SCAN_PAGE_SIZE = 500;
+const MAX_MEDIA_SCAN_ROWS = 10000;
 
 function clean(value) {
   return String(value || "").trim();
@@ -51,6 +54,27 @@ function check(id, label, status, detail) {
   return { id, label, status, detail };
 }
 
+async function loadMediaRows(sourceId, mediaCount) {
+  const total = Number(mediaCount || 0);
+  if (!sourceId || total <= 0) return { rows: [], complete: true };
+  if (total > MAX_MEDIA_SCAN_ROWS) return { rows: [], complete: false };
+
+  const rows = [];
+  for (let from = 0; from < total; from += MEDIA_SCAN_PAGE_SIZE) {
+    const to = Math.min(total - 1, from + MEDIA_SCAN_PAGE_SIZE - 1);
+    const { data, error } = await supabase
+      .from("tgcloner_source_messages")
+      .select("id,source_message_id,message_type,raw_message,updated_at")
+      .eq("source_id", sourceId)
+      .in("message_type", MEDIA_TYPE_LIST)
+      .order("source_message_id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+  return { rows, complete: rows.length === total };
+}
+
 async function probeClonerHealth() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
@@ -59,13 +83,16 @@ async function probeClonerHealth() {
     const response = await fetch(url, { cache: "no-store", signal: controller.signal });
     const payload = await response.json().catch(() => null);
     const serviceOkay = response.ok && payload?.ok !== false;
-    const databaseOkay = payload?.database !== false;
+    const databaseOkay = payload?.checks?.database !== false && payload?.database !== false;
+    const botConfigured = payload?.configured?.telegramBot !== false;
+    const webhookConfigured = payload?.configured?.telegramWebhook !== false;
+    const gatewayOkay = Boolean(serviceOkay && databaseOkay && botConfigured && webhookConfigured);
     return {
-      ok: Boolean(serviceOkay && databaseOkay),
+      ok: gatewayOkay,
       statusCode: response.status,
-      detail: serviceOkay && databaseOkay
-        ? "Cloner/media gateway đang phản hồi bình thường"
-        : `Cloner health trả HTTP ${response.status}`
+      detail: gatewayOkay
+        ? "Cloner, database và Telegram bot/webhook đang phản hồi bình thường"
+        : `Cloner health chưa đạt: HTTP ${response.status}, DB=${databaseOkay ? "ok" : "lỗi"}, bot=${botConfigured ? "ok" : "thiếu"}, webhook=${webhookConfigured ? "ok" : "thiếu"}`
     };
   } catch (error) {
     return {
@@ -108,9 +135,11 @@ async function buildPrepublish(courseSlug) {
   if (mappingError) throw mappingError;
 
   let source = null;
-  let messages = [];
+  let actualMessageCount = 0;
+  let mediaCount = 0;
+  let mediaScan = { rows: [], complete: true };
   if (mapping?.source_id) {
-    const [{ data: sourceRow, error: sourceError }, { data: messageRows, error: messagesError }] = await Promise.all([
+    const [sourceResult, countResult, mediaCountResult] = await Promise.all([
       supabase
         .from("tgcloner_sources")
         .select("id,title,username,chat_id,active,indexed_at,indexed_message_count,last_ingested_at,last_source_date,updated_at")
@@ -118,15 +147,21 @@ async function buildPrepublish(courseSlug) {
         .maybeSingle(),
       supabase
         .from("tgcloner_source_messages")
-        .select("id,source_message_id,message_type,raw_message,updated_at")
+        .select("id", { count: "exact", head: true })
+        .eq("source_id", mapping.source_id),
+      supabase
+        .from("tgcloner_source_messages")
+        .select("id", { count: "exact", head: true })
         .eq("source_id", mapping.source_id)
-        .order("source_message_id", { ascending: true })
-        .limit(2000)
+        .in("message_type", MEDIA_TYPE_LIST)
     ]);
-    if (sourceError) throw sourceError;
-    if (messagesError) throw messagesError;
-    source = sourceRow || null;
-    messages = messageRows || [];
+    if (sourceResult.error) throw sourceResult.error;
+    if (countResult.error) throw countResult.error;
+    if (mediaCountResult.error) throw mediaCountResult.error;
+    source = sourceResult.data || null;
+    actualMessageCount = Number(countResult.count || 0);
+    mediaCount = Number(mediaCountResult.count || 0);
+    mediaScan = await loadMediaRows(mapping.source_id, mediaCount);
   }
 
   const { data: enrollmentRows, error: enrollmentError } = await supabase
@@ -154,31 +189,38 @@ async function buildPrepublish(courseSlug) {
     checks.push(check("source", "Nguồn Telegram đã đăng ký", "pass", `${source.title || source.username || "Telegram"} · ${source.active ? "MASTER mirror" : "Nguồn V4"}`));
   }
 
-  const actualMessageCount = messages.length;
   if (!actualMessageCount) {
     checks.push(check("messages", "Nội dung đã index", "block", "Chưa có bài Telegram nào trong nguồn"));
   } else {
     checks.push(check("messages", "Nội dung đã index", "pass", `${actualMessageCount} bài thực tế`));
   }
 
-  const historicalMedia = messages
+  if (!mediaScan.complete) {
+    checks.push(check("media-scan", "Quét media trước phát hành", "block", mediaCount > MAX_MEDIA_SCAN_ROWS
+      ? `Nguồn có ${mediaCount} media, vượt giới hạn quét an toàn ${MAX_MEDIA_SCAN_ROWS}; chưa thể xác nhận toàn bộ media lịch sử`
+      : `Chỉ đọc được ${mediaScan.rows.length}/${mediaCount} media; hãy chạy Preflight lại`));
+  } else {
+    checks.push(check("media-scan", "Quét media trước phát hành", "pass", `Đã kiểm tra ${mediaCount} media`));
+  }
+
+  const historicalMedia = mediaScan.rows
     .map((row) => ({ row, state: historicalMediaState(row) }))
     .filter((item) => item.state);
   const missingHydration = historicalMedia.filter((item) => !item.state.hydrated);
   const missingThumbnails = historicalMedia.filter((item) => item.state.hydrated && !item.state.thumbnailReady);
 
-  if (missingHydration.length) {
+  if (mediaScan.complete && missingHydration.length) {
     const ids = missingHydration.slice(0, 5).map((item) => item.row.source_message_id).join(", ");
     checks.push(check("historical-media", "Ảnh/video lịch sử", "block", `${missingHydration.length} media chưa hydrate file_id${ids ? ` · Telegram ID ${ids}` : ""}`));
-  } else if (historicalMedia.length) {
+  } else if (mediaScan.complete && historicalMedia.length) {
     checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", `${historicalMedia.length} media lịch sử đã hydrate`));
-  } else {
+  } else if (mediaScan.complete) {
     checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", "Không có media lịch sử cần hydrate"));
   }
 
-  if (missingThumbnails.length) {
+  if (mediaScan.complete && missingThumbnails.length) {
     checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "warn", `${missingThumbnails.length} video đã có file_id nhưng thiếu thumbnail`));
-  } else {
+  } else if (mediaScan.complete) {
     checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "pass", "Không phát hiện video lịch sử thiếu thumbnail"));
   }
 
@@ -226,6 +268,8 @@ async function buildPrepublish(courseSlug) {
     } : null,
     stats: {
       actualMessageCount,
+      mediaCount,
+      mediaScanComplete: mediaScan.complete,
       historicalMediaCount: historicalMedia.length,
       missingHydrationCount: missingHydration.length,
       missingThumbnailCount: missingThumbnails.length,
