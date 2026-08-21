@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
+import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const DEFAULT_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
@@ -30,6 +31,12 @@ function pickMedia(raw, messageType) {
 function gatewayUrl() {
   const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
   return configured || DEFAULT_GATEWAY;
+}
+
+function scheduleTicketCleanup() {
+  void maybeCleanupExpiredV4MediaTickets(supabase).then((result) => {
+    if (result.error) console.warn("[v4-media-ticket-retention]", result.error);
+  });
 }
 
 export default async function handler(req, res) {
@@ -66,6 +73,8 @@ export default async function handler(req, res) {
     if (!media) {
       return res.status(409).json({ success: false, code: "media_metadata_missing", error: "Bài Telegram chưa có metadata media để phát" });
     }
+
+    scheduleTicketCleanup();
 
     const gateway = gatewayUrl();
     const token = randomUUID();
