@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/v4-primary-wizard-entry-20260821
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
