@@ -17,16 +17,17 @@ function mediaKey(messageType) {
   return messageType === "video_note" ? "video_note" : messageType;
 }
 
-function historicalMediaState(row) {
+function mediaState(row) {
   const raw = row?.raw_message && typeof row.raw_message === "object" ? row.raw_message : {};
   const messageType = clean(row?.message_type);
-  if (!raw.from_reader || !MEDIA_TYPES.has(messageType)) return null;
+  if (!MEDIA_TYPES.has(messageType)) return null;
 
   if (messageType === "photo") {
     const photos = Array.isArray(raw.photo) ? raw.photo : [];
     const item = photos[photos.length - 1] || null;
     return {
-      hydrated: Boolean(item?.file_id),
+      historical: Boolean(raw.from_reader),
+      fileReady: Boolean(item?.file_id),
       thumbnailReady: true
     };
   }
@@ -36,7 +37,8 @@ function historicalMediaState(row) {
     : null;
   const thumbnail = item?.thumbnail || item?.thumb || null;
   return {
-    hydrated: Boolean(item?.file_id),
+    historical: Boolean(raw.from_reader),
+    fileReady: Boolean(item?.file_id),
     thumbnailReady: VIDEO_TYPES.has(messageType) ? Boolean(thumbnail?.file_id) : true
   };
 }
@@ -197,31 +199,37 @@ async function buildPrepublish(courseSlug) {
 
   if (!mediaScan.complete) {
     checks.push(check("media-scan", "Quét media trước phát hành", "block", mediaCount > MAX_MEDIA_SCAN_ROWS
-      ? `Nguồn có ${mediaCount} media, vượt giới hạn quét an toàn ${MAX_MEDIA_SCAN_ROWS}; chưa thể xác nhận toàn bộ media lịch sử`
+      ? `Nguồn có ${mediaCount} media, vượt giới hạn quét an toàn ${MAX_MEDIA_SCAN_ROWS}; chưa thể xác nhận toàn bộ media`
       : `Chỉ đọc được ${mediaScan.rows.length}/${mediaCount} media; hãy chạy Preflight lại`));
   } else {
     checks.push(check("media-scan", "Quét media trước phát hành", "pass", `Đã kiểm tra ${mediaCount} media`));
   }
 
-  const historicalMedia = mediaScan.rows
-    .map((row) => ({ row, state: historicalMediaState(row) }))
+  const mediaStates = mediaScan.rows
+    .map((row) => ({ row, state: mediaState(row) }))
     .filter((item) => item.state);
-  const missingHydration = historicalMedia.filter((item) => !item.state.hydrated);
-  const missingThumbnails = historicalMedia.filter((item) => item.state.hydrated && !item.state.thumbnailReady);
+  const historicalMedia = mediaStates.filter((item) => item.state.historical);
+  const missingFileIds = mediaStates.filter((item) => !item.state.fileReady);
+  const missingThumbnails = mediaStates.filter((item) => item.state.fileReady && !item.state.thumbnailReady);
 
-  if (mediaScan.complete && missingHydration.length) {
-    const ids = missingHydration.slice(0, 5).map((item) => item.row.source_message_id).join(", ");
-    checks.push(check("historical-media", "Ảnh/video lịch sử", "block", `${missingHydration.length} media chưa hydrate file_id${ids ? ` · Telegram ID ${ids}` : ""}`));
-  } else if (mediaScan.complete && historicalMedia.length) {
-    checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", `${historicalMedia.length} media lịch sử đã hydrate`));
+  if (mediaScan.complete && missingFileIds.length) {
+    const ids = missingFileIds.slice(0, 5).map((item) => item.row.source_message_id).join(", ");
+    const historicalMissing = missingFileIds.filter((item) => item.state.historical).length;
+    checks.push(check("media-metadata", "File media Telegram", "block", `${missingFileIds.length} media thiếu file_id${historicalMissing ? ` (${historicalMissing} bài import lịch sử)` : ""}${ids ? ` · Telegram ID ${ids}` : ""}`));
   } else if (mediaScan.complete) {
-    checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", "Không có media lịch sử cần hydrate"));
+    checks.push(check("media-metadata", "File media Telegram", "pass", `${mediaStates.length} media có metadata tải file`));
+  }
+
+  if (mediaScan.complete && historicalMedia.length) {
+    checks.push(check("historical-media", "Media import lịch sử", "pass", `${historicalMedia.length} media lịch sử đã có metadata`));
+  } else if (mediaScan.complete) {
+    checks.push(check("historical-media", "Media import lịch sử", "pass", "Không có media reader cần hydrate riêng"));
   }
 
   if (mediaScan.complete && missingThumbnails.length) {
-    checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "warn", `${missingThumbnails.length} video đã có file_id nhưng thiếu thumbnail`));
+    checks.push(check("video-thumbnail", "Thumbnail video", "warn", `${missingThumbnails.length} video đã có file_id nhưng thiếu thumbnail`));
   } else if (mediaScan.complete) {
-    checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "pass", "Không phát hiện video lịch sử thiếu thumbnail"));
+    checks.push(check("video-thumbnail", "Thumbnail video", "pass", "Không phát hiện video thiếu thumbnail"));
   }
 
   if (source && Number(source.indexed_message_count || 0) !== actualMessageCount) {
@@ -271,7 +279,7 @@ async function buildPrepublish(courseSlug) {
       mediaCount,
       mediaScanComplete: mediaScan.complete,
       historicalMediaCount: historicalMedia.length,
-      missingHydrationCount: missingHydration.length,
+      missingFileIdCount: missingFileIds.length,
       missingThumbnailCount: missingThumbnails.length,
       activeEnrollmentCount: activeEnrollments
     },
