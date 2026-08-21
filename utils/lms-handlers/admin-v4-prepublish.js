@@ -1,0 +1,262 @@
+import { supabase } from "../supabase.js";
+import { getAdminFromRequest } from "../lms.js";
+
+const MEDIA_TYPES = new Set(["photo", "video", "document", "audio", "voice", "animation", "video_note"]);
+const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
+const DEFAULT_CLONER_HEALTH_URL = "https://telegram-channel-cloner.vercel.app/api/health";
+const GATEWAY_TIMEOUT_MS = 2500;
+
+function clean(value) {
+  return String(value || "").trim();
+}
+
+function mediaKey(messageType) {
+  return messageType === "video_note" ? "video_note" : messageType;
+}
+
+function historicalMediaState(row) {
+  const raw = row?.raw_message && typeof row.raw_message === "object" ? row.raw_message : {};
+  const messageType = clean(row?.message_type);
+  if (!raw.from_reader || !MEDIA_TYPES.has(messageType)) return null;
+
+  if (messageType === "photo") {
+    const photos = Array.isArray(raw.photo) ? raw.photo : [];
+    const item = photos[photos.length - 1] || null;
+    return {
+      hydrated: Boolean(item?.file_id),
+      thumbnailReady: true
+    };
+  }
+
+  const item = raw[mediaKey(messageType)] && typeof raw[mediaKey(messageType)] === "object"
+    ? raw[mediaKey(messageType)]
+    : null;
+  const thumbnail = item?.thumbnail || item?.thumb || null;
+  return {
+    hydrated: Boolean(item?.file_id),
+    thumbnailReady: VIDEO_TYPES.has(messageType) ? Boolean(thumbnail?.file_id) : true
+  };
+}
+
+function activeEnrollmentCount(rows, now = Date.now()) {
+  return (rows || []).filter((row) => {
+    if (clean(row?.status).toLowerCase() !== "active") return false;
+    if (!row?.expired_at) return true;
+    const expiry = Date.parse(row.expired_at);
+    return Number.isFinite(expiry) && expiry > now;
+  }).length;
+}
+
+function check(id, label, status, detail) {
+  return { id, label, status, detail };
+}
+
+async function probeClonerHealth() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
+  try {
+    const url = clean(process.env.TELEGRAM_CLONER_HEALTH_URL) || DEFAULT_CLONER_HEALTH_URL;
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    const payload = await response.json().catch(() => null);
+    const serviceOkay = response.ok && payload?.ok !== false;
+    const databaseOkay = payload?.database !== false;
+    return {
+      ok: Boolean(serviceOkay && databaseOkay),
+      statusCode: response.status,
+      detail: serviceOkay && databaseOkay
+        ? "Cloner/media gateway đang phản hồi bình thường"
+        : `Cloner health trả HTTP ${response.status}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 0,
+      detail: error?.name === "AbortError"
+        ? "Cloner health không phản hồi trong 2.5 giây"
+        : "Không kiểm tra được Cloner/media gateway lúc này"
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function buildPrepublish(courseSlug) {
+  const slug = clean(courseSlug);
+  if (!slug) {
+    const error = new Error("Thiếu khóa học V4");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { data: course, error: courseError } = await supabase
+    .from("courses")
+    .select("id,slug,title,delivery_mode,is_published")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (courseError) throw courseError;
+  if (!course || clean(course.delivery_mode).toLowerCase() !== "v4") {
+    const error = new Error("Khóa học không tồn tại hoặc không phải V4");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { data: mapping, error: mappingError } = await supabase
+    .from("lms_v4_telegram_course_sources")
+    .select("source_id,enabled,media_mode,updated_at")
+    .eq("course_slug", slug)
+    .maybeSingle();
+  if (mappingError) throw mappingError;
+
+  let source = null;
+  let messages = [];
+  if (mapping?.source_id) {
+    const [{ data: sourceRow, error: sourceError }, { data: messageRows, error: messagesError }] = await Promise.all([
+      supabase
+        .from("tgcloner_sources")
+        .select("id,title,username,chat_id,active,indexed_at,indexed_message_count,last_ingested_at,last_source_date,updated_at")
+        .eq("id", mapping.source_id)
+        .maybeSingle(),
+      supabase
+        .from("tgcloner_source_messages")
+        .select("id,source_message_id,message_type,raw_message,updated_at")
+        .eq("source_id", mapping.source_id)
+        .order("source_message_id", { ascending: true })
+        .limit(2000)
+    ]);
+    if (sourceError) throw sourceError;
+    if (messagesError) throw messagesError;
+    source = sourceRow || null;
+    messages = messageRows || [];
+  }
+
+  const { data: enrollmentRows, error: enrollmentError } = await supabase
+    .from("student_enrollments")
+    .select("id,status,expired_at")
+    .eq("course_slug", slug);
+  if (enrollmentError) throw enrollmentError;
+
+  const gateway = await probeClonerHealth();
+  const checks = [];
+
+  if (!mapping) {
+    checks.push(check("mapping", "Mapping nguồn Telegram", "block", "Khóa chưa gắn nguồn Telegram V4"));
+  } else if (!mapping.enabled) {
+    checks.push(check("mapping", "Mapping nguồn Telegram", "block", "Nguồn Telegram đang bị tắt cho khóa này"));
+  } else {
+    checks.push(check("mapping", "Mapping nguồn Telegram", "pass", `Đang bật · mode ${mapping.media_mode || "telegram_bot_poc"}`));
+  }
+
+  if (!source) {
+    checks.push(check("source", "Nguồn Telegram đã đăng ký", "block", "Không tìm thấy source mà mapping đang trỏ tới"));
+  } else if (!clean(source.chat_id)) {
+    checks.push(check("source", "Nguồn Telegram đã đăng ký", "block", "Source thiếu Telegram chat_id"));
+  } else {
+    checks.push(check("source", "Nguồn Telegram đã đăng ký", "pass", `${source.title || source.username || "Telegram"} · ${source.active ? "MASTER mirror" : "Nguồn V4"}`));
+  }
+
+  const actualMessageCount = messages.length;
+  if (!actualMessageCount) {
+    checks.push(check("messages", "Nội dung đã index", "block", "Chưa có bài Telegram nào trong nguồn"));
+  } else {
+    checks.push(check("messages", "Nội dung đã index", "pass", `${actualMessageCount} bài thực tế`));
+  }
+
+  const historicalMedia = messages
+    .map((row) => ({ row, state: historicalMediaState(row) }))
+    .filter((item) => item.state);
+  const missingHydration = historicalMedia.filter((item) => !item.state.hydrated);
+  const missingThumbnails = historicalMedia.filter((item) => item.state.hydrated && !item.state.thumbnailReady);
+
+  if (missingHydration.length) {
+    const ids = missingHydration.slice(0, 5).map((item) => item.row.source_message_id).join(", ");
+    checks.push(check("historical-media", "Ảnh/video lịch sử", "block", `${missingHydration.length} media chưa hydrate file_id${ids ? ` · Telegram ID ${ids}` : ""}`));
+  } else if (historicalMedia.length) {
+    checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", `${historicalMedia.length} media lịch sử đã hydrate`));
+  } else {
+    checks.push(check("historical-media", "Ảnh/video lịch sử", "pass", "Không có media lịch sử cần hydrate"));
+  }
+
+  if (missingThumbnails.length) {
+    checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "warn", `${missingThumbnails.length} video đã có file_id nhưng thiếu thumbnail`));
+  } else {
+    checks.push(check("video-thumbnail", "Thumbnail video lịch sử", "pass", "Không phát hiện video lịch sử thiếu thumbnail"));
+  }
+
+  if (source && Number(source.indexed_message_count || 0) !== actualMessageCount) {
+    checks.push(check("index-count", "Đối chiếu số bài", "warn", `Cache source=${Number(source.indexed_message_count || 0)}, thực tế=${actualMessageCount}`));
+  } else if (source) {
+    checks.push(check("index-count", "Đối chiếu số bài", "pass", `Khớp ${actualMessageCount}/${actualMessageCount}`));
+  }
+
+  const activeEnrollments = activeEnrollmentCount(enrollmentRows);
+  checks.push(activeEnrollments > 0
+    ? check("enrollments", "Học viên đã được cấp quyền", "pass", `${activeEnrollments} quyền đang hoạt động`)
+    : check("enrollments", "Học viên đã được cấp quyền", "warn", "Chưa có học viên active; có thể Publish nhưng nên cấp quyền và kiểm tra Draft gate trước"));
+
+  checks.push(gateway.ok
+    ? check("gateway", "Cloner / media gateway", "pass", gateway.detail)
+    : check("gateway", "Cloner / media gateway", "warn", `${gateway.detail}; đây là cảnh báo tạm thời, không tự chặn Publish`));
+
+  const blockers = checks.filter((item) => item.status === "block").length;
+  const warnings = checks.filter((item) => item.status === "warn").length;
+  const passed = checks.filter((item) => item.status === "pass").length;
+
+  return {
+    course: {
+      id: course.id,
+      slug: course.slug,
+      title: course.title || course.slug,
+      isPublished: Boolean(course.is_published)
+    },
+    mapping: mapping ? {
+      sourceId: mapping.source_id,
+      enabled: Boolean(mapping.enabled),
+      mediaMode: mapping.media_mode || "telegram_bot_poc"
+    } : null,
+    source: source ? {
+      id: source.id,
+      title: source.title || source.username || "Telegram",
+      username: source.username || "",
+      chatId: source.chat_id || "",
+      mirrorActive: Boolean(source.active),
+      indexedMessageCount: Number(source.indexed_message_count || 0),
+      actualMessageCount,
+      lastIngestedAt: source.last_ingested_at || null,
+      lastSourceDate: source.last_source_date || null
+    } : null,
+    stats: {
+      actualMessageCount,
+      historicalMediaCount: historicalMedia.length,
+      missingHydrationCount: missingHydration.length,
+      missingThumbnailCount: missingThumbnails.length,
+      activeEnrollmentCount: activeEnrollments
+    },
+    gateway: { ok: gateway.ok, statusCode: gateway.statusCode },
+    checks,
+    summary: { passed, warnings, blockers },
+    ready: blockers === 0
+  };
+}
+
+export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  try {
+    const admin = getAdminFromRequest(req);
+    if (!admin) return res.status(401).json({ success: false, error: "Chưa đăng nhập admin" });
+    if (req.method !== "GET") return res.status(405).json({ success: false, error: "Method not allowed" });
+
+    const result = await buildPrepublish(req.query?.course);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error("[admin-v4-prepublish]", error);
+    return res.status(Number(error.statusCode || 500)).json({
+      success: false,
+      error: error.message || "Lỗi kiểm tra trước khi phát hành V4"
+    });
+  }
+}
