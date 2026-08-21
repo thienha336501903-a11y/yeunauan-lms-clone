@@ -17,12 +17,6 @@ function sha256(value) {
   return createHash("sha256").update(String(value || "")).digest("hex");
 }
 
-function requestIp(req) {
-  const forwarded = clean(req.headers?.["x-forwarded-for"] || "");
-  if (forwarded) return clean(forwarded.split(",")[0]);
-  return clean(req.headers?.["x-real-ip"] || req.socket?.remoteAddress || "");
-}
-
 function mediaGatewayUrl() {
   return clean(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").replace(/\/$/, "") || DEFAULT_MEDIA_GATEWAY;
 }
@@ -111,7 +105,6 @@ export default async function handler(req, res) {
     const publicKeyJson = JSON.stringify(keys.publicJwk);
     const expiresAt = new Date(Date.now() + leaseTtlMs(video.duration)).toISOString();
     const userAgent = clean(req.headers?.["user-agent"]);
-    const ip = requestIp(req);
 
     const { error: ticketError } = await supabase
       .from("lms_v4_media_tickets")
@@ -126,7 +119,7 @@ export default async function handler(req, res) {
         playback_public_key_jwk: publicKeyJson,
         playback_proof_hash: publicKeyJson,
         bound_ua_hash: userAgent ? sha256(userAgent) : null,
-        bound_ip_hash: ip ? sha256(ip) : null
+        bound_ip_hash: null
       });
     if (ticketError) throw ticketError;
 
