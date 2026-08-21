@@ -1,6 +1,6 @@
 const leases = new Map();
 const MEDIA_PREFIX = "/v4-media/";
-const MAX_UPSTREAM_RANGE_BYTES = 8 * 1024 * 1024;
+const MAX_UPSTREAM_RANGE_BYTES = 2 * 1024 * 1024;
 const textEncoder = new TextEncoder();
 
 self.addEventListener("install", () => self.skipWaiting());
