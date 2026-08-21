@@ -1,3 +1,4 @@
+// Admin-only navigation contract: Wizard is primary; advanced V4 Admin remains available as fallback.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
