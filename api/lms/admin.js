@@ -20,6 +20,7 @@ import adminAccountSharingAlertsHandler from "../../utils/lms-handlers/admin-acc
 import adminLearningModeHandler from "../../utils/lms-handlers/admin-learning-mode.js";
 import adminV4SourceHandler from "../../utils/lms-handlers/admin-v4-source.js";
 import adminV4EnrollmentsHandler from "../../utils/lms-handlers/admin-v4-enrollments.js";
+import adminV4PrepublishHandler from "../../utils/lms-handlers/admin-v4-prepublish.js";
 
 export const config = {
   api: {
@@ -97,6 +98,9 @@ export default async function handler(req, res) {
   }
   if (endpoint === "v4-enrollments") {
     return adminV4EnrollmentsHandler(req, res);
+  }
+  if (endpoint === "v4-prepublish") {
+    return adminV4PrepublishHandler(req, res);
   }
 
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
