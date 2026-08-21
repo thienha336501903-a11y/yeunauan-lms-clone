@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
+import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
@@ -51,6 +52,12 @@ function createPlaybackKeyPair() {
   };
 }
 
+function scheduleTicketCleanup() {
+  void maybeCleanupExpiredV4MediaTickets(supabase).then((result) => {
+    if (result.error) console.warn("[v4-media-ticket-retention]", result.error);
+  });
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Pragma", "no-cache");
@@ -95,6 +102,8 @@ export default async function handler(req, res) {
     if (!video) {
       return res.status(409).json({ success: false, code: "video_required", error: "Media này không phải video" });
     }
+
+    scheduleTicketCleanup();
 
     const token = randomUUID();
     const leaseId = randomUUID();
