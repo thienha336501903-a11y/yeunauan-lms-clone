@@ -33,14 +33,23 @@ test('prepublish uses exact source counts and bounded paginated media scanning',
   assert.match(prepublish, /"media-scan"[\s\S]*"block"/);
 });
 
-test('prepublish blocks broken source/content and historical media hydration', () => {
+test('prepublish blocks broken source/content and missing metadata for any Telegram media', () => {
   assert.match(prepublish, /"mapping"[\s\S]*"block"/);
   assert.match(prepublish, /"source"[\s\S]*"block"/);
   assert.match(prepublish, /"messages"[\s\S]*"block"/);
+  assert.match(prepublish, /function mediaState/);
   assert.match(prepublish, /raw\.from_reader/);
-  assert.match(prepublish, /missingHydration/);
-  assert.match(prepublish, /media chưa hydrate file_id/);
+  assert.match(prepublish, /missingFileIds/);
+  assert.match(prepublish, /"media-metadata"[\s\S]*"block"/);
+  assert.match(prepublish, /media thiếu file_id/);
   assert.match(prepublish, /ready: blockers === 0/);
+});
+
+test('prepublish tracks historical reader media and video thumbnails separately', () => {
+  assert.match(prepublish, /historicalMedia/);
+  assert.match(prepublish, /"historical-media"/);
+  assert.match(prepublish, /missingThumbnails/);
+  assert.match(prepublish, /"video-thumbnail"[\s\S]*"warn"/);
 });
 
 test('prepublish understands current Cloner health shape', () => {
