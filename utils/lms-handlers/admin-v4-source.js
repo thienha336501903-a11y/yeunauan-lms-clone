@@ -25,6 +25,19 @@ async function requireV4Course(course) {
   return { ok: true, slug, isPublished: Boolean(data.is_published) };
 }
 
+async function exactSourceMessageCounts(sourceIds) {
+  const ids = [...new Set((sourceIds || []).filter(Boolean))];
+  const pairs = await Promise.all(ids.map(async (sourceId) => {
+    const { count, error } = await supabase
+      .from("tgcloner_source_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("source_id", sourceId);
+    if (error) throw error;
+    return [sourceId, Number(count || 0)];
+  }));
+  return new Map(pairs);
+}
+
 async function listSources() {
   const { data: rows, error } = await supabase
     .from("tgcloner_sources")
@@ -32,6 +45,7 @@ async function listSources() {
     .order("updated_at", { ascending: false });
   if (error) throw error;
 
+  const counts = await exactSourceMessageCounts((rows || []).map((source) => source.id));
   return (rows || []).map(source => ({
     id: source.id,
     title: source.title || source.username || "Telegram",
@@ -40,7 +54,7 @@ async function listSources() {
     mirrorActive: Boolean(source.active),
     v4Eligible: true,
     indexedAt: source.indexed_at || null,
-    indexedMessageCount: Number(source.indexed_message_count || 0),
+    indexedMessageCount: Number(counts.get(source.id) || 0),
     lastIngestedAt: source.last_ingested_at || null,
     lastSourceDate: source.last_source_date || null,
     updatedAt: source.updated_at || null
@@ -76,13 +90,14 @@ async function listV4Health() {
     if (error) throw error;
     sources = data || [];
   }
+  const exactCounts = await exactSourceMessageCounts(sourceIds);
 
   const mappingByCourse = new Map(mappings.map((row) => [row.course_slug, row]));
   const sourceById = new Map(sources.map((row) => [row.id, row]));
   const rows = (courses || []).map((course) => {
     const mapping = mappingByCourse.get(course.slug) || null;
     const source = mapping?.source_id ? sourceById.get(mapping.source_id) || null : null;
-    const indexedMessageCount = Number(source?.indexed_message_count || 0);
+    const indexedMessageCount = Number(source ? exactCounts.get(source.id) || 0 : 0);
     const sourceHealthy = Boolean(mapping?.enabled && source && indexedMessageCount > 0);
     let health = "setup";
     let issue = "Chưa gắn nguồn Telegram";
@@ -152,12 +167,8 @@ async function sourceWithCount(sourceId) {
   if (sourceError) throw sourceError;
   if (!source) return null;
 
-  const { count, error: countError } = await supabase
-    .from("tgcloner_source_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("source_id", sourceId);
-  if (countError) throw countError;
-
+  const counts = await exactSourceMessageCounts([sourceId]);
+  const actualMessageCount = Number(counts.get(sourceId) || 0);
   return {
     id: source.id,
     title: source.title || source.username || "Telegram",
@@ -166,8 +177,8 @@ async function sourceWithCount(sourceId) {
     mirrorActive: Boolean(source.active),
     v4Eligible: true,
     indexedAt: source.indexed_at || null,
-    indexedMessageCount: Number(source.indexed_message_count || 0),
-    actualMessageCount: Number(count || 0),
+    indexedMessageCount: actualMessageCount,
+    actualMessageCount,
     lastIngestedAt: source.last_ingested_at || null,
     lastSourceDate: source.last_source_date || null,
     updatedAt: source.updated_at || null

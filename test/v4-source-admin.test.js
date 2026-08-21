@@ -44,6 +44,16 @@ test('V4 source list can load before a course exists', () => {
   assert.match(handler, /sources: await listSources\(\)/);
 });
 
+test('V4 source counts use exact live message totals instead of stale cached counters', () => {
+  assert.match(handler, /async function exactSourceMessageCounts/);
+  assert.match(handler, /select\("id", \{ count: "exact", head: true \}\)/);
+  assert.match(handler, /const counts = await exactSourceMessageCounts/);
+  assert.match(handler, /indexedMessageCount: Number\(counts\.get\(source\.id\) \|\| 0\)/);
+  assert.match(handler, /const exactCounts = await exactSourceMessageCounts\(sourceIds\)/);
+  assert.match(handler, /indexedMessageCount = Number\(source \? exactCounts\.get\(source\.id\) \|\| 0 : 0\)/);
+  assert.match(handler, /indexedMessageCount: actualMessageCount/);
+});
+
 test('published V4 courses cannot change or disable their live source', () => {
   assert.match(handler, /checked\.isPublished && \(sourceChanged \|\| sourceDisabled\)/);
   assert.match(handler, /Hãy Tạm ẩn khóa học trước khi đổi hoặc tắt nguồn Telegram V4/);
