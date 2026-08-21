@@ -83,10 +83,10 @@ test('wizard requires preflight readiness and explicit acknowledgement before pu
   assert.match(wizard, /Đã duyệt – Chờ lên bài/);
 });
 
-test('existing V4 admin remains present as the unchanged fallback surface', () => {
-  assert.match(legacyAdmin, /Quản trị khóa học V4/);
+test('advanced V4 admin remains available as the fallback surface', () => {
+  assert.match(legacyAdmin, /Quản trị V4 nâng cao/);
   assert.match(legacyAdmin, /id="readyBtn"/);
   assert.match(legacyAdmin, /id="saveSourceBtn"/);
   assert.match(legacyAdmin, /endpoint=v4-source&mode=health/);
-  assert.match(wizard, /href="\/v4-admin\.html"/);
+  assert.match(wizard, /href="\/v4-admin\.html\?advanced=1"/);
 });
