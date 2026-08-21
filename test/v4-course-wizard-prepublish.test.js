@@ -25,6 +25,14 @@ test('V4 prepublish endpoint is admin-only, GET-only and read-only', () => {
   assert.doesNotMatch(prepublish, /\.delete\(/);
 });
 
+test('prepublish uses exact source counts and bounded paginated media scanning', () => {
+  assert.match(prepublish, /count: "exact", head: true/);
+  assert.match(prepublish, /MEDIA_SCAN_PAGE_SIZE = 500/);
+  assert.match(prepublish, /MAX_MEDIA_SCAN_ROWS = 10000/);
+  assert.match(prepublish, /\.range\(from, to\)/);
+  assert.match(prepublish, /"media-scan"[\s\S]*"block"/);
+});
+
 test('prepublish blocks broken source/content and historical media hydration', () => {
   assert.match(prepublish, /"mapping"[\s\S]*"block"/);
   assert.match(prepublish, /"source"[\s\S]*"block"/);
@@ -33,6 +41,12 @@ test('prepublish blocks broken source/content and historical media hydration', (
   assert.match(prepublish, /missingHydration/);
   assert.match(prepublish, /media chưa hydrate file_id/);
   assert.match(prepublish, /ready: blockers === 0/);
+});
+
+test('prepublish understands current Cloner health shape', () => {
+  assert.match(prepublish, /payload\?\.checks\?\.database !== false/);
+  assert.match(prepublish, /payload\?\.configured\?\.telegramBot !== false/);
+  assert.match(prepublish, /payload\?\.configured\?\.telegramWebhook !== false/);
 });
 
 test('prepublish warns instead of hard-blocking transient gateway or no-enrollment state', () => {
