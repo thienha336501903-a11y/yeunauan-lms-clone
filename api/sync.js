@@ -56,7 +56,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug } = req.body || {};
+    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug, orderId, deliveryMode } = req.body || {};
 
     if (!action) {
       return res.status(400).json({ success: false, error: "Thiếu tham số action" });
@@ -69,12 +69,19 @@ export default async function handler(req, res) {
       if (!slug || !title) {
         return res.status(400).json({ success: false, error: "Thiếu slug hoặc title" });
       }
+      const normalizedSlug = String(slug).trim();
+      if (!/^[a-z0-9_-]+$/.test(normalizedSlug)) {
+        return res.status(400).json({ success: false, error: "Slug khóa học không hợp lệ" });
+      }
+      const requestedMode = ["lms", "telegram", "v4"].includes(String(deliveryMode || "").trim().toLowerCase())
+        ? String(deliveryMode).trim().toLowerCase()
+        : null;
 
       // Check if course already exists
       const { data: existingCourse, error: fetchErr } = await supabase
         .from("courses")
-        .select("id, raw_data")
-        .eq("slug", slug.trim())
+        .select("id, raw_data, delivery_mode, is_published")
+        .eq("slug", normalizedSlug)
         .maybeSingle();
 
       if (fetchErr) throw fetchErr;
@@ -88,12 +95,16 @@ export default async function handler(req, res) {
 
       let result;
       if (existingCourse) {
+        const existingMode = String(existingCourse.delivery_mode || "lms").trim().toLowerCase();
+        if (requestedMode && requestedMode !== existingMode && (requestedMode === "v4" || existingMode === "v4")) {
+          return res.status(409).json({ success: false, error: "Không thể đổi khóa qua lại V4 bằng API sync" });
+        }
         // Update metadata without breaking lessons or existing raw_data
         const updatePayload = {
           title: nextTitle,
-          active: active !== undefined ? active : true,
           updated_at: new Date().toISOString()
         };
+        if (active !== undefined) updatePayload.active = active === true;
         if (nextSubtitle) {
           updatePayload.subtitle = nextSubtitle;
         }
@@ -118,12 +129,14 @@ export default async function handler(req, res) {
           .from("courses")
           .insert({
             id: newCourseId,
-            slug: slug.trim(),
+            slug: normalizedSlug,
             title: nextTitle,
             subtitle: nextSubtitle || null,
             image_url: nextImageUrl || null,
             expected_start_date: nextExpectedStartDate,
-            active: active !== undefined ? active : true,
+            active: active !== undefined ? active === true : requestedMode !== "v4",
+            is_published: false,
+            delivery_mode: requestedMode || "lms",
             sort_order: 999 // Default to end of list
           })
           .select("id")
@@ -143,11 +156,15 @@ export default async function handler(req, res) {
       if (!email || !courseSlug) {
         return res.status(400).json({ success: false, error: "Thiếu email hoặc courseSlug" });
       }
+      if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(orderId))) {
+        return res.status(400).json({ success: false, error: "orderId không hợp lệ" });
+      }
 
       const syncResult = await syncEnrollment(supabase, {
         email,
         courseSlug,
-        action: "create"
+        action: "create",
+        orderId: orderId || null
       });
 
       return res.status(200).json(syncResult);
@@ -160,11 +177,15 @@ export default async function handler(req, res) {
       if (!email || !courseSlug) {
         return res.status(400).json({ success: false, error: "Thiếu email hoặc courseSlug" });
       }
+      if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(orderId))) {
+        return res.status(400).json({ success: false, error: "orderId không hợp lệ" });
+      }
 
       const syncResult = await syncEnrollment(supabase, {
         email,
         courseSlug,
-        action: "revoke"
+        action: "revoke",
+        orderId: orderId || null
       });
 
       return res.status(200).json(syncResult);

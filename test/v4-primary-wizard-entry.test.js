@@ -24,6 +24,7 @@ test('wizard is the primary flow and returns cleanly from Cloner', () => {
   assert.match(wizard, /href="\/v4-admin\.html\?advanced=1">V4 Admin nâng cao →<\/a>/);
   assert.match(wizard, /id="registerSourceLink"/);
   assert.match(wizard, /returnTo/);
-  assert.match(wizard, /location\.origin\+'\/v4-course-wizard\.html'/);
+  assert.match(wizard, /new URL\('\/v4-course-wizard\.html',location\.origin\)/);
+  assert.match(wizard, /safeReturnTo/);
   assert.doesNotMatch(wizard, /id="registerSourceLink"[^>]*target="_blank"/);
 });

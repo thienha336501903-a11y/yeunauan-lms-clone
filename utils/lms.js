@@ -1588,6 +1588,18 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
 
   const cleanEmail = normalizeEmail(email);
   const normalizedAction = action === "create" || action === "syncEnrollment" ? "create" : "revoke";
+  const normalizedCourseSlug = courseSlug.trim();
+
+  const { data: courseRec, error: courseFetchError } = await supabase
+    .from("courses")
+    .select("id,delivery_mode")
+    .eq("slug", normalizedCourseSlug)
+    .maybeSingle();
+  if (courseFetchError) throw courseFetchError;
+  if (!courseRec) throw new Error("Course not found");
+  if (String(courseRec.delivery_mode || "").trim().toLowerCase() === "telegram") {
+    throw new Error("Telegram course does not use LMS enrollment");
+  }
 
   let enrollmentResult = null;
 
@@ -1632,15 +1644,7 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
       studentId = newStudent.id;
     }
 
-    // 2. Fetch course ID by slug
-    const { data: courseRec } = await supabase
-      .from("courses")
-      .select("id")
-      .eq("slug", courseSlug.trim())
-      .maybeSingle();
-
-    // 3. Create or update enrollment without relying on a database conflict constraint.
-    const normalizedCourseSlug = courseSlug.trim();
+    // 2. Create or update enrollment without relying on a database conflict constraint.
     const { data: existingEnrollment, error: enrollmentLookupError } = await supabase
       .from("student_enrollments")
       .select("id")
@@ -1652,7 +1656,7 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
 
     const enrollmentPayload = {
       student_id: studentId,
-      course_id: courseRec?.id || null,
+      course_id: courseRec.id,
       course_slug: normalizedCourseSlug,
       email: cleanEmail,
       status: "active",
@@ -1685,12 +1689,15 @@ export async function syncEnrollment(supabase, { email, courseSlug, action, name
     if (deleteErr) throw deleteErr;
   }
 
-  // 4. Sync Google Drive permission (runs asynchronously so it doesn't block but is fully executed)
-  const driveResult = await syncGoogleDrivePermission(supabase, {
-    email: cleanEmail,
-    courseSlug,
-    action: normalizedAction
-  });
+  // V4 content is served through its signed Telegram media path and must not
+  // mutate legacy Drive permissions. Legacy LMS behavior remains unchanged.
+  const driveResult = String(courseRec.delivery_mode || "").trim().toLowerCase() === "v4"
+    ? { success: true, skipped: true, reason: "V4 does not use Google Drive permissions" }
+    : await syncGoogleDrivePermission(supabase, {
+        email: cleanEmail,
+        courseSlug: normalizedCourseSlug,
+        action: normalizedAction
+      });
 
   return {
     success: true,
