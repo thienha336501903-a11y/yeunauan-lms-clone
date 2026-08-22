@@ -11,8 +11,8 @@ test('learning route resolves delivery_mode per requested course', () => {
 });
 
 test('per-course V4 override happens before legacy/global routing', () => {
-  assert.match(source, /const target = requestedV4\s*\? "\/v4-entry\.html"/);
-  assert.match(source, /isV4RoutingEnabled\(\) \? "\/v4-entry\.html" : "\/v3"/);
+  assert.match(source, /const target = requestedV4\s*\? "\/v4-sw-refresh\.html"/);
+  assert.match(source, /isV4RoutingEnabled\(\) \? "\/v4-sw-refresh\.html" : "\/v3"/);
   assert.match(source, /hasCourse \? "\/lms\.html" : "\/v2-entry\.html"/);
 });
 
