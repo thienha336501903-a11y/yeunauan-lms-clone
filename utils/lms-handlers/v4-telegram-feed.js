@@ -51,7 +51,7 @@ function pickMedia(raw, messageType) {
     duration: Number(item.duration || 0),
     mimeType: String(item.mime_type || ""),
     name: String(item.file_name || ""),
-    hasThumbnail: Boolean(thumbnail?.file_id)
+    hasThumbnail: Boolean(thumbnail?.file_id || thumbnail?.mtproto)
   };
 }
 
