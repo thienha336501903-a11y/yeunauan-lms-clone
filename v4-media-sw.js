@@ -1,6 +1,5 @@
 const leases = new Map();
 const MEDIA_PREFIX = "/v4-media/";
-const MAX_UPSTREAM_RANGE_BYTES = 2 * 1024 * 1024;
 const textEncoder = new TextEncoder();
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -18,14 +17,11 @@ function randomNonce() {
   return base64url(bytes);
 }
 
-function cappedRange(rawRange) {
+function playbackRange(rawRange) {
   const value = String(rawRange || "").trim();
 
-  // Some mobile media elements issue the main playback fetch without a Range
-  // header after their tiny metadata probe. Treat that request as an open-ended
-  // byte stream from zero. Returning only the first 2 MiB makes the browser
-  // continue in exact 2 MiB chunks, adding a redirect + gateway round trip for
-  // every block before playback has enough buffer to start.
+  // Some mobile media elements issue their main playback fetch without a Range
+  // header after a tiny metadata probe. Stream continuously from byte zero.
   if (!value) return "bytes=0-";
 
   const match = value.match(/^bytes=(\d+)-(\d*)$/i);
@@ -33,18 +29,14 @@ function cappedRange(rawRange) {
   const start = Number(match[1]);
   if (!Number.isSafeInteger(start) || start < 0) return value;
 
-  // A media element commonly switches from a tiny metadata probe to an
-  // open-ended playback request such as "bytes=951090-". Preserve that
-  // request so the upstream body can stream continuously. Capping it to
-  // 2 MiB forces the browser to issue dozens of sequential continuation
-  // requests before playback can make useful progress on larger videos.
+  // Preserve the browser's requested playback range exactly. The Cloner streams
+  // MTProto media in bounded 512 KiB chunks with backpressure and abort support,
+  // so forcing every finite browser request into a 2 MiB response only adds a
+  // redirect + gateway round trip for every continuation block.
   if (!match[2]) return `bytes=${start}-`;
-
   const requestedEnd = Number(match[2]);
   if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start) return value;
-  const capEnd = start + MAX_UPSTREAM_RANGE_BYTES - 1;
-  const end = Math.min(requestedEnd, capEnd);
-  return `bytes=${start}-${end}`;
+  return `bytes=${start}-${requestedEnd}`;
 }
 
 async function importSigningKey(jwk) {
@@ -110,7 +102,7 @@ function filteredHeaders(upstream) {
 
 async function signedPlaybackHeaders(request, lease) {
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const range = cappedRange(request.headers.get("range"));
+  const range = playbackRange(request.headers.get("range"));
   const timestamp = String(Date.now());
   const nonce = randomNonce();
   const payload = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
