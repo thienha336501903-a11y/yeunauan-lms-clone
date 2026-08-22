@@ -49,7 +49,7 @@ Các stable cũ phải giữ nguyên. Hai stable mới đã tạo sau khi khóa 
 - LMS: `stable/v4-third-source-playback-final-20260822` → `070c454f8563bb8e71c655b473c57cc72292dbd0`
 - Cloner: `stable/v4-third-source-mtproto-final-20260822` → `8084121c97d79dfdb419add29ba61881a62822a8`
 
-Checkpoint stable fully-stabilized mới chỉ được tạo sau khi lượt reconcile đầu tiên của Reader Agent đã restart ghi đúng `deleted_count=0`. Không di chuyển hai stable phía trên.
+Checkpoint stable fully-stabilized mới chỉ được tạo sau khi PR tài liệu cuối merge và Production audit PASS. Không di chuyển hai stable phía trên.
 
 Stable cũ quan trọng vẫn giữ nguyên, ví dụ:
 - LMS `stable/v4-final-20260821`
@@ -167,10 +167,11 @@ Không bài nào tái xuất hiện chuỗi request cố định 2 MiB. Video 48
 
 ## 8. Việc còn lại để đóng checkpoint
 
-1. Chờ lượt reconcile tự động đầu tiên sau khi Reader Agent local Windows restart; xác nhận job `done`, `deleted_count=0`, `last_error=null` và event audit tương ứng cũng bằng 0.
-2. Re-audit 3 khóa, test artifacts, Production health và security invariants sau lượt reconcile.
-3. Merge PR tài liệu checkpoint cuối sau xác nhận rõ của user.
-4. Tạo stable rollback mới cho đúng LMS/Cloner main cuối; tạo branch mới, không move stable hiện có.
+1. Merge PR tài liệu checkpoint cuối sau xác nhận rõ của user.
+2. Verify LMS Production sau merge tài liệu.
+3. Tạo stable rollback mới cho đúng LMS/Cloner main cuối; tạo branch mới, không move stable hiện có.
+
+Owner quyết định không chờ chu kỳ reconcile 6 giờ chỉ để xác nhận metric. Cloner PR #30 đã PASS CI/Preview/Production health; Reader Agent đã cập nhật, restart và heartbeat 200 liên tục. Correctness của reconcile đã được xác nhận trước đó qua audit event `deleted_count=0`; phần còn lại chỉ là quan sát giá trị được copy vào queue job ở chu kỳ tự động tiếp theo và không chặn checkpoint.
 
 First-frame/autoplay không cần sửa ở checkpoint này: cross-course playback đã PASS và video rất lớn chỉ chậm tương ứng với luồng dữ liệu lớn. Nếu có regression mới, phải instrument `click → lease response → SW lease ack → loadedmetadata → playing/first frame` trước khi đổi code.
 
@@ -206,7 +207,7 @@ Random Vercel Preview có thể gặp Google `origin_mismatch`. Canonical Produc
 - [x] Merge LMS PR #64 đồng bộ worker fallback/bootstrap v4.
 - [x] Merge Cloner PR #30 sửa Reader reconcile metric và restart Agent local.
 - [x] Xác định DEP0169 là external Vercel runtime issue; không suppress.
-- [ ] Xác nhận lượt reconcile đầu tiên sau restart ghi `deleted_count=0`.
+- [x] Audit `deleted_count`: root cause đã sửa ở PR #30; owner quyết định không chờ chu kỳ 6 giờ chỉ để quan sát metric.
 - [ ] Merge tài liệu checkpoint cuối theo xác nhận user.
 - [ ] Tạo stable rollback mới; không di chuyển stable hiện tại.
 
@@ -225,4 +226,4 @@ V4 có thể coi là fully stabilized khi:
 
 ---
 
-**Current handover status:** toàn bộ playback/security/Service Worker/Production health đã PASS. Reader Agent đã restart với fix metric từ Cloner PR #30. Checkpoint chỉ còn chờ một reconcile tự động xác nhận `deleted_count=0`, sau đó merge tài liệu và tạo stable rollback mới để tuyên bố V4 fully stabilized.
+**Current handover status:** toàn bộ playback/security/Service Worker/Production health và final data audit đã PASS. Reader Agent đã restart với fix metric từ Cloner PR #30 và heartbeat ổn định. Checkpoint chỉ còn merge tài liệu theo xác nhận user, verify Production sau merge và tạo stable rollback mới để tuyên bố V4 fully stabilized.
