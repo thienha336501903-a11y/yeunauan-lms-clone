@@ -9,8 +9,8 @@ test('V4 learning traffic passes through the service worker refresh bootstrap', 
   assert.match(learningRoute, /requestedV4\s*\?\s*"\/v4-sw-refresh\.html"/);
 });
 
-test('bootstrap forces playback worker v2 without cached update bytes', () => {
-  assert.match(bootstrap, /\/v4-media-sw\.js\?v=2/);
+test('bootstrap forces playback worker v3 without cached update bytes', () => {
+  assert.match(bootstrap, /\/v4-media-sw\.js\?v=3/);
   assert.match(bootstrap, /updateViaCache:'none'/);
   assert.match(bootstrap, /registration\.update\(\)/);
   assert.match(bootstrap, /controllerchange/);
