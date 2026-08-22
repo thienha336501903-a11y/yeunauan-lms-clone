@@ -16,14 +16,15 @@ function videoMetadata(raw, messageType) {
   if (!item) return null;
   return {
     fileId: String(item.file_id || ""),
-    size: Number(item.file_size || 0)
+    size: Number(item.file_size || 0),
+    mtproto: Boolean(item.mtproto)
   };
 }
 
 export function findMtprotoVideoMessage(rows) {
   return (Array.isArray(rows) ? rows : []).find((row) => {
     const media = videoMetadata(row?.raw_message, row?.message_type);
-    return Boolean(media && media.size > BOT_API_DOWNLOAD_LIMIT);
+    return Boolean(media && (media.mtproto || media.size > BOT_API_DOWNLOAD_LIMIT));
   }) || null;
 }
 
@@ -41,9 +42,9 @@ export function findWarmupVideoMessages(
 
   for (const row of Array.isArray(rows) ? rows : []) {
     const media = videoMetadata(row?.raw_message, row?.message_type);
-    if (!media || media.size <= 0) continue;
+    if (!media || (media.size <= 0 && !media.mtproto)) continue;
 
-    const transport = media.size > BOT_API_DOWNLOAD_LIMIT
+    const transport = media.mtproto || media.size > BOT_API_DOWNLOAD_LIMIT
       ? "mtproto"
       : media.fileId
         ? "bot"
