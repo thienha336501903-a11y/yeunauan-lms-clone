@@ -49,12 +49,15 @@ export default async function handler(req, res) {
     return res.redirect(307, "/my-courses.html");
   }
 
-  // Per-course V4 is independent from the global V4 routing flag. This lets new
-  // V4 Web courses use V4 while all existing LMS courses stay on their legacy flow.
+  // Course-specific V4 traffic first passes through a tiny same-origin service
+  // worker bootstrap. Existing learners can otherwise remain controlled by an
+  // older playback worker forever because v4.html intentionally reuses an
+  // existing controller. The bootstrap upgrades that controller before the V4
+  // auth/entry flow; legacy LMS routing remains unchanged.
   const target = requestedV4
-    ? "/v4-entry.html"
+    ? "/v4-sw-refresh.html"
     : mode === "v3"
-      ? (isV4RoutingEnabled() ? "/v4-entry.html" : "/v3")
+      ? (isV4RoutingEnabled() ? "/v4-sw-refresh.html" : "/v3")
       : (hasCourse ? "/lms.html" : "/v2-entry.html");
 
   res.setHeader("Cache-Control", "no-store");
