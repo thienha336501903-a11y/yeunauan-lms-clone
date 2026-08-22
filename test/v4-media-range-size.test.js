@@ -13,3 +13,8 @@ test('V4 media proxy keeps the 2 MiB cap for finite upstream ranges', () => {
 test('V4 media proxy preserves open-ended playback ranges for continuous streaming', () => {
   assert.match(sw, /if \(!match\[2\]\) return `bytes=\$\{start\}-`;/);
 });
+
+test('V4 media proxy streams range-less playback continuously from byte zero', () => {
+  assert.match(sw, /if \(!value\) return "bytes=0-";/);
+  assert.doesNotMatch(sw, /if \(!value\) return `bytes=0-\$\{MAX_UPSTREAM_RANGE_BYTES - 1\}`/);
+});
