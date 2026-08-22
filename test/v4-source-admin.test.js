@@ -35,7 +35,8 @@ test('admin can create a hidden V4 course with a registered Telegram source', ()
   assert.match(handler, /course_slug: slug/);
   assert.match(handler, /enabled: true/);
   assert.match(handler, /media_mode: "telegram_bot_poc"/);
-  assert.match(handler, /Best-effort rollback/);
+  assert.match(handler, /Only a course created in this request is safe to roll back/);
+  assert.match(handler, /attachedExistingCourse/);
   assert.match(handler, /readyEligible/);
 });
 

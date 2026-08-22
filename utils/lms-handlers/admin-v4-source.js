@@ -14,7 +14,7 @@ async function requireV4Course(course) {
 
   const { data, error } = await supabase
     .from("courses")
-    .select("slug,delivery_mode,is_published")
+    .select("slug,title,delivery_mode,is_published")
     .eq("slug", slug)
     .maybeSingle();
   if (error) throw error;
@@ -22,7 +22,7 @@ async function requireV4Course(course) {
   if (String(data.delivery_mode || "").trim().toLowerCase() !== "v4") {
     return { ok: false, status: 400, error: "Khóa học này không phải V4" };
   }
-  return { ok: true, slug, isPublished: Boolean(data.is_published) };
+  return { ok: true, slug, title: data.title || slug, isPublished: Boolean(data.is_published) };
 }
 
 async function exactSourceMessageCounts(sourceIds) {
@@ -202,66 +202,68 @@ async function createV4Course(req, res) {
 
   const { data: existingCourse, error: existingError } = await supabase
     .from("courses")
-    .select("slug")
+    .select("slug,title,delivery_mode,is_published")
     .eq("slug", slug)
     .maybeSingle();
   if (existingError) throw existingError;
-  if (existingCourse) {
-    return res.status(409).json({ success: false, error: "Slug khóa học đã tồn tại" });
+  if (existingCourse && String(existingCourse.delivery_mode || "").trim().toLowerCase() !== "v4") {
+    return res.status(409).json({ success: false, error: "Slug đã thuộc một khóa không phải V4" });
+  }
+  if (existingCourse?.is_published === true) {
+    return res.status(409).json({ success: false, error: "Hãy chuyển khóa V4 về Draft trước khi gắn nguồn" });
   }
 
   const source = await sourceWithCount(sourceId);
   if (!source) return res.status(404).json({ success: false, error: "Không tìm thấy nguồn Telegram" });
   const now = new Date().toISOString();
-  const { error: courseError } = await supabase
-    .from("courses")
-    .insert({
-      slug,
-      title,
-      active: true,
-      is_published: false,
-      delivery_mode: "v4",
-      raw_data: { studentDisplayTitle: title },
-      updated_at: now
-    });
+  if (!existingCourse) {
+    const { error: courseError } = await supabase
+      .from("courses")
+      .insert({
+        slug,
+        title,
+        active: false,
+        is_published: false,
+        delivery_mode: "v4",
+        raw_data: { studentDisplayTitle: title },
+        updated_at: now
+      });
 
-  if (courseError) {
-    if (courseError.code === "23505") {
-      return res.status(409).json({ success: false, error: "Slug khóa học đã tồn tại" });
+    if (courseError) {
+      if (courseError.code === "23505") {
+        return res.status(409).json({ success: false, error: "Slug khóa học đã tồn tại" });
+      }
+      throw courseError;
     }
-    throw courseError;
   }
 
   const { error: mappingError } = await supabase
     .from("lms_v4_telegram_course_sources")
-    .insert({
+    .upsert({
       course_slug: slug,
       source_id: sourceId,
       enabled: true,
       media_mode: "telegram_bot_poc",
       updated_at: now
-    });
+    }, { onConflict: "course_slug" });
 
   if (mappingError) {
-    // Best-effort rollback so a failed mapping never leaves a half-created V4
-    // course in the shared Clone database.
-    await supabase
-      .from("lms_v4_telegram_course_sources")
-      .delete()
-      .eq("course_slug", slug);
-    await supabase
-      .from("courses")
-      .delete()
-      .eq("slug", slug);
+    // Only a course created in this request is safe to roll back. A Commerce
+    // course may already own price, poster and order metadata.
+    if (!existingCourse) {
+      await supabase.from("lms_v4_telegram_course_sources").delete().eq("course_slug", slug);
+      await supabase.from("courses").delete().eq("slug", slug);
+    }
     throw mappingError;
   }
 
-  return res.status(201).json({
+  return res.status(existingCourse ? 200 : 201).json({
     success: true,
     course: slug,
     title,
     deliveryMode: "v4",
     isPublished: false,
+    attachedExistingCourse: Boolean(existingCourse),
     mapping: {
       sourceId,
       enabled: true,
@@ -313,6 +315,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         course: checked.slug,
+        title: checked.title,
         isPublished: checked.isPublished,
         mapping: mapping ? {
           sourceId: mapping.source_id,
@@ -353,7 +356,7 @@ export default async function handler(req, res) {
       // Do not let a live course change its delivery source underneath active
       // learners. Hide the course first, then change/disable its source, verify
       // the new mapping, and publish it again.
-      const sourceChanged = Boolean(existing?.source_id && existing.source_id !== sourceId);
+      const sourceChanged = existing?.source_id !== sourceId;
       const sourceDisabled = Boolean(existing?.enabled && !enabled);
       if (checked.isPublished && (sourceChanged || sourceDisabled)) {
         return res.status(409).json({
