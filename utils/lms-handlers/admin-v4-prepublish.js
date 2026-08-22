@@ -27,7 +27,7 @@ function mediaState(row) {
     const item = photos[photos.length - 1] || null;
     return {
       historical: Boolean(raw.from_reader),
-      fileReady: Boolean(item?.file_id),
+      fileReady: Boolean(item?.file_id || item?.mtproto),
       thumbnailReady: true
     };
   }
@@ -38,8 +38,8 @@ function mediaState(row) {
   const thumbnail = item?.thumbnail || item?.thumb || null;
   return {
     historical: Boolean(raw.from_reader),
-    fileReady: Boolean(item?.file_id),
-    thumbnailReady: VIDEO_TYPES.has(messageType) ? Boolean(thumbnail?.file_id) : true
+    fileReady: Boolean(item?.file_id || item?.mtproto),
+    thumbnailReady: VIDEO_TYPES.has(messageType) ? Boolean(thumbnail?.file_id || thumbnail?.mtproto) : true
   };
 }
 
@@ -215,19 +215,19 @@ async function buildPrepublish(courseSlug) {
   if (mediaScan.complete && missingFileIds.length) {
     const ids = missingFileIds.slice(0, 5).map((item) => item.row.source_message_id).join(", ");
     const historicalMissing = missingFileIds.filter((item) => item.state.historical).length;
-    checks.push(check("media-metadata", "File media Telegram", "block", `${missingFileIds.length} media thiếu file_id${historicalMissing ? ` (${historicalMissing} bài import lịch sử)` : ""}${ids ? ` · Telegram ID ${ids}` : ""}`));
+    checks.push(check("media-metadata", "File media Telegram", "block", `${missingFileIds.length} media thiếu file_id/MTProto${historicalMissing ? ` (${historicalMissing} bài import lịch sử)` : ""}${ids ? ` · Telegram ID ${ids}` : ""}`));
   } else if (mediaScan.complete) {
     checks.push(check("media-metadata", "File media Telegram", "pass", `${mediaStates.length} media có metadata tải file`));
   }
 
   if (mediaScan.complete && historicalMedia.length) {
-    checks.push(check("historical-media", "Media import lịch sử", "pass", `${historicalMedia.length} media lịch sử đã có metadata`));
+    checks.push(check("historical-media", "Media import lịch sử", "pass", `${historicalMedia.length} media lịch sử đã có metadata Bot API/MTProto`));
   } else if (mediaScan.complete) {
     checks.push(check("historical-media", "Media import lịch sử", "pass", "Không có media reader cần hydrate riêng"));
   }
 
   if (mediaScan.complete && missingThumbnails.length) {
-    checks.push(check("video-thumbnail", "Thumbnail video", "warn", `${missingThumbnails.length} video đã có file_id nhưng thiếu thumbnail`));
+    checks.push(check("video-thumbnail", "Thumbnail video", "warn", `${missingThumbnails.length} video đã có media nhưng thiếu thumbnail`));
   } else if (mediaScan.complete) {
     checks.push(check("video-thumbnail", "Thumbnail video", "pass", "Không phát hiện video thiếu thumbnail"));
   }
