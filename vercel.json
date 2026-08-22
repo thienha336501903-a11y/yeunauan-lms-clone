@@ -6,6 +6,7 @@
     { "source": "/post/:id", "destination": "https://yeunauan.live/post/:id", "permanent": false }
   ],
   "rewrites": [
+    { "source": "/api/health", "destination": "/api/lms/portal?endpoint=health" },
     { "source": "/learning", "destination": "/api/learning" },
     { "source": "/v3", "destination": "/v3-entry.html" },
     { "source": "/v3-admin", "destination": "/channel-admin-candidate.html" },
