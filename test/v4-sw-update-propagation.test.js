@@ -24,7 +24,6 @@ test('bootstrap forces playback worker v4 without cached update bytes', () => {
   assert.match(bootstrap, /\/v4-entry\.html/);
 });
 
-
 test('bootstrap and player fallback register the same playback worker version', () => {
   const bootstrapWorkerPath = registeredWorkerPath(bootstrap);
   const fallbackWorkerPath = registeredWorkerPath(player);
