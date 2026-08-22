@@ -13,7 +13,7 @@ html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,
 <div class="box"><div class="spin"></div><div class="msg">Đang chuẩn bị trình phát an toàn…</div></div>
 <script>
 (()=>{
-  const WORKER_PATH='/v4-media-sw.js?v=2';
+  const WORKER_PATH='/v4-media-sw.js?v=3';
   const NEXT='/v4-entry.html'+location.search;
   const desiredUrl=new URL(WORKER_PATH,location.origin).href;
   const currentIsDesired=()=>String(navigator.serviceWorker?.controller?.scriptURL||'')===desiredUrl;

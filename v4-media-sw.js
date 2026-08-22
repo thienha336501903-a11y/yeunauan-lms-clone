@@ -20,7 +20,14 @@ function randomNonce() {
 
 function cappedRange(rawRange) {
   const value = String(rawRange || "").trim();
-  if (!value) return `bytes=0-${MAX_UPSTREAM_RANGE_BYTES - 1}`;
+
+  // Some mobile media elements issue the main playback fetch without a Range
+  // header after their tiny metadata probe. Treat that request as an open-ended
+  // byte stream from zero. Returning only the first 2 MiB makes the browser
+  // continue in exact 2 MiB chunks, adding a redirect + gateway round trip for
+  // every block before playback has enough buffer to start.
+  if (!value) return "bytes=0-";
+
   const match = value.match(/^bytes=(\d+)-(\d*)$/i);
   if (!match) return value;
   const start = Number(match[1]);
