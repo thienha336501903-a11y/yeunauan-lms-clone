@@ -5,55 +5,31 @@ Mục tiêu: mở một khóa học V4 mới an toàn, không làm thay đổi M
 ## Link vận hành
 
 - Cloner Admin: https://telegram-channel-cloner.vercel.app/?mode=v4-source
-- LMS V4 Admin: https://yeunauan-lms-clone.vercel.app/v4-admin.html
+- LMS V4 Wizard: https://yeunauan-lms-clone.vercel.app/v4-course-wizard.html
 - Trang học viên: https://yeunauan-lms-clone.vercel.app/my-courses.html
 
 ## A. Chuẩn bị kênh Telegram
 
 1. Tạo kênh Telegram riêng cho khóa học.
 2. Thêm bot `@yeunauan_channel_cloner_bot` làm Administrator của kênh.
-3. Nếu kênh public, đặt `@username` dễ nhận biết.
-4. Nếu đăng ký bằng username báo `chat not found`, dùng Chat ID số. Với link private dạng `https://t.me/c/4234133962/4` thì Chat ID là `-1004234133962`.
+3. Đăng ít nhất một bài trong kênh và sao chép link của bài đó.
+4. Không cần tự đổi link private thành Chat ID; Wizard và Cloner tự chuẩn hóa link.
 5. Không chọn kênh mới làm MASTER. Nguồn khóa học V4 mới phải giữ vai trò `Nguồn V4`, tức `active=false`.
 
 ## B. Đăng ký nguồn V4
 
-1. Mở Cloner Admin → phần **Nguồn Telegram V4**.
-2. Nhập `@username` hoặc Chat ID số → **Đăng ký nguồn V4**.
-3. Bấm **Làm mới** và kiểm tra kênh xuất hiện trong danh sách.
-4. Vai trò phải là **Nguồn V4**, không phải MASTER.
+1. Mở **LMS V4 Wizard**.
+2. Dán link một bài dạng `https://t.me/tenkenh/123` hoặc `https://t.me/c/4234133962/4`.
+3. Bấm **Tự nhận kênh & đăng ký**; xác nhận ở Cloner nếu được yêu cầu đăng nhập.
+4. Hệ thống quay lại Wizard và chọn sẵn nguồn vừa đăng ký. Vai trò phải là **Nguồn V4**, không phải MASTER.
 
-Nếu khóa chỉ dùng các bài đăng từ thời điểm đăng ký trở đi, chuyển thẳng sang mục D.
+`@username` và Chat ID số vẫn được Cloner hỗ trợ như phương án tương thích cũ.
 
 ## C. Import các bài đã đăng trước khi đăng ký nguồn
 
-Chỉ cần làm khi kênh đã có bài cũ.
+Khi nguồn chưa được index, Cloner tự tạo job import. Reader Agent trên máy Windows tự nhận job; admin không cần chạy lệnh cho từng kênh.
 
-Trên máy đã cài reader, đứng trong repo `telegram-channel-cloner` và cập nhật bản mới:
-
-```powershell
-git pull
-```
-
-Đảm bảo phiên PowerShell có đủ ba biến môi trường, nhưng không in secret ra màn hình:
-
-- `TELEGRAM_API_ID`
-- `TELEGRAM_API_HASH`
-- `READER_INGEST_SECRET`
-
-Chạy:
-
-```powershell
-python reader-cli/export_history.py --channel "@username_kenh" --cloner-url "https://telegram-channel-cloner.vercel.app"
-```
-
-Có thể dùng username public thay cho Chat ID nếu Telethon không resolve được ID số.
-
-Kết quả chuẩn:
-
-```text
-Done. Indexed N messages. MASTER mirror role was not changed.
-```
+Trong Wizard, số bài có thể tạm thời là `0` trong lúc Reader xử lý. Có thể tiếp tục tạo Draft, nhưng Preflight sẽ chặn Publish cho tới khi nguồn đã có nội dung.
 
 Reader hiện tự:
 - bỏ service message rỗng;
@@ -64,9 +40,9 @@ Reader hiện tự:
 
 Không gửi API hash, OTP, 2FA hoặc `READER_INGEST_SECRET` qua chat.
 
-## D. Tạo khóa học trong LMS V4 Admin
+## D. Tạo khóa học trong LMS V4 Wizard
 
-1. Mở LMS V4 Admin.
+1. Tiếp tục ngay trong LMS V4 Wizard.
 2. Tạo khóa mới:
    - Tên khóa: tên hiển thị cho học viên.
    - Slug: chỉ chữ thường, số và dấu `-`; không dùng `_`.
@@ -120,9 +96,9 @@ Nếu các mục trên ổn thì không cần chạy lại full E2E.
 - Không xóa hoặc chỉnh source MASTER đang dùng.
 - Không publish trước khi kiểm tra Draft gate.
 - Không để secret/OTP/API hash xuất hiện trong ảnh chụp hoặc chat.
-- Nếu import lịch sử có media, luôn dùng reader phiên bản mới nhất (`git pull` trước khi chạy).
-- Nếu Cloner Admin đăng ký bằng `@username` báo `chat not found`, chuyển sang Chat ID số thay vì sửa quyền bot khi bot đã là Admin.
+- Reader Agent phải tiếp tục chạy trên máy Windows; Telegram user session không được đưa lên cloud.
+- Nếu link bài báo `chat not found`, kiểm tra bot đã được thêm làm Admin của đúng kênh.
 
 ## Checklist siêu ngắn
 
-`Tạo kênh → thêm bot Admin → đăng ký Nguồn V4 → import lịch sử nếu có → tạo khóa Draft → cấp học viên → kiểm tra Chờ lên bài → Publish → test text/ảnh/video → vận hành.`
+`Tạo kênh → thêm bot Admin → đăng 1 bài → dán link vào Wizard → tạo khóa Draft → cấp học viên → Preflight → Publish → test text/ảnh/video → vận hành.`
