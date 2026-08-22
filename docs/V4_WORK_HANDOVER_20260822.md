@@ -4,13 +4,13 @@
 
 ## 1. Trạng thái tổng quan
 
-Hệ thống V4 đang **hoạt động Production**. Khóa thứ ba `banh-my-nhan-chay-chu-quyen` đã import lịch sử Telegram, publish, có learner thật và đã test playback trên thiết bị thật. Lỗi playback chậm do Service Worker cắt Range thành từng block 2 MiB đã được xử lý ở LMS PR #62. Sau PR #62, log Production của video 47.5 MB đã đổi từ hơn 20 request 2 MiB sang 1 request chính cho toàn file và người dùng xác nhận tốc độ hiện tại ổn.
+Hệ thống V4 đang **hoạt động Production**. Playback đã PASS trên thiết bị thật cho cả ba khóa, gồm Bot API, MTProto và video tới 487.6 MB. Lỗi Service Worker cắt Range thành block 2 MiB đã được xử lý ở LMS PR #62; cross-course E2E xác nhận không tái xuất hiện. LMS PR #64 đã đồng bộ Service Worker bootstrap/fallback về cùng URL version. Cloner PR #30 đã sửa observability để job reconcile ghi `deleted_count=0` thay vì `null`; Reader Agent local Windows đã cập nhật và restart.
 
 Tại thời điểm bàn giao:
 - LMS Production: READY.
 - Cloner Production: READY.
 - Reader Agent: đang heartbeat liên tục, `/api/reader/complete` trả 200 khoảng mỗi 15–16 giây.
-- Không có PR mở ở LMS/Cloner.
+- Không có PR code mở ở LMS/Cloner; PR tài liệu checkpoint cuối có thể đang chờ merge.
 - Không còn dữ liệu test prefix `__clone_factory_test*` trong course/source/enrollment/media ticket.
 - 3 khóa V4 đang active + published + mapping enabled.
 - Video của 3 source hiện không thiếu `file_id` và không thiếu thumbnail metadata.
@@ -19,22 +19,23 @@ Tại thời điểm bàn giao:
 
 ### LMS
 - Repo: `thienha336501903-a11y/yeunauan-lms-clone`
-- `main`: `070c454f8563bb8e71c655b473c57cc72292dbd0`
-- Commit: `perf: preserve browser playback ranges end-to-end (#62)`
+- `main`: `c3e320d5a8fb3ff34790ffa6eb857c202ea4e616`
+- Commit: `fix: keep V4 media worker version consistent (#64)`
 - Vercel project: `prj_0mFDJL5lV9q0NBjgBphs0Y6j1Xtc`
-- Production deployment: `dpl_9fhQLbScGh29vWpfPTyLyHkhQ6uJ`
+- Production deployment: `dpl_PWvxoSyFQpuFBuqfkCHQ77uMn6aR`
 - Canonical: `https://yeunauan-lms-clone.vercel.app`
 - Status: READY
 
 ### Telegram Cloner
 - Repo: `thienha336501903-a11y/telegram-channel-cloner`
-- `main`: `8084121c97d79dfdb419add29ba61881a62822a8`
-- Commit: `fix: support Reader-imported history media over MTProto (#29)`
+- `main`: `20a028b23344536bb5ed1069c8bfd75670402deb`
+- Commit: `fix: report Reader reconcile deletion count (#30)`
 - Vercel project: `prj_5cwOs0JpEUgC5PfpOdn0ffX4Ly0j`
-- Production deployment: `dpl_EwDCkKTv5Y5ZauR8H4PEULcCVs5R`
+- Production deployment: `dpl_GD5aLcnYBANykhg4yYhHos1W1iMm`
 - Canonical: `https://telegram-channel-cloner.vercel.app`
 - `/api/health`: HTTP 200, database/configured checks OK.
 - Cloner đang dùng đúng 12 Node functions — chạm giới hạn Hobby hiện tại, nên mọi route mới phải cân nhắc rất kỹ.
+- Node `[DEP0169] url.parse()` là warning từ Vercel production launcher/`@vercel/node`, không phải call-site ứng dụng. Vercel issue: `vercel/vercel#16109`. Không dùng `NODE_OPTIONS=--no-deprecation` vì sẽ che toàn bộ deprecation warning.
 
 ### Supabase
 - Project ID: `yyiavtiwtekkocqpephr`
@@ -47,6 +48,8 @@ Các stable cũ phải giữ nguyên. Hai stable mới đã tạo sau khi khóa 
 
 - LMS: `stable/v4-third-source-playback-final-20260822` → `070c454f8563bb8e71c655b473c57cc72292dbd0`
 - Cloner: `stable/v4-third-source-mtproto-final-20260822` → `8084121c97d79dfdb419add29ba61881a62822a8`
+
+Checkpoint stable fully-stabilized mới chỉ được tạo sau khi PR tài liệu cuối merge và Production audit PASS. Không di chuyển hai stable phía trên.
 
 Stable cũ quan trọng vẫn giữ nguyên, ví dụ:
 - LMS `stable/v4-final-20260821`
@@ -113,7 +116,8 @@ Cleanup audit:
 - #26 non-admin startup fallback
 - #27 `post_json` keyword fix
 - #28 automatic deletion reconcile
-- #29 Reader historical MTProto media support — current main
+- #29 Reader historical MTProto media support
+- #30 report Reader reconcile `deleted_count` — current main
 
 ### LMS
 - #55 media ticket retention
@@ -123,7 +127,8 @@ Cleanup audit:
 - #59 preserve open-ended Range
 - #60 force Service Worker update propagation
 - #61 range-less playback → `bytes=0-`
-- #62 preserve finite browser playback Range end-to-end — current main
+- #62 preserve finite browser playback Range end-to-end
+- #64 keep Service Worker bootstrap/fallback version consistent — current main
 
 ## 7. Sự cố playback chậm và kết luận kỹ thuật
 
@@ -139,7 +144,7 @@ Mỗi block lại phát sinh media gateway 307 + warmup 206.
 - Log thiết bị thật sau đó mới xác nhận Chrome mobile thực tế gửi **finite Range rất lớn**, ví dụ `bytes=0-47508363`; rule cap 2 MiB vẫn cắt loại này.
 - #62 bỏ cap finite Range và giữ nguyên Range browser yêu cầu.
 
-### Production result sau #62
+### Production result sau #62/#64
 Video 47,508,364 bytes:
 - probe `bytes=0-1`: ~315 ms
 - request chính `bytes=0-47508363`: ~5.49 s để stream hoàn tất toàn file
@@ -147,65 +152,30 @@ Video 47,508,364 bytes:
 - Không còn chuỗi 20+ request 2 MiB.
 - Người dùng xác nhận video hiện phát ổn.
 
+Cross-course real-device result:
+
+| Course | Transport/size | Production result |
+|---|---|---|
+| `cagiatay` | Bot API · 19,691,500 bytes | PASS; probe `0-1`, main `0-19691499` |
+| `cagiatay` | MTProto · 25,101,613 bytes | PASS; probe `0-1`, main `0-25101612` |
+| `nhan-trung-thu-cao-cap-chu-quyen` | MTProto · 126,600,630 bytes | PASS; main `0-126600629`, follow-up ranges lớn/open-ended |
+| `nhan-trung-thu-cao-cap-chu-quyen` | MTProto · 487,629,464 bytes | PASS; main `0-487629463`; người dùng ghi nhận chậm hơn một chút nhưng phát hoàn tất |
+
+Không bài nào tái xuất hiện chuỗi request cố định 2 MiB. Video 487.6 MB có request chính khoảng 57 giây; gateway redirect chỉ khoảng 0.25–0.30 giây, nên chưa có bằng chứng cho lỗi autoplay/user-gesture và không sửa theo phỏng đoán.
+
 **Quy tắc quan trọng:** không reintroduce cap 2 MiB trong Service Worker nếu chưa có log thiết bị thật chứng minh cần thiết.
 
-## 8. Việc Work nên làm tiếp — theo ưu tiên
+## 8. Việc còn lại để đóng checkpoint
 
-### P0 — Cross-course real-device E2E sau #62
-Chưa được coi là PASS toàn hệ thống cho tới khi test thiết bị thật trên ít nhất 2 khóa khác.
+1. Merge PR tài liệu checkpoint cuối sau xác nhận rõ của user.
+2. Verify LMS Production sau merge tài liệu.
+3. Tạo stable rollback mới cho đúng LMS/Cloner main cuối; tạo branch mới, không move stable hiện có.
 
-Khuyến nghị:
-1. `cagiatay`
-   - test 1 video <20 MB để đi Bot API.
-   - test 1 video >20 MB để đi MTProto.
-   - dữ liệu hiện có cả hai loại; ví dụ source_message_id 3 khoảng 19.7 MB và source_message_id 14 khoảng 35.5 MB.
-2. `nhan-trung-thu-cao-cap-chu-quyen`
-   - test một video lớn >100 MB; source có video tới khoảng 487.6 MB.
+Owner quyết định không chờ chu kỳ reconcile 6 giờ chỉ để xác nhận metric. Cloner PR #30 đã PASS CI/Preview/Production health; Reader Agent đã cập nhật, restart và heartbeat 200 liên tục. Correctness của reconcile đã được xác nhận trước đó qua audit event `deleted_count=0`; phần còn lại chỉ là quan sát giá trị được copy vào queue job ở chu kỳ tự động tiếp theo và không chặn checkpoint.
 
-Acceptance log:
-- tiny probe có thể xuất hiện.
-- request playback chính phải là 1 Range lớn/open-ended hợp lý.
-- Không được quay lại chuỗi finite Range cố định 2 MiB.
-- UX mobile phải bắt đầu phát trong thời gian chấp nhận được.
+First-frame/autoplay không cần sửa ở checkpoint này: cross-course playback đã PASS và video rất lớn chỉ chậm tương ứng với luồng dữ liệu lớn. Nếu có regression mới, phải instrument `click → lease response → SW lease ack → loadedmetadata → playing/first frame` trước khi đổi code.
 
-Không sửa code trước khi lấy log đúng lần bấm của thiết bị thật.
-
-### P1 — Đồng bộ Service Worker version fallback
-Audit cuối phát hiện:
-- `v4-sw-refresh.html` Production đang force `/v4-media-sw.js?v=4`.
-- Trong `v4.html`, fallback của `ensureMediaWorker()` vẫn hard-code `/v4-media-sw.js?v=1`.
-
-Trong flow bình thường, controller v4 đã tồn tại nên fallback v1 không chạy; phiên test Production vừa PASS không bị ảnh hưởng. Tuy nhiên trên thiết bị mới/controllerchange timeout, đây là rủi ro có thể đăng ký lại worker URL cũ.
-
-Cách xử lý đề xuất:
-- feature branch riêng.
-- đổi fallback `?v=1` → `?v=4` hoặc tốt hơn dùng một hằng `PLAYBACK_WORKER_PATH` duy nhất được chia sẻ/đồng bộ với bootstrap.
-- thêm regression test bắt buộc bootstrap và fallback cùng version.
-- Preview + CI + explicit merge confirmation.
-- Sau deploy test lại một thiết bị thật; không thay Range logic.
-
-Hai scratch branch được tạo trong quá trình audit nhưng chưa có commit thay đổi, Work có thể bỏ qua/xóa nếu muốn:
-- `perf/v4-first-frame-20260822`
-- `fix/v4-worker-version-consistency-20260822`
-
-### P1 — First-frame/autoplay chỉ xử lý nếu cross-course test còn chậm
-`v4.html` hiện await cấp lease + gửi lease vào Service Worker rồi mới gọi `video.play()`, và `video.play().catch(()=>{})` đang nuốt lỗi. Đây là điểm có thể ảnh hưởng user-gesture/autoplay trên một số mobile browser.
-
-Không nên sửa chủ động khi UX hiện đã ổn. Nếu cross-course test vẫn chậm:
-- instrument click → lease response → SW lease ack → `loadedmetadata` → `playing`/first frame.
-- log/reveal `play()` rejection thay vì nuốt lỗi.
-- chỉ sau khi có bằng chứng mới cân nhắc pre-prepare lease cho video gần viewport.
-
-### P1 — DEP0169 warning
-Cả LMS và Cloner runtime hiện có Node `[DEP0169] url.parse()` warning. Đây đang bị Vercel phân loại như error log nhưng request thực tế vẫn 2xx/3xx.
-
-Nên xử lý sau khi playback cross-course PASS:
-- truy vết dependency/call-site.
-- chuyển sang WHATWG `URL` nếu code nội bộ sở hữu call-site.
-- không trộn cleanup này vào PR playback.
-
-### P2 — Audit-only reconcile metric
-Ở deletion reconcile từng có trường hợp `deleted_count` null khi thực tế deleted=0. Không ảnh hưởng correctness, chỉ là observability/audit quality.
+`[DEP0169]` hiện là external platform issue. Không tạo cleanup PR ứng dụng chỉ để suppress warning.
 
 ### P2 — Preview Google OAuth
 Random Vercel Preview có thể gặp Google `origin_mismatch`. Canonical Production login hoạt động. Không thêm mọi preview origin vào Google OAuth và không tắt protection toàn cục chỉ để né lỗi này.
@@ -228,18 +198,18 @@ Random Vercel Preview có thể gặp Google `origin_mismatch`. Canonical Produc
 
 ## 10. Checklist tiếp quản đề xuất cho Work
 
-- [ ] Đọc tài liệu này và `docs/V4_ADMIN_NEW_COURSE_RUNBOOK.md`.
-- [ ] Verify LMS main = `070c454...` và Cloner main = `8084121...` trước khi thay đổi.
-- [ ] Verify Production deployments vẫn READY.
-- [ ] Verify Reader heartbeat 200.
-- [ ] Test cross-course mobile: cagiatay Bot API + MTProto.
-- [ ] Test Nhân Trung Thu video lớn.
-- [ ] Nếu tất cả nhanh: đánh dấu global playback regression PASS.
-- [ ] Làm PR nhỏ đồng bộ worker fallback v1 → v4.
-- [ ] Sau PR đó test mobile lại.
-- [ ] Chỉ nếu first-frame vẫn chậm mới instrument/autoplay flow.
-- [ ] Xử lý DEP0169 ở PR cleanup riêng.
-- [ ] Khi hoàn tất, tạo stable rollback mới; không di chuyển stable hiện tại.
+- [x] Đọc handover và xác minh GitHub/Vercel/Supabase.
+- [x] Verify Production deployments READY và health 200.
+- [x] Verify Reader heartbeat 200 mỗi 15–16 giây.
+- [x] Test cross-course mobile: `cagiatay` Bot API + MTProto.
+- [x] Test Nhân Trung Thu video >100 MB và 487.6 MB.
+- [x] Xác nhận global playback Range regression PASS.
+- [x] Merge LMS PR #64 đồng bộ worker fallback/bootstrap v4.
+- [x] Merge Cloner PR #30 sửa Reader reconcile metric và restart Agent local.
+- [x] Xác định DEP0169 là external Vercel runtime issue; không suppress.
+- [x] Audit `deleted_count`: root cause đã sửa ở PR #30; owner quyết định không chờ chu kỳ 6 giờ chỉ để quan sát metric.
+- [ ] Merge tài liệu checkpoint cuối theo xác nhận user.
+- [ ] Tạo stable rollback mới; không di chuyển stable hiện tại.
 
 ## 11. Định nghĩa “V4 hoàn thiện” cho checkpoint tiếp theo
 
@@ -256,4 +226,4 @@ V4 có thể coi là fully stabilized khi:
 
 ---
 
-**Current handover status:** hệ thống đang usable/Production, khóa Bánh mỳ đã PASS UX playback trên thiết bị thật sau PR #62. Phần quan trọng nhất còn lại là cross-course real-device validation và một PR nhỏ đồng bộ worker fallback version trước khi tuyên bố V4 fully stabilized toàn hệ thống.
+**Current handover status:** toàn bộ playback/security/Service Worker/Production health và final data audit đã PASS. Reader Agent đã restart với fix metric từ Cloner PR #30 và heartbeat ổn định. Checkpoint chỉ còn merge tài liệu theo xác nhận user, verify Production sau merge và tạo stable rollback mới để tuyên bố V4 fully stabilized.
