@@ -75,6 +75,15 @@ test('wizard reuses stable V4 APIs rather than duplicating runtime behavior', ()
   assert.match(wizard, /V4 Admin đầy đủ/);
 });
 
+test('wizard accepts one Telegram post link and hands it to isolated Cloner registration', () => {
+  assert.match(wizard, /id="telegramPostLink"/);
+  assert.match(wizard, /id="registerPostLink"/);
+  assert.match(wizard, /u\.searchParams\.set\('sourceRef',sourceRef\)/);
+  assert.match(wizard, /params\.get\('source'\)/);
+  assert.match(wizard, /Đã chọn nguồn Telegram vừa đăng ký/);
+  assert.doesNotMatch(wizard, /-100\s*\+/);
+});
+
 test('wizard requires preflight readiness and explicit acknowledgement before publish', () => {
   assert.match(wizard, /id="publishAck"/);
   assert.match(wizard, /state\.preflight\?\.ready/);
