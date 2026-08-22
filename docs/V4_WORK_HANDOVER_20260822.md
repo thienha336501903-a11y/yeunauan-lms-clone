@@ -4,34 +4,36 @@
 
 ## 1. Trạng thái tổng quan
 
-Hệ thống V4 đang **hoạt động Production**. Playback đã PASS trên thiết bị thật cho cả ba khóa, gồm Bot API, MTProto và video tới 487.6 MB. Lỗi Service Worker cắt Range thành block 2 MiB đã được xử lý ở LMS PR #62; cross-course E2E xác nhận không tái xuất hiện. LMS PR #64 đã đồng bộ Service Worker bootstrap/fallback về cùng URL version. Cloner PR #30 đã sửa observability để job reconcile ghi `deleted_count=0` thay vì `null`; Reader Agent local Windows đã cập nhật và restart.
+Hệ thống V4 đang **hoạt động Production và fully stabilized**. Playback đã PASS trên thiết bị thật cho cả bốn khóa V4, gồm Bot API, MTProto và video tới 487.6 MB. Lỗi Service Worker cắt Range thành block 2 MiB đã được xử lý ở LMS PR #62; cross-course E2E và khóa mới tạo hoàn toàn từ giao diện V4 đều xác nhận không tái xuất hiện. LMS PR #64 đã đồng bộ Service Worker bootstrap/fallback về cùng URL version. Cloner PR #30 đã sửa observability để job reconcile ghi `deleted_count=0` thay vì `null`; Reader Agent local Windows đã cập nhật và restart.
+
+Luồng factory mới đã PASS Production: người vận hành chỉ cần nhập một Telegram post link trong Wizard, hệ thống tự chuẩn hóa channel ID, đăng ký source, queue Reader import và liên kết source với Draft. LMS PR #66 và Cloner PR #31 cung cấp luồng này; Cloner PR #32 loại bỏ Bot self-forward không cần thiết khi Reader đã gửi MTProto descriptor hợp lệ, nhờ đó import history không còn vượt timeout 60 giây.
 
 Tại thời điểm bàn giao:
 - LMS Production: READY.
 - Cloner Production: READY.
 - Reader Agent: đang heartbeat liên tục, `/api/reader/complete` trả 200 khoảng mỗi 15–16 giây.
-- Không có PR code mở ở LMS/Cloner; PR tài liệu checkpoint cuối có thể đang chờ merge.
+- Không có PR code mở ở LMS/Cloner; PR tài liệu checkpoint cuối mới có thể đang chờ merge.
 - Không còn dữ liệu test prefix `__clone_factory_test*` trong course/source/enrollment/media ticket.
-- 3 khóa V4 đang active + published + mapping enabled.
-- Video của 3 source hiện không thiếu `file_id` và không thiếu thumbnail metadata.
+- 4 khóa V4 đang active + published + mapping enabled.
+- Video của 4 source hiện không thiếu metadata playback và không thiếu thumbnail metadata.
 
 ## 2. Repo, commit, deployment hiện tại
 
 ### LMS
 - Repo: `thienha336501903-a11y/yeunauan-lms-clone`
-- `main`: `c3e320d5a8fb3ff34790ffa6eb857c202ea4e616`
-- Commit: `fix: keep V4 media worker version consistent (#64)`
+- `main`: `aac2f7108aa63beee8dd27786dc92a128ed76669`
+- Commit: `feat: create V4 source from one Telegram post link (#66)`
 - Vercel project: `prj_0mFDJL5lV9q0NBjgBphs0Y6j1Xtc`
-- Production deployment: `dpl_PWvxoSyFQpuFBuqfkCHQ77uMn6aR`
+- Production deployment: `dpl_BwYEyXCxvTdfG8MnibcqQnv1ehwZ`
 - Canonical: `https://yeunauan-lms-clone.vercel.app`
 - Status: READY
 
 ### Telegram Cloner
 - Repo: `thienha336501903-a11y/telegram-channel-cloner`
-- `main`: `20a028b23344536bb5ed1069c8bfd75670402deb`
-- Commit: `fix: report Reader reconcile deletion count (#30)`
+- `main`: `2b0a938482b592d4620855b2b88b785def5fd094`
+- Commit: `fix: preserve Reader MTProto media during ingest (#32)`
 - Vercel project: `prj_5cwOs0JpEUgC5PfpOdn0ffX4Ly0j`
-- Production deployment: `dpl_GD5aLcnYBANykhg4yYhHos1W1iMm`
+- Production deployment: `dpl_epKxC7jemYqEamMoz2auQzxjPk5B`
 - Canonical: `https://telegram-channel-cloner.vercel.app`
 - `/api/health`: HTTP 200, database/configured checks OK.
 - Cloner đang dùng đúng 12 Node functions — chạm giới hạn Hobby hiện tại, nên mọi route mới phải cân nhắc rất kỹ.
@@ -49,7 +51,12 @@ Các stable cũ phải giữ nguyên. Hai stable mới đã tạo sau khi khóa 
 - LMS: `stable/v4-third-source-playback-final-20260822` → `070c454f8563bb8e71c655b473c57cc72292dbd0`
 - Cloner: `stable/v4-third-source-mtproto-final-20260822` → `8084121c97d79dfdb419add29ba61881a62822a8`
 
-Checkpoint stable fully-stabilized mới chỉ được tạo sau khi PR tài liệu cuối merge và Production audit PASS. Không di chuyển hai stable phía trên.
+Checkpoint mới sau khi factory/import/playback khóa thứ tư PASS:
+
+- LMS: `stable/v4-new-course-production-20260822` → `aac2f7108aa63beee8dd27786dc92a128ed76669`
+- Cloner: `stable/v4-new-course-production-20260822` → `2b0a938482b592d4620855b2b88b785def5fd094`
+
+Không di chuyển hoặc ghi đè bất kỳ stable nào nêu trên.
 
 Stable cũ quan trọng vẫn giữ nguyên, ví dụ:
 - LMS `stable/v4-final-20260821`
@@ -67,11 +74,13 @@ Không force-move/overwrite các nhánh stable.
 | `banh-my-nhan-chay-chu-quyen` | yes | no | 88/88 | 13 | 71 | 0 | 0 | 1 |
 | `cagiatay` | yes | yes | 14/14 | 13 | 0 | 0 | 0 | 2 |
 | `nhan-trung-thu-cao-cap-chu-quyen` | yes | no | 18/18 | 13 | 0 | 0 | 0 | 1 |
+| `combo-8-mon-banh-tet-chu-quyen` | yes | no | 125/125 | 8 | 116 | 8 (MTProto-only, expected) | 0 | 2 |
 
 Source IDs:
 - Bánh mỳ nhân chảy Chu Quyên: `b94fb89f-8e7f-42e9-8506-b0cd6d79d22f`, chat `-1002043800547`, source `active=false` có chủ ý vì không MASTER.
 - Cá giã tay: `de2e9a07-631b-4e93-8140-24c3b8893ec3`, chat `-1004486574754`, source `active=true` (MASTER).
 - Nhân Trung Thu: `1c40a544-4678-4188-8d02-c7a348e9e1f1`, chat `-1002168236470`, source `active=false` có chủ ý vì không MASTER.
+- Combo 8 món bánh Tết Chu Quyên: `71f6b46b-0ac2-4e1f-b860-8a7aa64e537d`, chat `-1002045374878`, source `active=false` có chủ ý vì không MASTER.
 
 Cleanup audit:
 - test courses: 0
@@ -107,6 +116,7 @@ Cleanup audit:
 - Reader Agent poll queue và complete khoảng 15–16 giây.
 - Bot access được verify trước khi đăng ký/import source.
 - Historical media có thể được hydrate bằng Bot API file_id nếu bot có quyền; fallback MTProto server-side vẫn tồn tại.
+- Khi Reader history đã có MTProto descriptor hợp lệ, ingest giữ nguyên descriptor và không self-forward lại qua Bot API. Batch mặc định của Reader CLI là 20 message như guard thứ hai chống timeout.
 
 ## 6. Các PR quan trọng đã merge
 
@@ -117,7 +127,9 @@ Cleanup audit:
 - #27 `post_json` keyword fix
 - #28 automatic deletion reconcile
 - #29 Reader historical MTProto media support
-- #30 report Reader reconcile `deleted_count` — current main
+- #30 report Reader reconcile `deleted_count`
+- #31 register source from one Telegram post link
+- #32 preserve Reader MTProto media during ingest — current main
 
 ### LMS
 - #55 media ticket retention
@@ -128,7 +140,8 @@ Cleanup audit:
 - #60 force Service Worker update propagation
 - #61 range-less playback → `bytes=0-`
 - #62 preserve finite browser playback Range end-to-end
-- #64 keep Service Worker bootstrap/fallback version consistent — current main
+- #64 keep Service Worker bootstrap/fallback version consistent
+- #66 create/select V4 source from one Telegram post link — current main
 
 ## 7. Sự cố playback chậm và kết luận kỹ thuật
 
@@ -160,16 +173,17 @@ Cross-course real-device result:
 | `cagiatay` | MTProto · 25,101,613 bytes | PASS; probe `0-1`, main `0-25101612` |
 | `nhan-trung-thu-cao-cap-chu-quyen` | MTProto · 126,600,630 bytes | PASS; main `0-126600629`, follow-up ranges lớn/open-ended |
 | `nhan-trung-thu-cao-cap-chu-quyen` | MTProto · 487,629,464 bytes | PASS; main `0-487629463`; người dùng ghi nhận chậm hơn một chút nhưng phát hoàn tất |
+| `combo-8-mon-banh-tet-chu-quyen` | MTProto · 408,535,230 bytes | PASS trên thiết bị thật; probe `0-1`, các request chính/tua giữ Range lớn, không có chuỗi 2 MiB |
 
 Không bài nào tái xuất hiện chuỗi request cố định 2 MiB. Video 487.6 MB có request chính khoảng 57 giây; gateway redirect chỉ khoảng 0.25–0.30 giây, nên chưa có bằng chứng cho lỗi autoplay/user-gesture và không sửa theo phỏng đoán.
 
 **Quy tắc quan trọng:** không reintroduce cap 2 MiB trong Service Worker nếu chưa có log thiết bị thật chứng minh cần thiết.
 
-## 8. Việc còn lại để đóng checkpoint
+## 8. Trạng thái đóng checkpoint
 
-1. Merge PR tài liệu checkpoint cuối sau xác nhận rõ của user.
-2. Verify LMS Production sau merge tài liệu.
-3. Tạo stable rollback mới cho đúng LMS/Cloner main cuối; tạo branch mới, không move stable hiện có.
+Factory khóa mới, Reader import, publish và playback thiết bị thật đã PASS. Khóa mới có 125 message phân biệt, 124 media (8 video, 116 ảnh), không thiếu video thumbnail/metadata, không có Reader job treo và không còn artifact test. Import job Production `86cd9b15-2464-44ad-a79d-46ad86d668a3` hoàn tất một lần, không lỗi; source reconcile hoàn tất sau import.
+
+Stable rollback mới đã tạo trên cả LMS và Cloner. Việc còn lại duy nhất của tài liệu này là merge PR docs sau xác nhận rõ của owner; merge docs không thay đổi runtime application.
 
 Owner quyết định không chờ chu kỳ reconcile 6 giờ chỉ để xác nhận metric. Cloner PR #30 đã PASS CI/Preview/Production health; Reader Agent đã cập nhật, restart và heartbeat 200 liên tục. Correctness của reconcile đã được xác nhận trước đó qua audit event `deleted_count=0`; phần còn lại chỉ là quan sát giá trị được copy vào queue job ở chu kỳ tự động tiếp theo và không chặn checkpoint.
 
@@ -208,13 +222,16 @@ Random Vercel Preview có thể gặp Google `origin_mismatch`. Canonical Produc
 - [x] Merge Cloner PR #30 sửa Reader reconcile metric và restart Agent local.
 - [x] Xác định DEP0169 là external Vercel runtime issue; không suppress.
 - [x] Audit `deleted_count`: root cause đã sửa ở PR #30; owner quyết định không chờ chu kỳ 6 giờ chỉ để quan sát metric.
-- [ ] Merge tài liệu checkpoint cuối theo xác nhận user.
-- [ ] Tạo stable rollback mới; không di chuyển stable hiện tại.
+- [x] Tạo và publish khóa V4 mới hoàn toàn từ giao diện bằng một Telegram post link.
+- [x] Reader import 125/125 message, không còn timeout 60 giây.
+- [x] Playback video 408.5 MB của khóa mới PASS trên thiết bị thật và gateway log.
+- [x] Tạo stable rollback mới; không di chuyển stable hiện tại.
+- [ ] Merge PR tài liệu checkpoint cuối theo xác nhận user.
 
 ## 11. Định nghĩa “V4 hoàn thiện” cho checkpoint tiếp theo
 
 V4 có thể coi là fully stabilized khi:
-- 3 khóa V4 đều playback PASS trên mobile thật.
+- 4 khóa V4 đều playback PASS trên mobile thật.
 - Bot API (<20 MB) và MTProto (>20 MB) đều PASS.
 - Ít nhất một video >100 MB PASS.
 - Không có chuỗi Range 2 MiB regression.
@@ -226,4 +243,4 @@ V4 có thể coi là fully stabilized khi:
 
 ---
 
-**Current handover status:** toàn bộ playback/security/Service Worker/Production health và final data audit đã PASS. Reader Agent đã restart với fix metric từ Cloner PR #30 và heartbeat ổn định. Checkpoint chỉ còn merge tài liệu theo xác nhận user, verify Production sau merge và tạo stable rollback mới để tuyên bố V4 fully stabilized.
+**Current handover status:** V4 **fully stabilized**. Bốn khóa V4, Bot API, MTProto, video >100 MB, factory one-post-link, Reader import/reconcile, Service Worker, security invariants, Production health, cleanup audit và rollback checkpoint mới đều PASS. Chỉ còn merge PR tài liệu này theo xác nhận owner; không còn thay đổi runtime cần thiết cho checkpoint.
