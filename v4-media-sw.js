@@ -24,10 +24,19 @@ function cappedRange(rawRange) {
   const match = value.match(/^bytes=(\d+)-(\d*)$/i);
   if (!match) return value;
   const start = Number(match[1]);
-  const requestedEnd = match[2] ? Number(match[2]) : Number.POSITIVE_INFINITY;
   if (!Number.isSafeInteger(start) || start < 0) return value;
+
+  // A media element commonly switches from a tiny metadata probe to an
+  // open-ended playback request such as "bytes=951090-". Preserve that
+  // request so the upstream body can stream continuously. Capping it to
+  // 2 MiB forces the browser to issue dozens of sequential continuation
+  // requests before playback can make useful progress on larger videos.
+  if (!match[2]) return `bytes=${start}-`;
+
+  const requestedEnd = Number(match[2]);
+  if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start) return value;
   const capEnd = start + MAX_UPSTREAM_RANGE_BYTES - 1;
-  const end = Number.isSafeInteger(requestedEnd) ? Math.min(requestedEnd, capEnd) : capEnd;
+  const end = Math.min(requestedEnd, capEnd);
   return `bytes=${start}-${end}`;
 }
 
