@@ -2,6 +2,8 @@
 
 > Mục đích: bàn giao trạng thái hệ thống V4 hiện tại cho chế độ Work/đội kỹ thuật tiếp quản mà không phải suy đoán lại lịch sử. Tài liệu này ưu tiên trạng thái Production, điểm rollback, kiến trúc playback, dữ liệu thực tế, các tồn tại và thứ tự xử lý tiếp.
 
+> **Checkpoint tích hợp mới:** Sau khi nối V4 vào Commerce ba phương thức và hoàn tất Production E2E ngày 2026-08-23, đọc tiếp `docs/CLONE_THREE_MODE_FINAL_HANDOVER_20260823.md`. Tài liệu bên dưới vẫn là source of truth cho playback/Reader V4; tài liệu mới là source of truth cho Commerce ↔ LMS ↔ Cloner, order/enrollment, deployment manifest và cleanup cuối.
+
 ## 1. Trạng thái tổng quan
 
 Hệ thống V4 đang **hoạt động Production và fully stabilized**. Playback đã PASS trên thiết bị thật cho cả bốn khóa V4, gồm Bot API, MTProto và video tới 487.6 MB. Lỗi Service Worker cắt Range thành block 2 MiB đã được xử lý ở LMS PR #62; cross-course E2E và khóa mới tạo hoàn toàn từ giao diện V4 đều xác nhận không tái xuất hiện. LMS PR #64 đã đồng bộ Service Worker bootstrap/fallback về cùng URL version. Cloner PR #30 đã sửa observability để job reconcile ghi `deleted_count=0` thay vì `null`; Reader Agent local Windows đã cập nhật và restart.
