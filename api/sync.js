@@ -4,6 +4,7 @@ import {
   normalizeEmail, 
   syncEnrollment
 } from "../utils/lms.js";
+import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
 
 function timingSafeEqualString(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
@@ -56,7 +57,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug, orderId, deliveryMode } = req.body || {};
+    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug, orderId, deliveryMode, published } = req.body || {};
 
     if (!action) {
       return res.status(400).json({ success: false, error: "Thiếu tham số action" });
@@ -191,9 +192,68 @@ export default async function handler(req, res) {
       return res.status(200).json(syncResult);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. V4 PREFLIGHT (Commerce server orchestration; never browser-direct)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (action === "v4Preflight") {
+      const normalizedSlug = String(courseSlug || "").trim();
+      if (!/^[a-z0-9_-]+$/.test(normalizedSlug)) {
+        return res.status(400).json({ success: false, error: "Slug khóa học không hợp lệ" });
+      }
+      const result = await buildPrepublish(normalizedSlug);
+      return res.status(200).json({ success: true, ...result });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. V4 PUBLISH (fixed V4 policy; client cannot choose delivery_mode)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (action === "setV4Published") {
+      const normalizedSlug = String(courseSlug || "").trim();
+      if (!/^[a-z0-9_-]+$/.test(normalizedSlug)) {
+        return res.status(400).json({ success: false, error: "Slug khóa học không hợp lệ" });
+      }
+
+      const { data: course, error: courseError } = await supabase
+        .from("courses")
+        .select("id,slug,delivery_mode,is_published")
+        .eq("slug", normalizedSlug)
+        .maybeSingle();
+      if (courseError) throw courseError;
+      if (!course || String(course.delivery_mode || "").trim().toLowerCase() !== "v4") {
+        return res.status(400).json({ success: false, error: "Khóa học không tồn tại hoặc không phải V4" });
+      }
+
+      const nextPublished = published === true;
+      let preflight = null;
+      if (nextPublished) {
+        preflight = await buildPrepublish(normalizedSlug);
+        if (!preflight.ready) {
+          return res.status(409).json({
+            success: false,
+            error: "Preflight V4 còn blocker; chưa thể Publish",
+            preflight
+          });
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("courses")
+        .update({ is_published: nextPublished, updated_at: new Date().toISOString() })
+        .eq("id", course.id);
+      if (updateError) throw updateError;
+
+      return res.status(200).json({
+        success: true,
+        course: normalizedSlug,
+        deliveryMode: "v4",
+        isPublished: nextPublished,
+        preflight
+      });
+    }
+
     return res.status(400).json({ success: false, error: "Action không hợp lệ" });
   } catch (error) {
     console.error("[sync] Error in handler:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(Number(error.statusCode || 500)).json({ success: false, error: error.message });
   }
 }

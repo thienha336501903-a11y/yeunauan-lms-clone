@@ -109,7 +109,7 @@ async function probeClonerHealth() {
   }
 }
 
-async function buildPrepublish(courseSlug) {
+export async function buildPrepublish(courseSlug) {
   const slug = clean(courseSlug);
   if (!slug) {
     const error = new Error("Thiếu khóa học V4");
