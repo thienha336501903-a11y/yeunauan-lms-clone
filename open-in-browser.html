@@ -33,12 +33,21 @@
   </main>
   <main id="checking" class="card checking" hidden><div class="spin"></div>Đang chuyển đến “Khóa học của tôi”…</main>
 </div>
-<script>
+<script type="module">
+import { isMobileZaloBrowser } from '/client-browser.js';
 (()=>{
   const q=new URLSearchParams(location.search);
   const course=String(q.get('course')||'').trim();
   const firstCheckout=q.get('checkout')==='1';
   const target='/my-courses.html?registered=1'+(course?'&course='+encodeURIComponent(course):'')+'&via=safari';
+
+  // Trang hướng dẫn chỉ dành cho trình duyệt nhúng Zalo trên điện thoại.
+  // Chrome/Safari/desktop hoặc URL được mở lại bằng trình duyệt ngoài phải đi
+  // thẳng tới trang đăng nhập, kể cả URL còn checkout=1.
+  if(!isMobileZaloBrowser(navigator.userAgent)){
+    location.replace(target);
+    return;
+  }
 
   if(firstCheckout){
     // Lượt đầu sau khi up bill: luôn đứng ở trang hướng dẫn.
