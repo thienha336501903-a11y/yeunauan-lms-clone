@@ -12,10 +12,12 @@ import v4TelegramMediaHandler from "../../utils/lms-handlers/v4-telegram-media.j
 import v4TelegramPlayHandler from "../../utils/lms-handlers/v4-telegram-play.js";
 import v4TelegramThumbnailHandler from "../../utils/lms-handlers/v4-telegram-thumbnail.js";
 import v4TelegramWarmupHandler from "../../utils/lms-handlers/v4-telegram-warmup.js";
+import healthHandler from "../../utils/lms-handlers/health.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
 
+  if (endpoint === "health") return healthHandler(req, res);
   if (endpoint === "course-data") return courseDataHandler(req, res);
   if (endpoint === "lesson") return lessonHandler(req, res);
   if (endpoint === "public-config") return publicConfigHandler(req, res);
