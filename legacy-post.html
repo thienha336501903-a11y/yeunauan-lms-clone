@@ -6,18 +6,23 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Khóa học</title>
 <style>
-:root{--bg:#0a0c10;--card:#0e1217;--border:#1f2937;--text:#f3f4f6;--muted:#9ca3af;--accent:#f59e0b}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
-.container{max-width:1100px;margin:auto;padding:2rem 1.5rem}.nav{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:2rem}.nav a{color:var(--muted);text-decoration:none;font-size:.9rem}
-.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:3rem;align-items:start}.media{aspect-ratio:4/3;background:#000;border:1px solid var(--border);border-radius:16px;overflow:hidden;display:grid;place-items:center}.media img{width:100%;height:100%;object-fit:contain}.placeholder{font-size:64px;color:#4b5563}
-.meta{color:var(--muted);font-size:.9rem;margin-bottom:.8rem}.title{font-size:2.25rem;line-height:1.2;margin:0 0 1.2rem;background:linear-gradient(135deg,#fff,#d1d5db);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.entry{width:100%;border:0;border-radius:10px;padding:13px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}.entry:disabled{opacity:.6}.error{color:#f87171;font-size:.85rem;line-height:1.5;margin-top:10px}
-.recipe{margin-top:1.5rem;padding:1.5rem;border-radius:16px;border:1px solid var(--border);background:rgba(22,28,38,.6)}.recipe h3{margin:0 0 .7rem;color:var(--accent)}.recipe p{color:var(--muted);line-height:1.6;margin:0}.loading{max-width:520px;margin:80px auto;text-align:center;color:var(--muted)}
-@media(max-width:800px){.grid{grid-template-columns:1fr;gap:1.5rem}.title{font-size:1.7rem}.container{padding:1.25rem 1rem}}
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&family=Playfair+Display:wght@600;700;800&display=swap');
+:root{--cream:#fcf8f2;--brown:#2d1914;--green:#2a4b2a;--orange:#d96b27;--muted:#746762}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--cream);color:var(--brown);font-family:"Be Vietnam Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.page{min-height:100vh;background:var(--cream)}.container{max-width:1100px;margin:0 auto;padding:3rem 1.5rem;min-height:100vh}
+.nav{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:2rem}.nav a{display:inline-flex;align-items:center;gap:.5rem;background:#fff;border:1px solid rgba(45,25,20,.08);color:var(--brown);padding:.6rem 1.2rem;border-radius:12px;box-shadow:0 4px 10px rgba(45,25,20,.02);font-weight:600;font-size:.85rem;text-decoration:none;transition:all .25s ease}.nav a:hover{background:var(--cream);border-color:var(--orange);color:var(--orange);transform:translateX(-4px)}
+.grid{display:grid;grid-template-columns:1.2fr 1fr;gap:3rem;align-items:start;animation:fadeIn .6s cubic-bezier(.16,1,.3,1)}
+.media{position:relative;width:100%;aspect-ratio:4/3;background:#faf6f0;border:1px solid rgba(45,25,20,.05);border-radius:28px;overflow:hidden;display:grid;place-items:center;box-shadow:0 12px 40px rgba(45,25,20,.04)}.media img{width:100%;height:100%;object-fit:contain;transition:transform .5s ease}.media:hover img{transform:scale(1.03)}.placeholder{font-size:64px;color:#baa9a0}
+.info{display:flex;flex-direction:column;gap:1.5rem}.header{border-bottom:1px solid rgba(45,25,20,.08);padding-bottom:1.5rem}.meta{display:flex;align-items:center;gap:.45rem;color:rgba(45,25,20,.6);font-weight:500;font-size:.9rem;margin-bottom:.75rem}.meta svg{width:16px;height:16px;color:var(--orange);flex:0 0 auto}.title{font-family:"Playfair Display",serif;font-weight:800;color:var(--brown);font-size:2.75rem;line-height:1.2;letter-spacing:-.01em;margin:0 0 .75rem}
+.entry-wrap{margin-top:1rem;display:flex;flex-direction:column;align-items:flex-start;gap:.5rem}.entry{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;border:0;cursor:pointer;padding:.65rem 1.25rem;background:var(--green);color:#fff;border-radius:12px;font-weight:700;font-size:.9rem;box-shadow:0 6px 20px rgba(42,75,42,.15);transition:all .2s ease}.entry:hover{background:#3e6b3e;transform:translateY(-2px);box-shadow:0 8px 25px rgba(42,75,42,.25)}.entry:disabled{cursor:wait;opacity:.72;transform:none}.entry svg{width:16px;height:16px}.error{color:#b42318;font-size:.9rem;line-height:1.45;margin:0;max-width:32rem}
+.recipe{background:#fff;border:1px solid rgba(45,25,20,.06);border-radius:28px;box-shadow:0 12px 40px rgba(45,25,20,.03);color:var(--brown);padding:2.25rem 2rem;user-select:none;-webkit-user-select:none}.recipe-head{border-bottom:1.5px dashed rgba(45,25,20,.1);padding-bottom:1.25rem;margin-bottom:1.75rem}.recipe-title{font-family:"Playfair Display",serif;font-size:1.5rem;font-weight:800;color:var(--brown);margin:0}.recipe-content{color:var(--brown);font-size:.975rem;line-height:1.75}.recipe-content p{color:#4a3e3b;margin:0 0 1rem}.recipe-content h3{font-family:"Playfair Display",serif;font-size:1.35rem;font-weight:800;color:var(--green);margin:1.75rem 0 .75rem;border-left:4px solid var(--orange);padding-left:.65rem;letter-spacing:-.01em}.recipe-content h3:first-child{margin-top:0}.recipe-content li{list-style:none;position:relative;color:#4a3e3b;padding-left:1.5rem;margin:0 0 .5rem;line-height:1.7}.recipe-content li:before{content:'•';position:absolute;left:.4rem;top:-.15rem;color:var(--orange);font-size:1.25rem;font-weight:700}.loading,.fatal{max-width:550px;margin:100px auto;padding:3rem 2rem;text-align:center;background:#fff;border:1px solid rgba(45,25,20,.08);border-radius:28px;color:var(--muted);box-shadow:0 12px 40px rgba(45,25,20,.04)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:968px){.grid{grid-template-columns:1fr;gap:2rem}.container{padding:2rem 1rem}.title{font-size:2.15rem}.recipe{padding:1.75rem 1.35rem}}
+@media(max-width:520px){.container{padding:1.25rem .85rem}.nav{margin-bottom:1.35rem}.nav a{padding:.55rem .8rem;font-size:.76rem}.media{border-radius:22px}.title{font-size:1.85rem}.recipe{border-radius:22px}.entry{width:100%;padding:.85rem 1rem}.entry-wrap{align-items:stretch}}
 </style>
 </head>
 <body>
-<main class="container"><div id="app" class="loading">Đang kiểm tra quyền khóa học…</div></main>
+<div class="page"><main class="container"><div id="app" class="loading">Đang kiểm tra quyền khóa học…</div></main></div>
 <script>
 (()=>{
   const app=document.getElementById('app');
@@ -25,6 +30,9 @@
   const slug=String(qs.get('id')||qs.get('course')||'').trim();
   let sessionToken='';
   const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+  const icon=(name)=>name==='calendar'?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
+  const formatDate=value=>{const date=new Date(value||'');return Number.isNaN(date.getTime())?'':date.toLocaleDateString('vi-VN',{year:'numeric',month:'long',day:'numeric'})};
+  function introHtml(value){const text=String(value||'').trim()||'Nhấn nút phía trên để mở hệ thống bài học gốc của khóa học.';return text.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).map(line=>{if(/^#{1,3}\s+/.test(line))return`<h3>${esc(line.replace(/^#{1,3}\s+/,''))}</h3>`;if(/^[-*•+]\s+/.test(line))return`<li>${esc(line.replace(/^[-*•+]\s+/,''))}</li>`;return`<p>${esc(line)}</p>`}).join('')}
 
   async function dashboard(){
     const body=sessionToken?{sessionToken}:{};
@@ -63,12 +71,12 @@
       location.assign(data.url);
     }catch(error){
       errorBox.textContent=error.message||'Không tạo được liên kết vào lớp. Vui lòng đăng nhập đúng Gmail đã mua khóa học rồi thử lại.';
-      button.disabled=false;button.textContent='🎓 Bài học gốc phục vụ giảng dạy';
+      button.disabled=false;button.innerHTML=icon('graduate')+'<span>Bài học gốc phục vụ giảng dạy</span>';
     }
   }
 
   (async()=>{
-    if(!slug){app.innerHTML='<div class="error">Thiếu mã khóa học.</div>';return}
+    if(!slug){app.className='fatal';app.textContent='Thiếu mã khóa học.';return}
     const{response,data}=await dashboard();
     if(!response.ok||!data.success){location.replace('/my-courses.html');return}
     sessionToken=String(data.sessionToken||'');
@@ -77,9 +85,10 @@
       return String(item.slug||'').toLowerCase()===slug.toLowerCase()&&['lms','v4'].includes(mode);
     });
     if(!course||course.state!=='ready'){location.replace('/my-courses.html');return}
-    const image=course.imageUrl?`<img src="${esc(course.imageUrl)}" alt="">`:'<div class="placeholder">📖</div>';
+    const image=course.imageUrl?`<img src="${esc(course.imageUrl)}" alt="${esc(course.title||course.slug)}">`:'<div class="placeholder">📖</div>';
+    const dateLabel=formatDate(course.createdAt||course.expectedStartDate||course.updatedAt)||'Khóa học trực tuyến';
     app.className='';
-    app.innerHTML=`<div class="nav"><a href="/">← Quay lại cổng học viên</a><a href="/my-courses.html">🎓 Khóa học của tôi</a></div><div class="grid"><div class="media">${image}</div><div><div class="meta">Khóa học trực tuyến</div><h1 class="title">${esc(course.title||course.slug)}</h1><button id="enter" class="entry">🎓 Bài học gốc phục vụ giảng dạy</button><div id="err" class="error"></div><div class="recipe"><h3>Nội dung khóa học</h3><p>Nhấn nút phía trên để mở hệ thống bài học gốc của khóa học.</p></div></div></div>`;
+    app.innerHTML=`<div class="nav"><a href="/">← Quay lại cổng học viên</a><a href="/my-courses.html">${icon('graduate')} Khóa học của tôi</a></div><div class="grid"><div class="media">${image}</div><section class="info"><header class="header"><div class="meta">${icon('calendar')}<span>${esc(dateLabel)}</span></div><h1 class="title">${esc(course.title||course.slug)}</h1><div class="entry-wrap"><button id="enter" class="entry">${icon('graduate')}<span>Bài học gốc phục vụ giảng dạy</span></button><p id="err" class="error" role="alert"></p></div></header><div class="recipe"><div class="recipe-head"><h2 class="recipe-title">Công Thức &amp; Hướng Dẫn</h2></div><div class="recipe-content">${introHtml(course.description)}</div></div></section></div>`;
     document.getElementById('enter').addEventListener('click',enterCourse);
   })();
 })();
