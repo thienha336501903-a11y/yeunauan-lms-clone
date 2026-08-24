@@ -1,5 +1,7 @@
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
+import { courseIntroFallback } from "../v4-intro-content.js";
+import { loadV4IntroContent, MAX_V4_INTRO_ROWS } from "../v4-intro-loader.js";
 
 const MEDIA_TYPE_LIST = ["photo", "video", "document", "audio", "voice", "animation", "video_note"];
 const MEDIA_TYPES = new Set(MEDIA_TYPE_LIST);
@@ -119,7 +121,7 @@ export async function buildPrepublish(courseSlug) {
 
   const { data: course, error: courseError } = await supabase
     .from("courses")
-    .select("id,slug,title,delivery_mode,is_published")
+    .select("id,slug,title,description,raw_data,delivery_mode,is_published")
     .eq("slug", slug)
     .maybeSingle();
   if (courseError) throw courseError;
@@ -140,6 +142,7 @@ export async function buildPrepublish(courseSlug) {
   let actualMessageCount = 0;
   let mediaCount = 0;
   let mediaScan = { rows: [], complete: true };
+  let introContent = { rows: [], items: [], complete: true, total: 0 };
   if (mapping?.source_id) {
     const [sourceResult, countResult, mediaCountResult] = await Promise.all([
       supabase
@@ -163,7 +166,10 @@ export async function buildPrepublish(courseSlug) {
     source = sourceResult.data || null;
     actualMessageCount = Number(countResult.count || 0);
     mediaCount = Number(mediaCountResult.count || 0);
-    mediaScan = await loadMediaRows(mapping.source_id, mediaCount);
+    [mediaScan, introContent] = await Promise.all([
+      loadMediaRows(mapping.source_id, mediaCount),
+      loadV4IntroContent(mapping.source_id, actualMessageCount)
+    ]);
   }
 
   const { data: enrollmentRows, error: enrollmentError } = await supabase
@@ -195,6 +201,19 @@ export async function buildPrepublish(courseSlug) {
     checks.push(check("messages", "Nội dung đã index", "block", "Chưa có bài Telegram nào trong nguồn"));
   } else {
     checks.push(check("messages", "Nội dung đã index", "pass", `${actualMessageCount} bài thực tế`));
+  }
+
+  const fallbackDescription = courseIntroFallback(course);
+  if (!introContent.complete) {
+    checks.push(check("intro-text", "Công thức & Hướng dẫn", "block", actualMessageCount > MAX_V4_INTRO_ROWS
+      ? `Nguồn có ${actualMessageCount} bài, vượt giới hạn tổng hợp an toàn ${MAX_V4_INTRO_ROWS}; chưa thể xác nhận đầy đủ nội dung chữ`
+      : `Chỉ đọc được ${introContent.rows.length}/${actualMessageCount} bài; hãy chạy Preflight lại`));
+  } else if (introContent.items.length) {
+    checks.push(check("intro-text", "Công thức & Hướng dẫn", "pass", `${introContent.items.length} đoạn text/caption sẽ tự động hiển thị`));
+  } else if (fallbackDescription) {
+    checks.push(check("intro-text", "Công thức & Hướng dẫn", "warn", "Nguồn Telegram chưa có text/caption; đang dùng mô tả khóa học làm nội dung thay thế"));
+  } else {
+    checks.push(check("intro-text", "Công thức & Hướng dẫn", "block", "Nguồn Telegram không có text/caption và khóa học cũng chưa có mô tả thay thế"));
   }
 
   if (!mediaScan.complete) {
@@ -276,6 +295,8 @@ export async function buildPrepublish(courseSlug) {
     } : null,
     stats: {
       actualMessageCount,
+      introTextItemCount: introContent.items.length,
+      introTextScanComplete: introContent.complete,
       mediaCount,
       mediaScanComplete: mediaScan.complete,
       historicalMediaCount: historicalMedia.length,
