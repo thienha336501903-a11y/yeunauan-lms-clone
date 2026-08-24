@@ -31,3 +31,22 @@ test('internal V4 actions remain behind the fail-closed sync secret', () => {
   assert.ok(secretGate > -1 && preflightAction > secretGate && publishAction > secretGate);
   assert.match(sync, /timingSafeEqualString\(syncSecret, systemSecret\)/);
 });
+
+test('one internal action grants test Gmail and runs full preflight', () => {
+  const sync = read('api/sync.js');
+  const enrollments = read('utils/lms-handlers/admin-v4-enrollments.js');
+  assert.match(sync, /action === "v4PrepareRelease"/);
+  assert.match(sync, /await prepareV4TestAccess\(normalizedSlug, testEmail\)/);
+  assert.match(sync, /await buildPrepublish\(normalizedSlug\)/);
+  assert.match(sync, /source_system === "commerce_v4_test"/);
+  assert.match(sync, /v4TestEmail/);
+  assert.match(enrollments, /existingEnrollment\?\.source_system/);
+});
+
+test('V4 publish returns a canonical student URL without email or token', () => {
+  const sync = read('api/sync.js');
+  assert.match(sync, /v4-entry\.html\?course=/);
+  assert.match(sync, /studentUrl: nextPublished \? v4StudentUrl\(normalizedSlug\) : null/);
+  assert.doesNotMatch(sync, /v4-entry\.html\?email=/);
+  assert.doesNotMatch(sync, /v4-entry\.html\?token=/);
+});

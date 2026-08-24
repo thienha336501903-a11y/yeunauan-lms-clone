@@ -10,7 +10,7 @@ function normalizeExpiry(value) {
   return new Date(time).toISOString();
 }
 
-async function requireV4Course(courseSlug) {
+export async function requireV4Course(courseSlug) {
   const slug = String(courseSlug || "").trim();
   if (!slug) throw new Error("Thiếu khóa học V4");
   const { data: course, error } = await supabase
@@ -133,11 +133,18 @@ async function upsertStudent({ email, fullName = "", phone = "" }) {
   return data;
 }
 
-async function grantEnrollment({ courseSlug, email, fullName, phone, expiredAt }) {
+export async function grantEnrollment({ courseSlug, email, fullName, phone, expiredAt, sourceSystem = "lms_v4_admin" }) {
   const course = await requireV4Course(courseSlug);
   const student = await upsertStudent({ email, fullName, phone });
   const cleanEmail = normalizeEmail(email);
   const now = new Date().toISOString();
+  const { data: existingEnrollment, error: existingEnrollmentError } = await supabase
+    .from("student_enrollments")
+    .select("id,source_system")
+    .eq("email", cleanEmail)
+    .eq("course_slug", course.slug)
+    .maybeSingle();
+  if (existingEnrollmentError) throw existingEnrollmentError;
   const payload = {
     student_id: student.id,
     course_id: course.id,
@@ -149,6 +156,7 @@ async function grantEnrollment({ courseSlug, email, fullName, phone, expiredAt }
     source_system: "lms_v4_admin",
     updated_at: now
   };
+  payload.source_system = existingEnrollment?.source_system || String(sourceSystem || "lms_v4_admin");
   const { data, error } = await supabase
     .from("student_enrollments")
     .upsert(payload, { onConflict: "email,course_slug" })
