@@ -31,12 +31,13 @@ export default async function handler(req,res){
     if(!courseSlug||!portalDeviceId) return res.status(400).json({ok:false,error:"Thiếu thông tin phiên học viên."});
 
     const [{data:course,error:courseError},{data:enrollments,error:enrollError}]=await Promise.all([
-      supabase.from("courses").select("slug,active,is_published,delivery_mode").eq("slug",courseSlug).maybeSingle(),
+      supabase.from("courses").select("slug,active,is_published,delivery_mode,raw_data").eq("slug",courseSlug).maybeSingle(),
       supabase.from("student_enrollments").select("id,status").eq("email",String(session.email).toLowerCase()).eq("course_slug",courseSlug).limit(10)
     ]);
     if(courseError) throw courseError;if(enrollError) throw enrollError;
     const deliveryMode=String(course?.delivery_mode||"lms").trim().toLowerCase();
     if(!course||course.active===false||course.is_published!==true||!SUPPORTED_DELIVERY_MODES.has(deliveryMode)) return res.status(403).json({ok:false,error:"Khóa học chưa sẵn sàng để vào lớp."});
+    if(course.raw_data?.originalLessonEntryVisible===false) return res.status(403).json({ok:false,code:"original_lesson_hidden",error:"Bài học gốc hiện chưa được mở."});
     if(!(enrollments||[]).some(row=>isActive(row.status))) return res.status(403).json({ok:false,error:"Gmail này chưa được cấp quyền học khóa này."});
 
     let studentSession=await getActiveStudentSessionByEmail(supabase,session.email);
