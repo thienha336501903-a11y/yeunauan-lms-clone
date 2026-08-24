@@ -29,7 +29,8 @@ assert.match(post, /\.entry:disabled[^}]*animation:none/);
 assert.match(dashboard, /studentDisplayDescription/);
 assert.match(dashboard, /originalLessonEntryVisible:raw\.originalLessonEntryVisible!==false/);
 assert.match(post, /course\.originalLessonEntryVisible!==false/);
-assert.match(post, /Bài học gốc hiện chưa được mở\./);
+assert.doesNotMatch(post, /Bài học gốc hiện chưa được mở\./);
+assert.doesNotMatch(post, /entry-hidden/);
 assert.match(post, /if\(enterButton\)enterButton\.addEventListener/);
 
 // Delivery mode is resolved from the course row on the server, never trusted from the browser.
