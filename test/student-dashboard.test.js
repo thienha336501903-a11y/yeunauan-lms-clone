@@ -16,8 +16,8 @@ assert.match(page, /Đã duyệt – Chờ lên bài/);
 assert.match(page, /\['lms','v4'\]\.includes/);
 assert.doesNotMatch(page, /deliveryMode\|\|''\).*===\s*'v4'/);
 assert.match(page, /mode==='v4'\?'LMS V4':'LMS CŨ'/);
-assert.match(page, /mode==='v4'\?`\/learning\?course=/);
 assert.match(page, /`\/legacy-post\.html\?course=/);
+assert.doesNotMatch(page, /mode==='v4'\?`\/learning\?course=/);
 assert.match(page, /data-mode=/);
 assert.match(page, /endpoint=public-config/);
 
