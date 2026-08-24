@@ -81,7 +81,7 @@
       location.assign(data.url);
     }catch(error){
       errorBox.textContent=error.message||'Không tạo được liên kết vào lớp. Vui lòng đăng nhập đúng Gmail đã mua khóa học rồi thử lại.';
-      button.disabled=false;button.innerHTML=icon('graduate')+'<span>Bài học gốc phục vụ giảng dạy</span>';
+      button.disabled=false;button.innerHTML=icon('graduate')+'<span>Ấn để xem Bài học gốc phục vụ giảng dạy</span>';
     }
   }
 
@@ -103,7 +103,7 @@
     const image=course.imageUrl?`<img src="${esc(course.imageUrl)}" alt="${esc(course.title||course.slug)}">`:'<div class="placeholder">📖</div>';
     const dateLabel=formatDate(course.createdAt||course.expectedStartDate||course.updatedAt)||'Khóa học trực tuyến';
     app.className='';
-    app.innerHTML=`<div class="nav"><a href="/">← Quay lại cổng học viên</a><a href="/my-courses.html">${icon('graduate')} Khóa học của tôi</a></div><div class="grid"><div class="media">${image}</div><section class="info"><header class="header"><div class="meta">${icon('calendar')}<span>${esc(dateLabel)}</span></div><h1 class="title">${esc(course.title||course.slug)}</h1><div class="entry-wrap"><button id="enter" class="entry">${icon('graduate')}<span>Bài học gốc phục vụ giảng dạy</span></button><p id="err" class="error" role="alert"></p></div></header><div class="recipe"><div class="recipe-head"><h2 class="recipe-title">Công Thức &amp; Hướng Dẫn</h2></div><div class="recipe-content">${mode==='v4'?v4IntroHtml(v4Intro,course.description):introHtml(course.description)}</div></div></section></div>`;
+    app.innerHTML=`<div class="nav"><a href="/">← Quay lại cổng học viên</a><a href="/my-courses.html">${icon('graduate')} Khóa học của tôi</a></div><div class="grid"><div class="media">${image}</div><section class="info"><header class="header"><div class="meta">${icon('calendar')}<span>${esc(dateLabel)}</span></div><h1 class="title">${esc(course.title||course.slug)}</h1><div class="entry-wrap"><button id="enter" class="entry">${icon('graduate')}<span>Ấn để xem Bài học gốc phục vụ giảng dạy</span></button><p id="err" class="error" role="alert"></p></div></header><div class="recipe"><div class="recipe-head"><h2 class="recipe-title">Công Thức &amp; Hướng Dẫn</h2></div><div class="recipe-content">${mode==='v4'?v4IntroHtml(v4Intro,course.description):introHtml(course.description)}</div></div></section></div>`;
     document.getElementById('enter').addEventListener('click',enterCourse);
     const introToggle=document.getElementById('introToggle');
     if(introToggle)introToggle.addEventListener('click',()=>{const expanded=introToggle.getAttribute('aria-expanded')==='true';document.querySelectorAll('[data-v4-intro-extra="1"]').forEach(item=>item.classList.toggle('is-hidden',expanded));introToggle.setAttribute('aria-expanded',String(!expanded));introToggle.textContent=expanded?`Xem toàn bộ ${v4Intro.items.length} phần nội dung`:'Thu gọn nội dung'});
