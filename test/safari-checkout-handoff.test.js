@@ -5,7 +5,8 @@ import { isMobileZaloBrowser } from '../client-browser.js';
 const page = fs.readFileSync(new URL('../open-in-browser.html', import.meta.url), 'utf8');
 const manager = fs.readFileSync(new URL('../my-courses.html', import.meta.url), 'utf8');
 
-assert.match(page, /Mở bằng trình duyệt để tiếp tục/);
+assert.match(page, /Làm theo hướng dẫn 1 và 2 bên dưới để truy cập khóa học/);
+assert.doesNotMatch(page, /Mở bằng trình duyệt để tiếp tục/);
 assert.match(page, /Nhấn dấu ⋯/);
 assert.match(page, /Chọn “Mở bằng trình duyệt”/);
 assert.match(page, /Chrome, Samsung Internet, Safari hoặc trình duyệt mặc định/);
