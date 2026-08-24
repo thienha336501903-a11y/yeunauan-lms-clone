@@ -6,8 +6,8 @@ const page = fs.readFileSync(new URL('../my-courses.html', import.meta.url), 'ut
 assert.match(page, /Khóa học của tôi/);
 assert.match(page, /\['lms','v4'\]\.includes/);
 assert.match(page, /LMS cũ và LMS V4 được hiển thị chung/);
-assert.match(page, /\/learning\?course=/);
 assert.match(page, /\/legacy-post\.html\?course=/);
+assert.doesNotMatch(page, /mode==='v4'\?`\/learning\?course=/);
 assert.match(page, /registeredNotice/);
 assert.match(page, /isMobileZaloBrowser/);
 assert.match(page, /open-in-browser\.html/);

@@ -9,9 +9,15 @@ import {
 
 const SESSION_COOKIE = "course_session_token";
 const ACTIVE_ENROLLMENT_STATUSES = new Set(["active","approved","approved_ready","approved_waiting_content","completed","da duyet"]);
+const SUPPORTED_DELIVERY_MODES = new Set(["lms", "v4"]);
 const norm = value => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const isActive = status => ACTIVE_ENROLLMENT_STATUSES.has(norm(status));
 function ip(req){return String(req.headers["x-forwarded-for"]||"").split(",")[0].trim()||String(req.headers["x-real-ip"]||"").trim()||null}
+function entryUrl(deliveryMode, courseSlug, rawToken){
+  const token=encodeURIComponent(rawToken);
+  if(deliveryMode==="v4") return `/v4-token-entry.html?course=${encodeURIComponent(courseSlug)}&entry_token=${token}`;
+  return `/lms.html?entry_token=${token}`;
+}
 
 export default async function handler(req,res){
   res.setHeader("Cache-Control","no-store");
@@ -29,7 +35,8 @@ export default async function handler(req,res){
       supabase.from("student_enrollments").select("id,status").eq("email",String(session.email).toLowerCase()).eq("course_slug",courseSlug).limit(10)
     ]);
     if(courseError) throw courseError;if(enrollError) throw enrollError;
-    if(!course||course.active===false||course.is_published!==true||String(course.delivery_mode||"lms").toLowerCase()!=="lms") return res.status(403).json({ok:false,error:"Khóa học chưa sẵn sàng để vào lớp."});
+    const deliveryMode=String(course?.delivery_mode||"lms").trim().toLowerCase();
+    if(!course||course.active===false||course.is_published!==true||!SUPPORTED_DELIVERY_MODES.has(deliveryMode)) return res.status(403).json({ok:false,error:"Khóa học chưa sẵn sàng để vào lớp."});
     if(!(enrollments||[]).some(row=>isActive(row.status))) return res.status(403).json({ok:false,error:"Gmail này chưa được cấp quyền học khóa này."});
 
     let studentSession=await getActiveStudentSessionByEmail(supabase,session.email);
@@ -40,6 +47,6 @@ export default async function handler(req,res){
     else studentSession=await createStudentActiveSession(supabase,{email:session.email,portalDeviceId,ip:ip(req),userAgent:req.headers["user-agent"]||null});
 
     const {rawToken}=await createLmsEntryToken(supabase,{email:session.email,studentSessionId:studentSession.student_session_id,portalDeviceId,courseSlug,postId:null,createdIp:ip(req),createdUserAgent:req.headers["user-agent"]||null});
-    return res.status(200).json({ok:true,url:`/lms.html?entry_token=${encodeURIComponent(rawToken)}`});
+    return res.status(200).json({ok:true,url:entryUrl(deliveryMode,courseSlug,rawToken)});
   }catch(error){console.error("[legacy-entry-token]",error);return res.status(500).json({ok:false,error:"Không tạo được link vào học. Vui lòng thử lại sau."})}
 }

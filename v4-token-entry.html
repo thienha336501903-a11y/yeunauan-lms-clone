@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Đang mở khóa học V4</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#eef4ef;color:#30443a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}.card{width:min(470px,100%);background:#fff;border:1px solid #dfe8e1;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 14px 42px rgba(45,78,57,.12)}.spin{width:38px;height:38px;border:4px solid #dce8df;border-top-color:#4f8558;border-radius:50%;margin:0 auto 14px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{font-size:13px;line-height:1.55;color:#718078;margin:0}.error{color:#963f3f}.back{display:inline-flex;margin-top:16px;border-radius:12px;padding:11px 16px;background:#4f8558;color:#fff;text-decoration:none;font-size:13px;font-weight:800}
+</style>
+</head>
+<body>
+<main class="card">
+  <div id="spinner" class="spin"></div>
+  <h1 id="title">Đang xác thực liên kết lớp học…</h1>
+  <p id="message">Hệ thống đang kiểm tra Gmail, quyền học và tạo phiên phát V4 an toàn.</p>
+  <a id="back" class="back" href="/my-courses.html" hidden>Về Khóa học của tôi</a>
+</main>
+<script>
+(()=>{
+  const query=new URLSearchParams(location.search);
+  const entryToken=String(query.get('entry_token')||'').trim();
+  const title=document.getElementById('title');
+  const message=document.getElementById('message');
+  const spinner=document.getElementById('spinner');
+  const back=document.getElementById('back');
+
+  function lmsDeviceId(){
+    const key='lms_device_id';
+    try{
+      let value=localStorage.getItem(key);
+      if(!value){
+        const bytes=new Uint8Array(24);crypto.getRandomValues(bytes);
+        value='lms_'+Array.from(bytes).map(item=>item.toString(16).padStart(2,'0')).join('');
+        localStorage.setItem(key,value);
+      }
+      return value;
+    }catch{return'lms_'+Date.now()+'_'+Math.random().toString(36).slice(2)}
+  }
+
+  function fail(text){
+    spinner.hidden=true;title.textContent='Không mở được khóa học';message.textContent=text;message.classList.add('error');back.hidden=false;
+  }
+
+  async function verify(){
+    if(!entryToken){fail('Liên kết lớp học không hợp lệ. Vui lòng quay lại Khóa học của tôi và bấm Vào học lần nữa.');return}
+
+    // Remove the one-time secret from browser history before any onward navigation.
+    history.replaceState({},document.title,location.pathname);
+
+    try{
+      const response=await fetch('/api/lms/portal?endpoint=verify-entry-token',{
+        method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({entry_token:entryToken,lms_device_id:lmsDeviceId()})
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||!data.ok||!data.course_slug||!data.lms_session_id){
+        throw new Error(data.error||'Liên kết lớp học không hợp lệ hoặc đã hết hạn.');
+      }
+      localStorage.setItem('lms_verified_session_id',String(data.lms_session_id));
+      localStorage.setItem('lms_session_id',String(data.lms_session_id));
+      title.textContent='Đã xác thực quyền học';message.textContent='Đang chuẩn bị trình phát V4 an toàn…';
+      location.replace('/learning?course='+encodeURIComponent(String(data.course_slug)));
+    }catch(error){
+      fail(error.message||'Không xác thực được liên kết lớp học. Vui lòng quay lại Khóa học của tôi và thử lại.');
+    }
+  }
+
+  verify();
+})();
+</script>
+</body>
+</html>
