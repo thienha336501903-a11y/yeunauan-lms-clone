@@ -27,10 +27,16 @@ assert.match(post, /0%,16%,100%/);
 assert.match(post, /prefers-reduced-motion:reduce/);
 assert.match(post, /\.entry:disabled[^}]*animation:none/);
 assert.match(dashboard, /studentDisplayDescription/);
+assert.match(dashboard, /originalLessonEntryVisible:raw\.originalLessonEntryVisible!==false/);
+assert.match(post, /course\.originalLessonEntryVisible!==false/);
+assert.match(post, /Bài học gốc hiện chưa được mở\./);
+assert.match(post, /if\(enterButton\)enterButton\.addEventListener/);
 
 // Delivery mode is resolved from the course row on the server, never trusted from the browser.
-assert.match(tokenHandler, /select\("slug,active,is_published,delivery_mode"\)/);
+assert.match(tokenHandler, /select\("slug,active,is_published,delivery_mode,raw_data"\)/);
 assert.match(tokenHandler, /SUPPORTED_DELIVERY_MODES\.has\(deliveryMode\)/);
+assert.match(tokenHandler, /course\.raw_data\?\.originalLessonEntryVisible===false/);
+assert.match(tokenHandler, /original_lesson_hidden/);
 assert.doesNotMatch(tokenHandler, /req\.body\?\.delivery_mode/);
 assert.match(tokenHandler, /deliveryMode==="v4"/);
 assert.match(tokenHandler, /\/v4-token-entry\.html\?course=/);
