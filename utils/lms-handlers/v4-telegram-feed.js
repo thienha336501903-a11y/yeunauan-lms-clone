@@ -263,6 +263,10 @@ export default async function handler(req, res) {
       success: true,
       mode: "v4-telegram-source-poc",
       course: courseSlug,
+      courseInfo: {
+        slug: courseSlug,
+        title: access.courseTitle || courseSlug
+      },
       email: access.email,
       mediaMode: mapping.media_mode,
       source: {

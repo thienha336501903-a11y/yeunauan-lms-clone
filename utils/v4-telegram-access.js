@@ -73,7 +73,7 @@ export async function requireV4CourseAccess(req, courseSlug) {
   // approving an enrollment is not enough; course content must also be marked ready.
   const { data: course, error: courseError } = await supabase
     .from("courses")
-    .select("is_published")
+    .select("title,raw_data,is_published")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -87,5 +87,7 @@ export async function requireV4CourseAccess(req, courseSlug) {
     };
   }
 
-  return { ok: true, email, courseSlug: slug };
+  const rawData = course.raw_data && typeof course.raw_data === "object" ? course.raw_data : {};
+  const courseTitle = String(rawData.studentDisplayTitle || course.title || slug).trim() || slug;
+  return { ok: true, email, courseSlug: slug, courseTitle };
 }

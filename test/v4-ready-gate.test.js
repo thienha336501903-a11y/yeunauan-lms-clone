@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 test('V4 access requires course is_published', () => {
   const src = fs.readFileSync(new URL('../utils/v4-telegram-access.js', import.meta.url), 'utf8');
-  assert.match(src, /select\("is_published"\)/);
+  assert.match(src, /select\("[^"]*is_published[^"]*"\)/);
   assert.match(src, /course_not_ready/);
   assert.match(src, /!course\?\.is_published/);
 });
