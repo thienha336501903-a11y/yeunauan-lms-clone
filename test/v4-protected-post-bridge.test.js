@@ -5,6 +5,7 @@ const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'ut
 
 const manager = read('my-courses.html');
 const post = read('legacy-post.html');
+const dashboard = read('utils/lms-handlers/student-dashboard.js');
 const tokenHandler = read('utils/lms-handlers/legacy-entry-token.js');
 const tokenEntry = read('v4-token-entry.html');
 const verifier = read('utils/lms-handlers/verify-entry-token.js');
@@ -15,6 +16,12 @@ assert.doesNotMatch(manager, /mode==='v4'\?`\/learning\?course=/);
 assert.match(post, /\['lms','v4'\]\.includes\(mode\)/);
 assert.match(post, /Bài học gốc phục vụ giảng dạy/);
 assert.match(post, /endpoint=legacy-entry-token/);
+assert.match(post, /#FCF8F2/i);
+assert.match(post, /Playfair Display/);
+assert.match(post, /Công Thức &amp; Hướng Dẫn/);
+assert.match(post, /grid-template-columns:1\.2fr 1fr/);
+assert.match(post, /border-radius:28px/);
+assert.match(dashboard, /studentDisplayDescription/);
 
 // Delivery mode is resolved from the course row on the server, never trusted from the browser.
 assert.match(tokenHandler, /select\("slug,active,is_published,delivery_mode"\)/);
