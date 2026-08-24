@@ -21,6 +21,10 @@ assert.match(post, /Playfair Display/);
 assert.match(post, /Công Thức &amp; Hướng Dẫn/);
 assert.match(post, /grid-template-columns:1\.2fr 1fr/);
 assert.match(post, /border-radius:28px/);
+assert.match(post, /animation:entryNudge 4\.8s ease-in-out infinite/);
+assert.match(post, /@keyframes entryNudge/);
+assert.match(post, /prefers-reduced-motion:reduce/);
+assert.match(post, /\.entry:disabled[^}]*animation:none/);
 assert.match(dashboard, /studentDisplayDescription/);
 
 // Delivery mode is resolved from the course row on the server, never trusted from the browser.
