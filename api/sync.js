@@ -5,6 +5,62 @@ import {
   syncEnrollment
 } from "../utils/lms.js";
 import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
+import { grantEnrollment, requireV4Course } from "../utils/lms-handlers/admin-v4-enrollments.js";
+
+function v4StudentUrl(courseSlug) {
+  const configured = String(process.env.LMS_PUBLIC_URL || "https://yeunauan-lms-clone.vercel.app").trim();
+  const origin = /^https:\/\//i.test(configured) ? configured.replace(/\/+$/, "") : `https://${configured.replace(/^\/+|\/+$/g, "")}`;
+  return `${origin}/v4-entry.html?course=${encodeURIComponent(courseSlug)}`;
+}
+
+async function prepareV4TestAccess(courseSlug, email) {
+  const cleanEmail = normalizeEmail(email);
+  if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    const error = new Error("Gmail kiểm thử không hợp lệ");
+    error.statusCode = 400;
+    throw error;
+  }
+  const course = await requireV4Course(courseSlug);
+  const { data: courseRow, error: courseError } = await supabase
+    .from("courses")
+    .select("id,raw_data")
+    .eq("id", course.id)
+    .single();
+  if (courseError) throw courseError;
+  const rawData = courseRow.raw_data && typeof courseRow.raw_data === "object" ? { ...courseRow.raw_data } : {};
+  const previousEmail = normalizeEmail(rawData.v4TestEmail || "");
+
+  if (previousEmail && previousEmail !== cleanEmail) {
+    const { data: previousEnrollment, error: previousError } = await supabase
+      .from("student_enrollments")
+      .select("id,source_system")
+      .eq("course_slug", course.slug)
+      .eq("email", previousEmail)
+      .maybeSingle();
+    if (previousError) throw previousError;
+    if (previousEnrollment?.source_system === "commerce_v4_test") {
+      const { error: revokeError } = await supabase
+        .from("student_enrollments")
+        .update({ status: "revoked", updated_at: new Date().toISOString() })
+        .eq("id", previousEnrollment.id);
+      if (revokeError) throw revokeError;
+    }
+  }
+
+  const granted = await grantEnrollment({
+    courseSlug: course.slug,
+    email: cleanEmail,
+    sourceSystem: "commerce_v4_test"
+  });
+  rawData.v4TestEmail = cleanEmail;
+  rawData.v4TestEnrollmentId = granted.enrollment.id;
+  const { error: updateError } = await supabase
+    .from("courses")
+    .update({ raw_data: rawData, updated_at: new Date().toISOString() })
+    .eq("id", course.id);
+  if (updateError) throw updateError;
+  return { email: cleanEmail, enrollment: granted.enrollment, studentUrl: v4StudentUrl(course.slug) };
+}
 
 function timingSafeEqualString(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
@@ -57,7 +113,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug, orderId, deliveryMode, published } = req.body || {};
+    const { action, slug, title, subtitle, imageUrl, expected_start_date, active, email, courseSlug, orderId, deliveryMode, published, testEmail } = req.body || {};
 
     if (!action) {
       return res.status(400).json({ success: false, error: "Thiếu tham số action" });
@@ -204,6 +260,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...result });
     }
 
+    // Prepare one test Gmail and run the full preflight as one admin action.
+    if (action === "v4PrepareRelease") {
+      const normalizedSlug = String(courseSlug || "").trim();
+      if (!/^[a-z0-9_-]+$/.test(normalizedSlug)) {
+        return res.status(400).json({ success: false, error: "Slug khóa học không hợp lệ" });
+      }
+      const testAccess = await prepareV4TestAccess(normalizedSlug, testEmail);
+      const preflight = await buildPrepublish(normalizedSlug);
+      return res.status(200).json({ success: true, testAccess, preflight });
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 5. V4 PUBLISH (fixed V4 policy; client cannot choose delivery_mode)
     // ─────────────────────────────────────────────────────────────────────────
@@ -215,7 +282,7 @@ export default async function handler(req, res) {
 
       const { data: course, error: courseError } = await supabase
         .from("courses")
-        .select("id,slug,delivery_mode,is_published")
+        .select("id,slug,delivery_mode,is_published,raw_data")
         .eq("slug", normalizedSlug)
         .maybeSingle();
       if (courseError) throw courseError;
@@ -247,7 +314,9 @@ export default async function handler(req, res) {
         course: normalizedSlug,
         deliveryMode: "v4",
         isPublished: nextPublished,
-        preflight
+        preflight,
+        testEmail: normalizeEmail(course.raw_data?.v4TestEmail || "") || null,
+        studentUrl: nextPublished ? v4StudentUrl(normalizedSlug) : null
       });
     }
 
