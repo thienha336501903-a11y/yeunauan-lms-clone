@@ -14,7 +14,7 @@ const verifier = read('utils/lms-handlers/verify-entry-token.js');
 assert.match(manager, /const learningUrl=`\/legacy-post\.html\?course=/);
 assert.doesNotMatch(manager, /mode==='v4'\?`\/learning\?course=/);
 assert.match(post, /\['lms','v4'\]\.includes\(mode\)/);
-assert.match(post, /Bài học gốc phục vụ giảng dạy/);
+assert.equal((post.match(/Ấn để xem Bài học gốc phục vụ giảng dạy/g)||[]).length,2);
 assert.match(post, /endpoint=legacy-entry-token/);
 assert.match(post, /#FCF8F2/i);
 assert.match(post, /Playfair Display/);
