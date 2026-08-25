@@ -6,7 +6,7 @@ import {
   telegramVideoMessageTypes
 } from "../v4-telegram-media-meta.js";
 
-const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?prepare=1";
+const DEFAULT_MTPROTO_GATEWAY = "https://reader.yeubep.shop/api/telegram/warmup?prepare=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
 const WARMUP_DEFER_MS = 1800;

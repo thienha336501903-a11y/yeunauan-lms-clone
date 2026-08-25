@@ -3,7 +3,7 @@ import { supabase } from "../supabase.js";
 import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
-const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
+const DEFAULT_MEDIA_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const MIN_LEASE_MS = 20 * 60 * 1000;
 const MAX_LEASE_MS = 2 * 60 * 60 * 1000;

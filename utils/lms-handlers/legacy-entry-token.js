@@ -13,9 +13,15 @@ const SUPPORTED_DELIVERY_MODES = new Set(["lms", "v4"]);
 const norm = value => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const isActive = status => ACTIVE_ENROLLMENT_STATUSES.has(norm(status));
 function ip(req){return String(req.headers["x-forwarded-for"]||"").split(",")[0].trim()||String(req.headers["x-real-ip"]||"").trim()||null}
+function productionV4Origin(){
+  if(process.env.VERCEL_ENV!=="production") return "";
+  const configured=String(process.env.V4_PUBLIC_URL||"https://v4.daubepnho.store").trim();
+  if(!configured) return "";
+  return /^https:\/\//i.test(configured)?configured.replace(/\/+$/,""):`https://${configured.replace(/^\/+|\/+$/g,"")}`;
+}
 function entryUrl(deliveryMode, courseSlug, rawToken){
   const token=encodeURIComponent(rawToken);
-  if(deliveryMode==="v4") return `/v4-token-entry.html?course=${encodeURIComponent(courseSlug)}&entry_token=${token}`;
+  if(deliveryMode==="v4") return `${productionV4Origin()}/v4-token-entry.html?course=${encodeURIComponent(courseSlug)}&entry_token=${token}`;
   return `/lms.html?entry_token=${token}`;
 }
 

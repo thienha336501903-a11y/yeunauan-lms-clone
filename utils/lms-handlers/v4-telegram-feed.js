@@ -3,9 +3,9 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
-const DEFAULT_MEDIA_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
-const DEFAULT_MTPROTO_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/warmup?stream=1";
-const DEFAULT_THUMBNAIL_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
+const DEFAULT_MEDIA_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
+const DEFAULT_MTPROTO_GATEWAY = "https://reader.yeubep.shop/api/telegram/warmup?stream=1";
+const DEFAULT_THUMBNAIL_GATEWAY = "https://reader.yeubep.shop/api/telegram/thumbnail";
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
 const INITIAL_THUMBNAIL_BUDGET = 4;

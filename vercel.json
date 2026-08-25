@@ -1,8 +1,8 @@
 {
   "regions": ["sin1"],
   "redirects": [
-    { "source": "/", "destination": "https://yeunauan.live/my-courses", "permanent": false },
-    { "source": "/my-courses", "destination": "https://yeunauan.live/my-courses", "permanent": false },
+    { "source": "/", "destination": "https://hoc.yeubep.shop/my-courses.html", "permanent": false },
+    { "source": "/my-courses", "destination": "https://hoc.yeubep.shop/my-courses.html", "permanent": false },
     { "source": "/post/:id", "destination": "https://yeunauan.live/post/:id", "permanent": false }
   ],
   "rewrites": [

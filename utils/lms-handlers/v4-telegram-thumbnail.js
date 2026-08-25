@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
-const DEFAULT_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/thumbnail";
+const DEFAULT_GATEWAY = "https://reader.yeubep.shop/api/telegram/thumbnail";
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
 function pickThumbnail(raw, messageType) {
