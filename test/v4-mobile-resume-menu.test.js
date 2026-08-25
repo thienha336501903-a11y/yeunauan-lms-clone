@@ -29,7 +29,8 @@ test('V4 removes the unused top-right options button', () => {
 
 test('V4 mobile resume uses a native anchor to the exact unfinished video', () => {
   assert.match(page, /<a class="resume-float" id="resumeFloat" href="#" hidden>/);
-  assert.match(page, /id="resume-video-\$\{esc\(item\.id\|\|''\)\}"/);
+  assert.match(page, /const messageId=String\(item\.id\|\|item\.telegramMessageId\|\|''\)/);
+  assert.match(page, /id="resume-video-\$\{esc\(messageId\)\}"/);
   assert.match(page, /function updateResumeControl\(\)[\s\S]*a\.href='#'\+id/);
   assert.match(page, /scroll-margin-top:92px/);
   assert.match(page, /touch-action:manipulation/);
