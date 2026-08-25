@@ -38,11 +38,11 @@ test('V4 search renders compact ranked results instead of full lesson cards', ()
   assert.match(page, /findFoldedOffsets\(lesson\.body,qn\)\.forEach/);
   assert.match(page, /class="search-result-snippet"/);
   assert.match(page, /feed'\)\.classList\.toggle\('feed-searching',searching\)/);
-  assert.match(page, /searchResultsCache\.slice\(0,searchLimit\)/);
+  assert.match(page, /grouped\.slice\(0,searchLimit\)/);
 });
 
 test('V4 compact search supports occurrence counts, no-result state, clear and navigation', () => {
-  assert.match(page, /Tìm thấy \$\{searchResultsCache\.length\} kết quả/);
+  assert.match(page, /Tìm thấy \$\{searchResultsCache\.length\} vị trí trong \$\{grouped\.length\} bài học/);
   assert.match(page, /searchResultsCache\.length!==0/);
   assert.match(page, /id="searchEmpty"[^>]*hidden/);
   assert.match(page, /mobileSearchClear'\)\.addEventListener\('click',\(\)=>clearSearch/);
@@ -58,7 +58,7 @@ test('V4 compact search supports occurrence counts, no-result state, clear and n
 
 test('V4 search highlights every real text hit and centers the active keyword', () => {
   assert.match(page, /data-lesson-index="\$\{index\}"/);
-  assert.match(page, /data-result-rank="\$\{rank\}"/);
+  assert.match(page, /data-result-rank="\$\{resultRank\}"/);
   assert.match(page, /function highlightSearchHits\(qn\)/);
   assert.match(page, /document\.createTreeWalker\(root,NodeFilter\.SHOW_TEXT/);
   assert.match(page, /mark\.className='search-hit'/);
@@ -105,6 +105,24 @@ test('V4 in-page navigator cycles results and offers a compact result picker', (
   assert.match(page, /searchNavNext'\)\.addEventListener\('click',\(\)=>activateSearchHit\(searchHitIndex\+1\)\)/);
   assert.match(page, /function clearSearchHighlights\(\)/);
   assert.match(page, /mark\.remove\(\);parent\.normalize\(\)/);
+});
+
+test('V4 result lists collapse repeated keyword hits into one row per lesson', () => {
+  const groupSource = page.match(/function groupSearchResults\(results\)\{[^\n]+?return grouped\}/)?.[0];
+  assert.ok(groupSource);
+  const groupSearchResults = Function(`${groupSource};return groupSearchResults`)();
+  const first = {lesson:{id:'lesson-1'},index:0,foldedAt:4};
+  const second = {lesson:{id:'lesson-2'},index:1,foldedAt:8};
+  const grouped = groupSearchResults([first,{...first,foldedAt:14},{...first,foldedAt:24},second]);
+  assert.equal(grouped.length,2);
+  assert.deepEqual(grouped.map(result=>({id:result.lesson.id,rank:result.rank,hitCount:result.hitCount})),[
+    {id:'lesson-1',rank:0,hitCount:3},
+    {id:'lesson-2',rank:3,hitCount:1},
+  ]);
+  assert.match(page, /search-result-hit-count/);
+  assert.match(page, /\$\{hitCount\} vị trí/);
+  assert.match(page, /activeLesson=searchNavigationResults\[searchHitIndex\]\?\.lesson\?\.id/);
+  assert.match(page, /btn\.dataset\.lessonId===card\?\.dataset\.lessonId/);
 });
 
 test('V4 compact search debounces typing and requires two characters', () => {
