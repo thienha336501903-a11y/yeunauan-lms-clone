@@ -43,7 +43,7 @@ assert.match(tokenHandler, /course\.raw_data\?\.originalLessonEntryVisible===fal
 assert.match(tokenHandler, /original_lesson_hidden/);
 assert.doesNotMatch(tokenHandler, /req\.body\?\.delivery_mode/);
 assert.match(tokenHandler, /deliveryMode==="v4"/);
-assert.match(tokenHandler, /process\.env\.V4_PUBLIC_URL\|\|"https:\/\/daubepnho\.store"/);
+assert.match(tokenHandler, /process\.env\.V4_PUBLIC_URL\|\|"https:\/\/v4\.daubepnho\.store"/);
 assert.match(tokenHandler, /\/v4-token-entry\.html\?course=/);
 assert.match(tokenHandler, /\/lms\.html\?entry_token=/);
 
