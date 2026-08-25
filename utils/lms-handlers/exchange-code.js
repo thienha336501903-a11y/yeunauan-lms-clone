@@ -63,7 +63,7 @@ export default async function handler(req, res) {
         code,
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: redirectUri && redirectUri.startsWith("http") ? redirectUri : (process.env.LMS_PUBLIC_URL ? `${process.env.LMS_PUBLIC_URL}/lms.html` : "https://yeunauan-lms-clone.vercel.app/lms.html"),
+        redirect_uri: redirectUri && redirectUri.startsWith("http") ? redirectUri : (process.env.LMS_PUBLIC_URL ? `${process.env.LMS_PUBLIC_URL}/lms.html` : "https://hoc.yeubep.shop/lms.html"),
         grant_type: "authorization_code"
       })
     });

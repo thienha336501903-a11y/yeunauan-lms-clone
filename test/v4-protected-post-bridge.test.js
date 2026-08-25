@@ -19,9 +19,9 @@ assert.match(post, /endpoint=legacy-entry-token/);
 assert.match(post, /#FCF8F2/i);
 assert.match(post, /Playfair Display/);
 assert.match(post, /Công Thức &amp; Hướng Dẫn/);
-assert.match(post, /href="\/my-courses\.html">← Quay lại Khóa học của tôi<\/a>/);
+assert.match(post, /href="https:\/\/hoc\.yeubep\.shop\/my-courses\.html">← Quay lại Khóa học của tôi<\/a>/);
 assert.doesNotMatch(post, /Quay lại cổng học viên/);
-assert.equal((post.match(/href="\/my-courses\.html"/g)||[]).length,1);
+assert.equal((post.match(/href="https:\/\/hoc\.yeubep\.shop\/my-courses\.html"/g)||[]).length,1);
 assert.match(post, /grid-template-columns:1\.2fr 1fr/);
 assert.match(post, /border-radius:28px/);
 assert.match(post, /animation:entryNudge 4\.8s \.15s ease-in-out infinite/);
@@ -43,6 +43,7 @@ assert.match(tokenHandler, /course\.raw_data\?\.originalLessonEntryVisible===fal
 assert.match(tokenHandler, /original_lesson_hidden/);
 assert.doesNotMatch(tokenHandler, /req\.body\?\.delivery_mode/);
 assert.match(tokenHandler, /deliveryMode==="v4"/);
+assert.match(tokenHandler, /process\.env\.V4_PUBLIC_URL\|\|"https:\/\/daubepnho\.store"/);
 assert.match(tokenHandler, /\/v4-token-entry\.html\?course=/);
 assert.match(tokenHandler, /\/lms\.html\?entry_token=/);
 

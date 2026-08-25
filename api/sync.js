@@ -8,7 +8,7 @@ import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
 import { grantEnrollment, requireV4Course } from "../utils/lms-handlers/admin-v4-enrollments.js";
 
 function v4StudentUrl(courseSlug) {
-  const configured = String(process.env.LMS_PUBLIC_URL || "https://yeunauan-lms-clone.vercel.app").trim();
+  const configured = String(process.env.LMS_PUBLIC_URL || "https://hoc.yeubep.shop").trim();
   const origin = /^https:\/\//i.test(configured) ? configured.replace(/\/+$/, "") : `https://${configured.replace(/^\/+|\/+$/g, "")}`;
   return `${origin}/v4-entry.html?course=${encodeURIComponent(courseSlug)}`;
 }

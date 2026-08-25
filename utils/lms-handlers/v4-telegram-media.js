@@ -3,7 +3,7 @@ import { supabase } from "../supabase.js";
 import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 
-const DEFAULT_GATEWAY = "https://telegram-channel-cloner.vercel.app/api/telegram/media";
+const DEFAULT_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
 function pickMedia(raw, messageType) {

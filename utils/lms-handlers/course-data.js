@@ -364,7 +364,7 @@ export default async function handler(req, res) {
         authError: code,
         code,
         course: activeCourseSlug,
-        error: "Liên kết lớp học này cần được mở từ Cổng học viên clone. Vui lòng quay lại https://yeunauan-lms-clone.vercel.app và mở lại khóa học để vào lớp."
+        error: "Liên kết lớp học này cần được mở từ Khóa học của tôi. Vui lòng quay lại https://hoc.yeubep.shop/my-courses.html và mở lại khóa học để vào lớp."
       });
     }
 

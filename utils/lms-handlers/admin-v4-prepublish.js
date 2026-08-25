@@ -6,7 +6,7 @@ import { loadV4IntroContent, MAX_V4_INTRO_ROWS } from "../v4-intro-loader.js";
 const MEDIA_TYPE_LIST = ["photo", "video", "document", "audio", "voice", "animation", "video_note"];
 const MEDIA_TYPES = new Set(MEDIA_TYPE_LIST);
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
-const DEFAULT_CLONER_HEALTH_URL = "https://telegram-channel-cloner.vercel.app/api/health";
+const DEFAULT_CLONER_HEALTH_URL = "https://reader.yeubep.shop/api/health";
 const GATEWAY_TIMEOUT_MS = 2500;
 const MEDIA_SCAN_PAGE_SIZE = 500;
 const MAX_MEDIA_SCAN_ROWS = 10000;

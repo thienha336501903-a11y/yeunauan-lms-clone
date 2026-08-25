@@ -105,7 +105,7 @@ test("V4 starts non-blocking warm-up alongside feed and preconnects the gateway"
   const warmAt = v4.indexOf("warmMtprotoInBackground();try{const r=await fetch('/api/lms/portal?endpoint=v4-telegram-feed");
 
   assert.ok(warmAt > 0);
-  assert.match(v4, /rel="preconnect" href="https:\/\/telegram-channel-cloner\.vercel\.app" crossorigin/);
+  assert.match(v4, /rel="preconnect" href="https:\/\/reader\.yeubep\.shop" crossorigin/);
   assert.doesNotMatch(v4, /render\(d\);if\(Number\(d\.stats\?\.mtprotoGateway/);
 });
 
