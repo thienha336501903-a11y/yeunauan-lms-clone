@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
+import { cloneConfig } from "../clone-config.js";
 
-const DEFAULT_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
 const TICKET_TTL_MS = 10 * 60 * 1000;
 
 function pickMedia(raw, messageType) {
@@ -30,7 +30,7 @@ function pickMedia(raw, messageType) {
 
 function gatewayUrl() {
   const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  return configured || DEFAULT_GATEWAY;
+  return configured || cloneConfig().telegramMediaGatewayUrl;
 }
 
 function scheduleTicketCleanup() {

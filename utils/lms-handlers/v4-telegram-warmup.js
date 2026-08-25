@@ -5,8 +5,8 @@ import {
   findMtprotoVideoMessage,
   telegramVideoMessageTypes
 } from "../v4-telegram-media-meta.js";
+import { cloneConfig } from "../clone-config.js";
 
-const DEFAULT_MTPROTO_GATEWAY = "https://reader.yeubep.shop/api/telegram/warmup?prepare=1";
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
 const WARMUP_DEFER_MS = 1800;
@@ -17,7 +17,7 @@ function sleep(ms) {
 
 function mtprotoPrepareGatewayUrl() {
   const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim();
-  const base = configured || DEFAULT_MTPROTO_GATEWAY;
+  const base = configured || `${cloneConfig().telegramMtprotoGatewayUrl}?prepare=1`;
   try {
     const url = new URL(base);
     url.searchParams.delete("stream");

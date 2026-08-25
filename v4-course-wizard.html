@@ -25,7 +25,7 @@
     <label class="label" for="sourceSelect" style="margin-top:12px">Hoặc chọn nguồn đã đăng ký</label>
     <select id="sourceSelect"><option value="">Đang tải nguồn...</option></select>
     <div id="sourceInfo" class="details">Đang tải danh sách nguồn...</div>
-    <div class="actions"><a id="registerSourceLink" class="btn muted" href="https://reader.yeubep.shop/?mode=v4-source" rel="noopener">＋ Đăng ký / import nguồn</a><button id="reloadSources" class="btn muted" type="button">↻ Tải lại nguồn</button></div>
+    <div class="actions"><a id="registerSourceLink" class="btn muted" href="#" rel="noopener">＋ Đăng ký / import nguồn</a><button id="reloadSources" class="btn muted" type="button">↻ Tải lại nguồn</button></div>
     <div class="notice info">Bot cần có quyền truy cập kênh. Sau khi xác nhận ở Cloner, Reader Agent tự xếp lịch import bài cũ và hệ thống quay lại đây, chọn sẵn nguồn vừa đăng ký.</div>
   </section>
 
@@ -56,15 +56,17 @@
   </section>
 </div>
 <div id="toast" class="toast hidden"></div>
+<script src="/api/public-config.js"></script>
 <script>
 (()=>{
 const $=id=>document.getElementById(id);
+const runtimeConfig=window.CLONE_RUNTIME_CONFIG||{};
 const state={sources:[],course:'',courseTitle:'',preflight:null,activeEnrollments:0,published:false,slugTouched:false,existingCourse:false,returnTo:''};
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function toast(msg){const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.add('hidden'),3300)}
-function safeReturnTo(value){try{const u=new URL(value);const ok=u.protocol==='https:'&&(u.hostname==='yeubep.shop'||u.hostname==='www.yeubep.shop'||u.hostname==='yeunauan-commerce-clone.vercel.app'||/^yeunauan-commerce-clone-[a-z0-9-]+\.vercel\.app$/.test(u.hostname));return ok?u.toString():''}catch{return''}}
+function safeReturnTo(value){try{const u=new URL(value),commerce=new URL(runtimeConfig.commercePublicUrl||location.origin);const preview=/\.vercel\.app$/.test(u.hostname)&&u.hostname.includes('commerce');const ok=u.protocol==='https:'&&(u.origin===commerce.origin||preview);return ok?u.toString():''}catch{return''}}
 function wizardReturnUrl(){const u=new URL('/v4-course-wizard.html',location.origin);const slug=$('courseSlug').value.trim(),title=$('courseTitle').value.trim();if(slug)u.searchParams.set('course',slug);if(title)u.searchParams.set('title',title);if(state.returnTo)u.searchParams.set('returnTo',state.returnTo);return u.toString()}
-function clonerRegistrationUrl(sourceRef=''){const u=new URL('https://reader.yeubep.shop/');u.searchParams.set('mode','v4-source');u.searchParams.set('returnTo',wizardReturnUrl());if(sourceRef)u.searchParams.set('sourceRef',sourceRef);return u.toString()}
+function clonerRegistrationUrl(sourceRef=''){const u=new URL(runtimeConfig.telegramClonerUrl||location.origin);u.searchParams.set('mode','v4-source');u.searchParams.set('returnTo',wizardReturnUrl());if(sourceRef)u.searchParams.set('sourceRef',sourceRef);return u.toString()}
 function configureClonerReturn(){$('registerSourceLink').href=clonerRegistrationUrl()}
 async function jsonFetch(url,options={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});let d={};try{d=await r.json()}catch{}if(r.status===401){location.replace('/admin.html');throw new Error('Phiên Admin đã hết hạn')}return{r,d}}
 function slugify(value){return String(value||'').trim().toLowerCase().replace(/đ/g,'d').replace(/Đ/g,'d').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80)}

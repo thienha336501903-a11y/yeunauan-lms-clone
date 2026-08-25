@@ -94,8 +94,8 @@ test("V4 unauthenticated flow returns to V4 after the existing student login", (
 test("V4 feed sends large video tickets directly to MTProto streaming", () => {
   const feed = readFileSync(new URL("../utils/lms-handlers/v4-telegram-feed.js", import.meta.url), "utf8");
 
-  assert.match(feed, /DEFAULT_MEDIA_GATEWAY = .*\/api\/telegram\/media/);
-  assert.match(feed, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?stream=1/);
+  assert.match(feed, /cloneConfig\(\)\.telegramMediaGatewayUrl/);
+  assert.match(feed, /cloneConfig\(\)\.telegramMtprotoGatewayUrl/);
   assert.match(feed, /delivery === "telegram_gateway_mtproto" \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
   assert.match(feed, /url\.includes\("\?"\) \? "&" : "\?"/);
 });
@@ -105,7 +105,7 @@ test("V4 starts non-blocking warm-up alongside feed and preconnects the gateway"
   const warmAt = v4.indexOf("warmMtprotoInBackground();try{const r=await fetch('/api/lms/portal?endpoint=v4-telegram-feed");
 
   assert.ok(warmAt > 0);
-  assert.match(v4, /rel="preconnect" href="https:\/\/reader\.yeubep\.shop" crossorigin/);
+  assert.match(v4, /api\/public-config\.js/);
   assert.doesNotMatch(v4, /render\(d\);if\(Number\(d\.stats\?\.mtprotoGateway/);
 });
 
@@ -118,7 +118,7 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
 test("MTProto warm-up defers expensive work and prepares only the first large video", () => {
   const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
 
-  assert.match(warmup, /DEFAULT_MTPROTO_GATEWAY = .*\/api\/telegram\/warmup\?prepare=1/);
+  assert.match(warmup, /cloneConfig\(\)\.telegramMtprotoGatewayUrl/);
   assert.match(warmup, /WARMUP_DEFER_MS = 1800/);
   assert.match(warmup, /await sleep\(WARMUP_DEFER_MS\)/);
   assert.match(warmup, /findMtprotoVideoMessage\(rows\)/);

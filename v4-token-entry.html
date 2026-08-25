@@ -15,8 +15,9 @@
   <div id="spinner" class="spin"></div>
   <h1 id="title">Đang xác thực liên kết lớp học…</h1>
   <p id="message">Hệ thống đang kiểm tra Gmail, quyền học và tạo phiên phát V4 an toàn.</p>
-  <a id="back" class="back" href="https://hoc.yeubep.shop/my-courses.html" hidden>Về Khóa học của tôi</a>
+  <a id="back" class="back" href="/my-courses.html" hidden>Về Khóa học của tôi</a>
 </main>
+<script src="/api/public-config.js"></script>
 <script>
 (()=>{
   const query=new URLSearchParams(location.search);
@@ -25,6 +26,7 @@
   const message=document.getElementById('message');
   const spinner=document.getElementById('spinner');
   const back=document.getElementById('back');
+  back.href=(window.CLONE_RUNTIME_CONFIG?.lmsPublicUrl||location.origin)+'/my-courses.html';
 
   function lmsDeviceId(){
     const key='lms_device_id';

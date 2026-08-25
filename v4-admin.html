@@ -10,6 +10,7 @@
 <style>
 .healthSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.healthStat{background:#f7f9f7;border:1px solid #e5ebe6;border-radius:14px;padding:10px}.healthStat b{display:block;font-size:20px;color:#2f4936}.healthStat span{font-size:10px;color:#748078;font-weight:800}.healthTools{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px;margin-top:12px}.healthTools input,.healthTools select{margin:0}.healthCount{font-size:10px;color:#748078;margin-top:7px;text-align:right}.healthList{display:grid;gap:8px;margin-top:9px}.healthItem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid #e5ebe6;background:#fafcfa;border-radius:15px;padding:11px 12px;cursor:pointer}.healthItem:hover{background:#f3f8f4}.healthName{font-size:12px;font-weight:950;color:#2f3c32}.healthMeta{font-size:10px;color:#728078;margin-top:4px;line-height:1.45}.healthPill{font-size:9px;font-weight:950;border-radius:999px;padding:6px 8px;white-space:nowrap}.healthPill.healthy{background:#e4f5e8;color:#286c3c}.healthPill.draft{background:#e8f0fb;color:#35629b}.healthPill.setup{background:#fff2d9;color:#8a6117}.healthPill.broken{background:#fde7e7;color:#973a3a}.enrollSummary{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.enrollList{display:grid;gap:8px;margin-top:10px}.enrollItem{border:1px solid #e5ebe6;background:#fafcfa;border-radius:14px;padding:11px}.enrollTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.enrollEmail{font-size:12px;font-weight:950;color:#2f3c32;word-break:break-all}.enrollMeta{font-size:10px;color:#728078;line-height:1.5;margin-top:4px}.enrollAction{margin-top:8px;display:flex;justify-content:flex-end}.enrollAction .btn{padding:8px 10px;font-size:10px}@media(max-width:560px){.healthSummary{grid-template-columns:1fr 1fr}.healthTools{grid-template-columns:1fr}.healthCount{text-align:left}.healthItem{grid-template-columns:1fr}}
 </style>
+<script src="/api/public-config.js"></script>
 <script>
 (()=>{const params=new URLSearchParams(location.search);if(!params.get('course')&&params.get('advanced')!=='1'){location.replace('/v4-course-wizard.html')}})();
 </script>
@@ -60,7 +61,7 @@
       <label class="label" for="newCourseSource">Nguồn Telegram</label>
       <select id="newCourseSource"><option value="">Đang tải nguồn...</option></select>
       <div id="newSourceHint" class="details">Đang kiểm tra các nguồn Telegram đã đăng ký.</div>
-      <div class="actions" style="margin-top:9px"><a id="registerSourceLink" class="btn muted" href="https://reader.yeubep.shop/?mode=v4-source" target="_blank" rel="noopener">＋ Đăng ký nguồn Telegram mới</a><button id="reloadSourcesBtn" class="btn muted" type="button">↻ Tải lại danh sách nguồn</button></div>
+      <div class="actions" style="margin-top:9px"><a id="registerSourceLink" class="btn muted" href="#" target="_blank" rel="noopener">＋ Đăng ký nguồn Telegram mới</a><button id="reloadSourcesBtn" class="btn muted" type="button">↻ Tải lại danh sách nguồn</button></div>
       <div class="notice info">Nếu kênh chưa có trong danh sách: mở Cloner Admin, đăng ký nguồn V4, sau đó quay lại đây và bấm <b>Tải lại danh sách nguồn</b>. Đăng ký nguồn V4 không thay đổi MASTER mirror.</div>
     </div>
     <button id="createCourseBtn" class="btn primary" type="button" style="width:100%;margin-top:11px">＋ Tạo khóa V4 ở trạng thái Tạm ẩn</button>
@@ -128,6 +129,8 @@
 <script>
 (()=>{
 const $=id=>document.getElementById(id);
+const runtimeConfig=window.CLONE_RUNTIME_CONFIG||{};
+$('registerSourceLink').href=(runtimeConfig.telegramClonerUrl||location.origin)+'/?mode=v4-source';
 const state={courses:[],meta:{},config:{},course:'',sourceData:null,sources:[],health:[],slugTouched:false,healthFilter:'all',healthSearch:'',enrollments:[],enrollSummary:{},enrollSearch:''};
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function toast(msg){const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.add('hidden'),3400)}

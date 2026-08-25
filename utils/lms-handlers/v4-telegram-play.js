@@ -2,8 +2,8 @@ import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
+import { cloneConfig } from "../clone-config.js";
 
-const DEFAULT_MEDIA_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const MIN_LEASE_MS = 20 * 60 * 1000;
 const MAX_LEASE_MS = 2 * 60 * 60 * 1000;
@@ -18,7 +18,7 @@ function sha256(value) {
 }
 
 function mediaGatewayUrl() {
-  return clean(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").replace(/\/$/, "") || DEFAULT_MEDIA_GATEWAY;
+  return clean(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").replace(/\/$/, "") || cloneConfig().telegramMediaGatewayUrl;
 }
 
 function pickVideo(raw, messageType) {
