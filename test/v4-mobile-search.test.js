@@ -17,7 +17,7 @@ test('V4 mobile search opens immediately, focuses the field and reports its stat
   assert.match(page, /function setMobileSearchOpen\(open,\{clear=false\}=\{\}\)/);
   assert.match(page, /btn\.setAttribute\('aria-expanded',String\(open\)\)/);
   assert.match(page, /if\(open\)\{try\{input\.focus\(\{preventScroll:true\}\)\}/);
-  assert.match(page, /mobileSearchBtn'\)\.addEventListener\('click',toggleMobileSearch\)/);
+  assert.match(page, /mobileSearchBtn'\)\.addEventListener\('click',\(\)=>\{if\(!\$\('searchNavigator'\)\.hidden\)closeSearchNavigation\(\);toggleMobileSearch\(\)\}\)/);
   assert.doesNotMatch(page, /setTimeout\(\(\)=>\$\('mobileSearchInput'\)\.focus\(\),50\)/);
 });
 
@@ -34,40 +34,51 @@ test('V4 search renders compact ranked results instead of full lesson cards', ()
   assert.match(page, /id="searchResults"[^>]*hidden/);
   assert.match(page, /id="searchResultList"/);
   assert.match(page, /function searchMatch\(lesson,qn\)/);
-  assert.match(page, /if\(titleAt>=0\)return\{score:300-titleAt/);
+  assert.match(page, /function findFoldedOffsets\(text,qn\)/);
+  assert.match(page, /findFoldedOffsets\(lesson\.body,qn\)\.forEach/);
   assert.match(page, /class="search-result-snippet"/);
   assert.match(page, /feed'\)\.classList\.toggle\('feed-searching',searching\)/);
   assert.match(page, /searchResultsCache\.slice\(0,searchLimit\)/);
 });
 
-test('V4 compact search supports counts, no-result state, clear and navigation', () => {
-  assert.match(page, /Tìm thấy \$\{searchResultsCache\.length\} bài học/);
+test('V4 compact search supports occurrence counts, no-result state, clear and navigation', () => {
+  assert.match(page, /Tìm thấy \$\{searchResultsCache\.length\} kết quả/);
   assert.match(page, /searchResultsCache\.length!==0/);
   assert.match(page, /id="searchEmpty"[^>]*hidden/);
   assert.match(page, /mobileSearchClear'\)\.addEventListener\('click',\(\)=>clearSearch/);
-  assert.match(page, /id="searchReturn"[^>]*hidden/);
+  assert.doesNotMatch(page, /id="searchReturn"/);
+  assert.match(page, /id="searchNavigator"[^>]*hidden/);
+  assert.match(page, /id="searchNavCount" aria-live="polite"/);
+  assert.match(page, /id="searchNavPrev"[^>]*aria-label="Kết quả trước"/);
+  assert.match(page, /id="searchNavNext"[^>]*aria-label="Kết quả tiếp theo"/);
+  assert.match(page, /id="searchNavToggle"[^>]*aria-expanded="false"/);
   assert.match(page, /function openSearchResult\(result\)/);
   assert.match(page, /if\(e\.key==='Enter'&&searchResultsCache\[0\]\)/);
 });
 
-test('V4 search result opens the real lesson text after the mobile keyboard closes', () => {
+test('V4 search highlights every real text hit and centers the active keyword', () => {
   assert.match(page, /data-lesson-index="\$\{index\}"/);
   assert.match(page, /data-result-rank="\$\{rank\}"/);
-  assert.match(page, /querySelector\(`\.lesson-card\[data-lesson-index="\$\{result\?\.index\}"\]`\)/);
-  assert.match(page, /const target=card\.querySelector\('\.lesson-text,\.caption'\)\|\|card/);
+  assert.match(page, /function highlightSearchHits\(qn\)/);
+  assert.match(page, /document\.createTreeWalker\(root,NodeFilter\.SHOW_TEXT/);
+  assert.match(page, /mark\.className='search-hit'/);
+  assert.match(page, /range\.surroundContents\(mark\)/);
+  assert.match(page, /target\.scrollIntoView\(\{behavior,block:'center',inline:'nearest'\}\)/);
+  assert.match(page, /searchHitElements\.forEach\(\(mark,index\)=>mark\.classList\.toggle\('active'/);
   assert.doesNotMatch(page, /result\.targetType==='media'/);
   assert.match(page, /setMobileSearchOpen\(false\);applyFilter\('all'\)/);
-  assert.match(page, /window\.scrollTo\(\{top,behavior:'auto'\}\)/);
-  assert.match(page, /setTimeout\(\(\)=>positionSearchResult\(result\),360\)/);
+  assert.match(page, /setTimeout\(\(\)=>activateSearchHit\(searchHitIndex,'auto'\),360\)/);
   assert.match(page, /openSearchResult\(searchResultsCache\[0\]\)/);
 });
 
-test('V4 search ignores media filenames and matches only lesson text', () => {
-  const normalizeSource = page.match(/function normalize\(v\)\{[^\n]+?\}/)?.[0];
-  const searchMatchSource = page.match(/function searchMatch\(lesson,qn\)\{[^\n]+?return null\}/)?.[0];
-  assert.ok(normalizeSource);
+test('V4 search returns each text occurrence and ignores media filenames', () => {
+  const foldSource = page.match(/function foldWithMap\(text\)\{[^\n]+?return\{folded,map\}\}/)?.[0];
+  const offsetsSource = page.match(/function findFoldedOffsets\(text,qn\)\{[^\n]+?return hits\}/)?.[0];
+  const searchMatchSource = page.match(/function searchMatch\(lesson,qn\)\{[^\n]+?:null\}/)?.[0];
+  assert.ok(foldSource);
+  assert.ok(offsetsSource);
   assert.ok(searchMatchSource);
-  const searchMatch = Function(`${normalizeSource};${searchMatchSource};return searchMatch`)();
+  const helpers = Function(`${foldSource};${offsetsSource};${searchMatchSource};return {findFoldedOffsets,searchMatch}`)();
   const lesson = {
     title: 'Bài 7: Hướng dẫn làm mochi',
     body: 'Nội dung không chứa từ khóa',
@@ -77,11 +88,23 @@ test('V4 search ignores media filenames and matches only lesson text', () => {
       { id: '103', media: { name: 'video kết thúc.mp4' } },
     ],
   };
-  assert.equal(searchMatch(lesson, 'dua'), null);
-  assert.deepEqual(searchMatch({...lesson, body: 'Nhân dứa sên xong để nguội'}, 'dua'), {
+  assert.equal(helpers.searchMatch(lesson, 'dua'), null);
+  assert.deepEqual(helpers.findFoldedOffsets('Nhân dứa và DỨA', 'dua'), [5, 12]);
+  assert.deepEqual(helpers.searchMatch({...lesson, body: 'Nhân dứa sên xong để nguội'}, 'dua'), {
     score: 199.995,
     targetType: 'text',
   });
+});
+
+test('V4 in-page navigator cycles results and offers a compact result picker', () => {
+  assert.match(page, /function activateSearchHit\(rank,behavior='smooth'\)/);
+  assert.match(page, /searchHitIndex=\(rank\+searchHitElements\.length\)%searchHitElements\.length/);
+  assert.match(page, /searchNavCount'\)\.textContent=`\$\{searchHitIndex\+1\}\/\$\{searchHitElements\.length\}`/);
+  assert.match(page, /function renderSearchNavigationList\(\)/);
+  assert.match(page, /searchNavPrev'\)\.addEventListener\('click',\(\)=>activateSearchHit\(searchHitIndex-1\)\)/);
+  assert.match(page, /searchNavNext'\)\.addEventListener\('click',\(\)=>activateSearchHit\(searchHitIndex\+1\)\)/);
+  assert.match(page, /function clearSearchHighlights\(\)/);
+  assert.match(page, /mark\.remove\(\);parent\.normalize\(\)/);
 });
 
 test('V4 compact search debounces typing and requires two characters', () => {
