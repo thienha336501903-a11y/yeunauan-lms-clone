@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
+import { cloneConfig } from "../clone-config.js";
 
 const BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
-const DEFAULT_MEDIA_GATEWAY = "https://reader.yeubep.shop/api/telegram/media";
-const DEFAULT_MTPROTO_GATEWAY = "https://reader.yeubep.shop/api/telegram/warmup?stream=1";
-const DEFAULT_THUMBNAIL_GATEWAY = "https://reader.yeubep.shop/api/telegram/thumbnail";
 const GATEWAY_TICKET_TTL_MS = 10 * 60 * 1000;
 const GATEWAY_TICKET_REUSE_BUFFER_MS = 2 * 60 * 1000;
 const INITIAL_THUMBNAIL_BUDGET = 4;
@@ -57,17 +55,17 @@ function pickMedia(raw, messageType) {
 
 function thumbnailGatewayUrl() {
   const configured = String(process.env.TELEGRAM_THUMBNAIL_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  return configured || DEFAULT_THUMBNAIL_GATEWAY;
+  return configured || cloneConfig().telegramThumbnailGatewayUrl;
 }
 
 function mediaGatewayUrl() {
   const configured = String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  return configured || DEFAULT_MEDIA_GATEWAY;
+  return configured || cloneConfig().telegramMediaGatewayUrl;
 }
 
 function mtprotoGatewayUrl() {
   const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim().replace(/\/$/, "");
-  return configured || DEFAULT_MTPROTO_GATEWAY;
+  return configured || `${cloneConfig().telegramMtprotoGatewayUrl}?stream=1`;
 }
 
 function gatewayUrlWithTicket(url, ticket) {

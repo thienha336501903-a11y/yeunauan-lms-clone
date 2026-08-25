@@ -109,7 +109,7 @@ test('V4 health dashboard can search, filter and prioritise attention rows', () 
 
 test('V4 admin links to safe Cloner source registration and can reload sources', () => {
   assert.match(page, /id="registerSourceLink"/);
-  assert.match(page, /reader\.yeubep\.shop\/\?mode=v4-source/);
+  assert.match(page, /runtimeConfig\.telegramClonerUrl/);
   assert.match(page, /id="reloadSourcesBtn"/);
   assert.match(page, /Đăng ký nguồn V4 không thay đổi MASTER mirror/);
   assert.match(page, /await loadSources\(\);await loadHealth\(\)/);

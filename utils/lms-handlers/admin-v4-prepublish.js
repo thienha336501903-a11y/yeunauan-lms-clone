@@ -2,11 +2,11 @@ import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
 import { courseIntroFallback } from "../v4-intro-content.js";
 import { loadV4IntroContent, MAX_V4_INTRO_ROWS } from "../v4-intro-loader.js";
+import { cloneConfig } from "../clone-config.js";
 
 const MEDIA_TYPE_LIST = ["photo", "video", "document", "audio", "voice", "animation", "video_note"];
 const MEDIA_TYPES = new Set(MEDIA_TYPE_LIST);
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
-const DEFAULT_CLONER_HEALTH_URL = "https://reader.yeubep.shop/api/health";
 const GATEWAY_TIMEOUT_MS = 2500;
 const MEDIA_SCAN_PAGE_SIZE = 500;
 const MAX_MEDIA_SCAN_ROWS = 10000;
@@ -83,7 +83,7 @@ async function probeClonerHealth() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
   try {
-    const url = clean(process.env.TELEGRAM_CLONER_HEALTH_URL) || DEFAULT_CLONER_HEALTH_URL;
+    const url = cloneConfig().telegramClonerHealthUrl;
     const response = await fetch(url, { cache: "no-store", signal: controller.signal });
     const payload = await response.json().catch(() => null);
     const serviceOkay = response.ok && payload?.ok !== false;

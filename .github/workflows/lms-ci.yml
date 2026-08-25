@@ -22,6 +22,8 @@ jobs:
         run: npm ci
       - name: Node tests
         run: npm test
+      - name: Clone configuration isolation
+        run: npm run check:clone
       - name: Critical syntax checks
         run: |
           node --check api/learning.js
