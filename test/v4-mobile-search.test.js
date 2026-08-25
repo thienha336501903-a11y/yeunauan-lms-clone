@@ -21,11 +21,12 @@ test('V4 mobile search opens immediately, focuses the field and reports its stat
   assert.doesNotMatch(page, /setTimeout\(\(\)=>\$\('mobileSearchInput'\)\.focus\(\),50\)/);
 });
 
-test('V4 search is accent-insensitive and indexes only lesson text and media names', () => {
+test('V4 search is accent-insensitive and indexes only lesson titles and real text', () => {
   assert.match(page, /normalize\('NFD'\)\.replace\(\/\[\\u0300-\\u036f\]\/g,''\)\.replace\(\/đ\/g,'d'\)/);
   assert.match(page, /function searchFields\(posts,fallback\)/);
   assert.match(page, /texts=\[\.\.\.new Set\(posts\.map\(p=>String\(p\.text\|\|''\)/);
-  assert.match(page, /files=\[\.\.\.new Set\(posts\.map\(p=>String\(p\.media\?\.name\|\|''\)/);
+  assert.match(page, /search:normalize\(\[title,body\]\.join\(' '\)\)/);
+  assert.doesNotMatch(page, /searchFields\([^\n]+media\?\.name/);
   assert.doesNotMatch(page, /data\.source.*search/i);
 });
 
@@ -49,20 +50,19 @@ test('V4 compact search supports counts, no-result state, clear and navigation',
   assert.match(page, /if\(e\.key==='Enter'&&searchResultsCache\[0\]\)/);
 });
 
-test('V4 search result keeps the exact matched media target after the mobile keyboard closes', () => {
+test('V4 search result opens the real lesson text after the mobile keyboard closes', () => {
   assert.match(page, /data-lesson-index="\$\{index\}"/);
   assert.match(page, /data-result-rank="\$\{rank\}"/);
   assert.match(page, /querySelector\(`\.lesson-card\[data-lesson-index="\$\{result\?\.index\}"\]`\)/);
-  assert.match(page, /targetMessageId:String\(post\.id\|\|post\.telegramMessageId\|\|''\)/);
-  assert.match(page, /card\.querySelector\(`\[data-message-id="\$\{CSS\.escape\(String\(result\.targetMessageId\)\)\}"\]`\)/);
-  assert.match(page, /const messageId=String\(item\.id\|\|item\.telegramMessageId\|\|''\)/);
+  assert.match(page, /const target=card\.querySelector\('\.lesson-text,\.caption'\)\|\|card/);
+  assert.doesNotMatch(page, /result\.targetType==='media'/);
   assert.match(page, /setMobileSearchOpen\(false\);applyFilter\('all'\)/);
   assert.match(page, /window\.scrollTo\(\{top,behavior:'auto'\}\)/);
   assert.match(page, /setTimeout\(\(\)=>positionSearchResult\(result\),360\)/);
   assert.match(page, /openSearchResult\(searchResultsCache\[0\]\)/);
 });
 
-test('V4 filename search identifies the matching item inside a multi-video Telegram album', () => {
+test('V4 search ignores media filenames and matches only lesson text', () => {
   const normalizeSource = page.match(/function normalize\(v\)\{[^\n]+?\}/)?.[0];
   const searchMatchSource = page.match(/function searchMatch\(lesson,qn\)\{[^\n]+?return null\}/)?.[0];
   assert.ok(normalizeSource);
@@ -77,10 +77,10 @@ test('V4 filename search identifies the matching item inside a multi-video Teleg
       { id: '103', media: { name: 'video kết thúc.mp4' } },
     ],
   };
-  assert.deepEqual(searchMatch(lesson, 'dua'), {
-    score: 99.995,
-    targetType: 'media',
-    targetMessageId: '102',
+  assert.equal(searchMatch(lesson, 'dua'), null);
+  assert.deepEqual(searchMatch({...lesson, body: 'Nhân dứa sên xong để nguội'}, 'dua'), {
+    score: 199.995,
+    targetType: 'text',
   });
 });
 
