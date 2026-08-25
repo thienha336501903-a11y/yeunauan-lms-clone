@@ -45,9 +45,19 @@ test('V4 compact search supports counts, no-result state, clear and navigation',
   assert.match(page, /id="searchEmpty"[^>]*hidden/);
   assert.match(page, /mobileSearchClear'\)\.addEventListener\('click',\(\)=>clearSearch/);
   assert.match(page, /id="searchReturn"[^>]*hidden/);
-  assert.match(page, /function openSearchResult\(id\)/);
-  assert.match(page, /scrollToLesson\(id,false\)/);
+  assert.match(page, /function openSearchResult\(index\)/);
   assert.match(page, /if\(e\.key==='Enter'&&searchResultsCache\[0\]\)/);
+});
+
+test('V4 search result opens the exact rendered lesson after the mobile keyboard closes', () => {
+  assert.match(page, /data-lesson-index="\$\{index\}"/);
+  assert.match(page, /data-result-index="\$\{index\}"/);
+  assert.match(page, /querySelector\(`\.lesson-card\[data-lesson-index="\$\{index\}"\]`\)/);
+  assert.match(page, /setMobileSearchOpen\(false\);applyFilter\('all'\)/);
+  assert.match(page, /window\.scrollTo\(\{top,behavior:'auto'\}\)/);
+  assert.match(page, /setTimeout\(\(\)=>positionSearchResult\(index\),360\)/);
+  assert.match(page, /openSearchResult\(searchResultsCache\[0\]\.index\)/);
+  assert.doesNotMatch(page, /data-result-id=/);
 });
 
 test('V4 compact search debounces typing and requires two characters', () => {
