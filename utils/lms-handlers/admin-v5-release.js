@@ -54,17 +54,19 @@ function preflightFromState(course, state) {
   if (!state.config) errors.push("Khóa chưa được khởi tạo V5.");
   if (!lessons.length) errors.push("Khóa chưa có bài học.");
   if (!posts.length) errors.push("Khóa chưa có nội dung.");
-  const orphanPosts = posts.filter(p => !p.lesson_id);
+  const orphanPosts = posts.filter(p => !p.lesson_id && p.status !== "archived");
   if (orphanPosts.length) errors.push(`Có ${orphanPosts.length} Post chưa thuộc Bài học.`);
-  const emptyLessons = lessons.filter(l => !posts.some(p => p.lesson_id === l.id));
+  const activeLessons = lessons.filter(l => l.status !== "archived");
+  const activePosts = posts.filter(p => p.status !== "archived");
+  const emptyLessons = activeLessons.filter(l => !activePosts.some(p => p.lesson_id === l.id));
   if (emptyLessons.length) warnings.push(`Có ${emptyLessons.length} Bài học đang trống.`);
-  const processingPosts = posts.filter(p => p.status === "processing");
+  const processingPosts = activePosts.filter(p => p.status === "processing");
   if (processingPosts.length) errors.push(`Có ${processingPosts.length} Post đang xử lý media.`);
   const failedAssets = assets.filter(a => a.status === "failed");
   const pendingAssets = assets.filter(a => !["ready", "archived"].includes(a.status));
   if (failedAssets.length) errors.push(`Có ${failedAssets.length} media bị lỗi.`);
   if (pendingAssets.length) errors.push(`Có ${pendingAssets.length} media chưa READY.`);
-  const directWithoutR2 = assets.filter(a => a.origin === "direct" && (a.provider !== "r2" || !a.r2_object_key));
+  const directWithoutR2 = assets.filter(a => a.origin === "direct" && a.status !== "archived" && (a.provider !== "r2" || !a.r2_object_key));
   if (directWithoutR2.length) errors.push(`Có ${directWithoutR2.length} media upload trực tiếp chưa có object R2.`);
   if (!course.active) warnings.push("Khóa đang active=false trong bảng courses.");
   if (!course.is_published) warnings.push("Khóa chưa bật is_published ở cổng LMS; học viên sẽ chưa vào được dù V5 đã Publish.");
@@ -73,12 +75,12 @@ function preflightFromState(course, state) {
     errors,
     warnings,
     counts: {
-      lessons: lessons.length,
-      posts: posts.length,
-      assets: assets.length,
-      videos: assets.filter(a => a.type === "video").length,
-      images: assets.filter(a => a.type === "image").length,
-      documents: assets.filter(a => a.type === "document").length,
+      lessons: activeLessons.length,
+      posts: activePosts.length,
+      assets: assets.filter(a => a.status !== "archived").length,
+      videos: assets.filter(a => a.type === "video" && a.status !== "archived").length,
+      images: assets.filter(a => a.type === "image" && a.status !== "archived").length,
+      documents: assets.filter(a => a.type === "document" && a.status !== "archived").length,
       readyAssets: assets.filter(a => a.status === "ready").length
     }
   };
@@ -90,15 +92,24 @@ async function preflight(course) {
 }
 
 function releaseSnapshot(state) {
+  const lessons = state.lessons.filter(x => x.status !== "archived");
+  const posts = state.posts.filter(x => x.status !== "archived");
+  const postIds = new Set(posts.map(x => x.id));
   return {
     schema: "v5-release-v1",
     created_at: new Date().toISOString(),
     config: state.config ? { source_mode: state.config.source_mode, settings: state.config.settings || {} } : null,
-    lessons: state.lessons.map(({ id, title, position, metadata }) => ({ id, title, position, metadata: metadata || {} })),
-    posts: state.posts.map(({ id, lesson_id, position, text_content, caption, origin, origin_ref, metadata }) => ({ id, lesson_id, position, text_content, caption, origin, origin_ref: origin_ref || {}, metadata: metadata || {} })),
-    links: state.links.map(({ post_id, asset_id, position, role, metadata }) => ({ post_id, asset_id, position, role, metadata: metadata || {} })),
-    asset_ids: [...new Set(state.links.map(x => x.asset_id).filter(Boolean))]
+    lessons: lessons.map(({ id, title, position, metadata }) => ({ id, title, position, metadata: metadata || {} })),
+    posts: posts.map(({ id, lesson_id, position, text_content, caption, origin, origin_ref, metadata }) => ({ id, lesson_id, position, text_content, caption, origin, origin_ref: origin_ref || {}, metadata: metadata || {} })),
+    links: state.links.filter(x => postIds.has(x.post_id)).map(({ post_id, asset_id, position, role, metadata }) => ({ post_id, asset_id, position, role, metadata: metadata || {} })),
+    asset_ids: [...new Set(state.links.filter(x => postIds.has(x.post_id)).map(x => x.asset_id).filter(Boolean))]
   };
+}
+
+async function nextReleaseVersion(courseId) {
+  const { data, error } = await supabase.from("v5_releases").select("version").eq("course_id", courseId).order("version", { ascending: false }).limit(1);
+  if (error) throw error;
+  return Number(data?.[0]?.version || 0) + 1;
 }
 
 async function publish(course, admin) {
@@ -109,18 +120,19 @@ async function publish(course, admin) {
     error.report = report;
     throw error;
   }
-  const { data: lastRelease, error: versionError } = await supabase.from("v5_releases").select("version").eq("course_id", course.id).order("version", { ascending: false }).limit(1);
-  if (versionError) throw versionError;
-  const version = Number(lastRelease?.[0]?.version || 0) + 1;
+  const version = await nextReleaseVersion(course.id);
   const snapshot = releaseSnapshot(state);
   const { data: release, error: releaseError } = await supabase.from("v5_releases").insert({ course_id: course.id, version, status: "published", snapshot, created_by: admin.email }).select("*").single();
   if (releaseError) throw releaseError;
   const now = new Date().toISOString();
   try {
     const previousId = state.config?.published_release_id;
-    if (previousId) await supabase.from("v5_releases").update({ status: "superseded" }).eq("id", previousId).eq("course_id", course.id);
-    const lessonIds = state.lessons.map(x => x.id);
-    const postIds = state.posts.map(x => x.id);
+    if (previousId) {
+      const { error } = await supabase.from("v5_releases").update({ status: "superseded" }).eq("id", previousId).eq("course_id", course.id);
+      if (error) throw error;
+    }
+    const lessonIds = snapshot.lessons.map(x => x.id);
+    const postIds = snapshot.posts.map(x => x.id);
     if (lessonIds.length) {
       const { error } = await supabase.from("v5_lessons").update({ status: "published", updated_at: now }).in("id", lessonIds).eq("course_id", course.id);
       if (error) throw error;
@@ -132,10 +144,17 @@ async function publish(course, admin) {
     const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", published_release_id: release.id, updated_at: now }).eq("course_id", course.id);
     if (configError) throw configError;
   } catch (error) {
-    await supabase.from("v5_releases").update({ status: "rolled_back" }).eq("id", release.id).catch(() => {});
+    await supabase.from("v5_releases").update({ status: "rolled_back" }).eq("id", release.id);
     throw error;
   }
   return { release: { id: release.id, version: release.version, created_at: release.created_at }, report };
+}
+
+async function movePositionsToTemporarySpace(courseId, rows, table, base) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const { error } = await supabase.from(table).update({ position: base + index, updated_at: new Date().toISOString() }).eq("id", rows[index].id).eq("course_id", courseId);
+    if (error) throw error;
+  }
 }
 
 async function rollback(course, admin, releaseIdInput) {
@@ -150,14 +169,9 @@ async function rollback(course, admin, releaseIdInput) {
   const snapshotPostIds = new Set((snapshot.posts || []).map(x => x.id));
   const now = new Date().toISOString();
 
-  for (const lesson of snapshot.lessons || []) {
-    const { error: upsertError } = await supabase.from("v5_lessons").upsert({ id: lesson.id, course_id: course.id, title: lesson.title, position: lesson.position, status: "published", metadata: lesson.metadata || {}, updated_at: now }, { onConflict: "id" });
-    if (upsertError) throw upsertError;
-  }
-  for (const post of snapshot.posts || []) {
-    const { error: upsertError } = await supabase.from("v5_posts").upsert({ id: post.id, course_id: course.id, lesson_id: post.lesson_id || null, position: post.position, text_content: post.text_content || null, caption: post.caption || null, origin: post.origin || "direct", origin_ref: post.origin_ref || {}, status: "published", metadata: post.metadata || {}, updated_at: now }, { onConflict: "id" });
-    if (upsertError) throw upsertError;
-  }
+  // Avoid unique(course_id, position) collisions while restoring historical order.
+  await movePositionsToTemporarySpace(course.id, current.lessons, "v5_lessons", 200000000);
+  await movePositionsToTemporarySpace(course.id, current.posts, "v5_posts", 300000000);
 
   const extraPosts = current.posts.filter(x => !snapshotPostIds.has(x.id)).map(x => x.id);
   if (extraPosts.length) {
@@ -170,6 +184,15 @@ async function rollback(course, admin, releaseIdInput) {
     if (archiveError) throw archiveError;
   }
 
+  for (const lesson of snapshot.lessons || []) {
+    const { error: upsertError } = await supabase.from("v5_lessons").upsert({ id: lesson.id, course_id: course.id, title: lesson.title, position: lesson.position, status: "published", metadata: lesson.metadata || {}, updated_at: now }, { onConflict: "id" });
+    if (upsertError) throw upsertError;
+  }
+  for (const post of snapshot.posts || []) {
+    const { error: upsertError } = await supabase.from("v5_posts").upsert({ id: post.id, course_id: course.id, lesson_id: post.lesson_id || null, position: post.position, text_content: post.text_content || null, caption: post.caption || null, origin: post.origin || "direct", origin_ref: post.origin_ref || {}, status: "published", metadata: post.metadata || {}, updated_at: now }, { onConflict: "id" });
+    if (upsertError) throw upsertError;
+  }
+
   const allSnapshotPostIds = [...snapshotPostIds];
   if (allSnapshotPostIds.length) {
     const { error: clearError } = await supabase.from("v5_post_assets").delete().in("post_id", allSnapshotPostIds);
@@ -179,15 +202,13 @@ async function rollback(course, admin, releaseIdInput) {
       if (linkError) throw linkError;
     }
   }
-  const { data: newRelease, error: newReleaseError } = await supabase.from("v5_releases").insert({
-    course_id: course.id,
-    version: Math.max(...(await supabase.from("v5_releases").select("version").eq("course_id", course.id)).data.map(x => Number(x.version || 0)), 0) + 1,
-    status: "published",
-    snapshot,
-    created_by: admin.email
-  }).select("*").single();
+
+  const version = await nextReleaseVersion(course.id);
+  const { data: newRelease, error: newReleaseError } = await supabase.from("v5_releases").insert({ course_id: course.id, version, status: "published", snapshot, created_by: admin.email }).select("*").single();
   if (newReleaseError) throw newReleaseError;
-  await supabase.from("v5_releases").update({ status: "rolled_back" }).eq("id", release.id);
+  if (current.config?.published_release_id && current.config.published_release_id !== newRelease.id) {
+    await supabase.from("v5_releases").update({ status: "superseded" }).eq("id", current.config.published_release_id).eq("course_id", course.id);
+  }
   const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", published_release_id: newRelease.id, source_mode: snapshot.config?.source_mode || "direct", settings: snapshot.config?.settings || {}, updated_at: now }).eq("course_id", course.id);
   if (configError) throw configError;
   return { rollbackFrom: release.id, release: { id: newRelease.id, version: newRelease.version } };
