@@ -23,18 +23,12 @@ import adminV4EnrollmentsHandler from "../../utils/lms-handlers/admin-v4-enrollm
 import adminV4PrepublishHandler from "../../utils/lms-handlers/admin-v4-prepublish.js";
 import adminV5ContentHandler from "../../utils/lms-handlers/admin-v5-content.js";
 import adminV5UploadHandler from "../../utils/lms-handlers/admin-v5-upload.js";
+import adminV5ReleaseHandler from "../../utils/lms-handlers/admin-v5-release.js";
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "500mb",
-    },
-  },
-};
+export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
-
   if (endpoint === "auth") return adminAuthHandler(req, res);
   if (endpoint === "drive-auth" || endpoint === "drive-status") return adminDriveAuthHandler(req, res);
   if (endpoint === "courses") return adminCoursesHandler(req, res);
@@ -60,6 +54,6 @@ export default async function handler(req, res) {
   if (endpoint === "v4-prepublish") return adminV4PrepublishHandler(req, res);
   if (endpoint === "v5-content") return adminV5ContentHandler(req, res);
   if (endpoint === "v5-upload") return adminV5UploadHandler(req, res);
-
+  if (endpoint === "v5-release") return adminV5ReleaseHandler(req, res);
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
 }
