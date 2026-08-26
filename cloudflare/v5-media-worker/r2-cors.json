@@ -1,0 +1,13 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://v5.daubepnho.store",
+      "https://v4.daubepnho.store",
+      "https://hoc.yeubep.shop"
+    ],
+    "AllowedMethods": ["PUT", "HEAD"],
+    "AllowedHeaders": ["Content-Type", "Content-Length", "x-amz-*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
