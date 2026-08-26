@@ -21,6 +21,7 @@ import adminLearningModeHandler from "../../utils/lms-handlers/admin-learning-mo
 import adminV4SourceHandler from "../../utils/lms-handlers/admin-v4-source.js";
 import adminV4EnrollmentsHandler from "../../utils/lms-handlers/admin-v4-enrollments.js";
 import adminV4PrepublishHandler from "../../utils/lms-handlers/admin-v4-prepublish.js";
+import adminV5ContentHandler from "../../utils/lms-handlers/admin-v5-content.js";
 
 export const config = {
   api: {
@@ -101,6 +102,9 @@ export default async function handler(req, res) {
   }
   if (endpoint === "v4-prepublish") {
     return adminV4PrepublishHandler(req, res);
+  }
+  if (endpoint === "v5-content") {
+    return adminV5ContentHandler(req, res);
   }
 
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
