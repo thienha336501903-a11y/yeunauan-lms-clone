@@ -10,6 +10,8 @@ import { cloneConfig } from "../clone-config.js";
 
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
+const WARMUP_MAX_ATTEMPTS = 2;
+const WARMUP_RETRY_DELAY_MS = 350;
 const FALLBACK_WARMUP_DEFER_MS = 1800;
 
 function sleep(ms) {
@@ -37,6 +39,48 @@ function prepareGatewayUrl(transport) {
 
 function gatewayUrlWithTicket(url, ticket) {
   return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
+}
+
+function retryableWarmupStatus(status) {
+  return [500, 502, 503, 504].includes(Number(status));
+}
+
+async function prepareUpstream(transport, warmupToken) {
+  const url = gatewayUrlWithTicket(prepareGatewayUrl(transport), warmupToken);
+  let upstream = null;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= WARMUP_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
+    try {
+      upstream = await fetch(url, {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller.signal
+      });
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+      upstream = null;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const shouldRetry = attempt < WARMUP_MAX_ATTEMPTS && (
+      Boolean(lastError) || retryableWarmupStatus(upstream?.status)
+    );
+    if (!shouldRetry) return { upstream, error: lastError, attempts: attempt };
+
+    console.warn(
+      "[v4-telegram-warmup] prepare retry",
+      transport,
+      lastError?.name || upstream?.status || "network"
+    );
+    await sleep(WARMUP_RETRY_DELAY_MS);
+  }
+
+  return { upstream, error: lastError, attempts: WARMUP_MAX_ATTEMPTS };
 }
 
 async function cleanupWarmupTicket(token) {
@@ -125,18 +169,12 @@ export default async function handler(req, res) {
       });
     if (ticketError) throw ticketError;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
-    let upstream;
-    try {
-      upstream = await fetch(gatewayUrlWithTicket(prepareGatewayUrl(transport), warmupToken), {
-        method: "HEAD",
-        cache: "no-store",
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const prepared = await prepareUpstream(transport, warmupToken);
+    const upstream = prepared.upstream;
+    res.setHeader("X-Media-Warmup-Attempts", String(prepared.attempts));
+
+    if (prepared.error) throw prepared.error;
+    if (!upstream) throw new Error("Warm-up gateway returned no response");
 
     const timing = upstream.headers.get("server-timing");
     if (timing) res.setHeader("Server-Timing", timing);
