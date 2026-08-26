@@ -114,7 +114,8 @@ async function createPost(course, body) {
   }
   const textContent = String(body.textContent || "").trim();
   const caption = String(body.caption || "").trim();
-  if (!textContent && !caption) throw new Error("Post cần có nội dung.");
+  const hasAttachments = body.hasAttachments === true;
+  if (!textContent && !caption && !hasAttachments) throw new Error("Post cần có nội dung hoặc media.");
   const position = await nextPosition("v5_posts", { course_id: course.id });
   const { data, error } = await supabase
     .from("v5_posts")
@@ -125,7 +126,8 @@ async function createPost(course, body) {
       text_content: textContent || null,
       caption: caption || null,
       origin: "direct",
-      status: "ready"
+      status: hasAttachments ? "processing" : "ready",
+      metadata: hasAttachments ? { pending_attachments: true } : {}
     })
     .select("*")
     .single();
