@@ -22,6 +22,7 @@ import adminV4SourceHandler from "../../utils/lms-handlers/admin-v4-source.js";
 import adminV4EnrollmentsHandler from "../../utils/lms-handlers/admin-v4-enrollments.js";
 import adminV4PrepublishHandler from "../../utils/lms-handlers/admin-v4-prepublish.js";
 import adminV5ContentHandler from "../../utils/lms-handlers/admin-v5-content.js";
+import adminV5UploadHandler from "../../utils/lms-handlers/admin-v5-upload.js";
 
 export const config = {
   api: {
@@ -34,78 +35,31 @@ export const config = {
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
 
-  if (endpoint === "auth") {
-    return adminAuthHandler(req, res);
-  }
-  if (endpoint === "drive-auth" || endpoint === "drive-status") {
-    return adminDriveAuthHandler(req, res);
-  }
-  if (endpoint === "courses") {
-    return adminCoursesHandler(req, res);
-  }
-  if (endpoint === "lessons") {
-    return adminLessonsHandler(req, res);
-  }
-  if (endpoint === "students") {
-    return adminStudentsHandler(req, res);
-  }
-  if (endpoint === "enrollments") {
-    return adminEnrollmentsHandler(req, res);
-  }
-  if (endpoint === "upload-image") {
-    return adminUploadImageHandler(req, res);
-  }
-  if (endpoint === "upload-recipe") {
-    return adminUploadRecipeHandler(req, res);
-  }
-  if (endpoint === "bulk-enroll") {
-    return adminBulkEnrollHandler(req, res);
-  }
-  if (endpoint === "upload-gdrive-video") {
-    return adminUploadGDriveVideoHandler(req, res);
-  }
-  if (endpoint === "upload-material") {
-    return adminUploadMaterialHandler(req, res);
-  }
-  if (endpoint === "sync-drive-permissions") {
-    return adminSyncDrivePermissionsHandler(req, res);
-  }
-  if (endpoint === "repair-drive") {
-    return adminRepairDriveHandler(req, res);
-  }
-  if (endpoint === "drive-permission") {
-    return adminDrivePermissionHandler(req, res);
-  }
-  if (endpoint === "drive-health") {
-    return adminDriveHealthHandler(req, res);
-  }
-  if (endpoint === "drive-retry") {
-    return adminDriveRetryHandler(req, res);
-  }
-  if (endpoint === "verify-media") {
-    return adminVerifyMediaHandler(req, res);
-  }
-  if (endpoint === "student-trace") {
-    return adminStudentTraceHandler(req, res);
-  }
-  if (endpoint === "account-sharing-alerts") {
-    return adminAccountSharingAlertsHandler(req, res);
-  }
-  if (endpoint === "learning-mode") {
-    return adminLearningModeHandler(req, res);
-  }
-  if (endpoint === "v4-source") {
-    return adminV4SourceHandler(req, res);
-  }
-  if (endpoint === "v4-enrollments") {
-    return adminV4EnrollmentsHandler(req, res);
-  }
-  if (endpoint === "v4-prepublish") {
-    return adminV4PrepublishHandler(req, res);
-  }
-  if (endpoint === "v5-content") {
-    return adminV5ContentHandler(req, res);
-  }
+  if (endpoint === "auth") return adminAuthHandler(req, res);
+  if (endpoint === "drive-auth" || endpoint === "drive-status") return adminDriveAuthHandler(req, res);
+  if (endpoint === "courses") return adminCoursesHandler(req, res);
+  if (endpoint === "lessons") return adminLessonsHandler(req, res);
+  if (endpoint === "students") return adminStudentsHandler(req, res);
+  if (endpoint === "enrollments") return adminEnrollmentsHandler(req, res);
+  if (endpoint === "upload-image") return adminUploadImageHandler(req, res);
+  if (endpoint === "upload-recipe") return adminUploadRecipeHandler(req, res);
+  if (endpoint === "bulk-enroll") return adminBulkEnrollHandler(req, res);
+  if (endpoint === "upload-gdrive-video") return adminUploadGDriveVideoHandler(req, res);
+  if (endpoint === "upload-material") return adminUploadMaterialHandler(req, res);
+  if (endpoint === "sync-drive-permissions") return adminSyncDrivePermissionsHandler(req, res);
+  if (endpoint === "repair-drive") return adminRepairDriveHandler(req, res);
+  if (endpoint === "drive-permission") return adminDrivePermissionHandler(req, res);
+  if (endpoint === "drive-health") return adminDriveHealthHandler(req, res);
+  if (endpoint === "drive-retry") return adminDriveRetryHandler(req, res);
+  if (endpoint === "verify-media") return adminVerifyMediaHandler(req, res);
+  if (endpoint === "student-trace") return adminStudentTraceHandler(req, res);
+  if (endpoint === "account-sharing-alerts") return adminAccountSharingAlertsHandler(req, res);
+  if (endpoint === "learning-mode") return adminLearningModeHandler(req, res);
+  if (endpoint === "v4-source") return adminV4SourceHandler(req, res);
+  if (endpoint === "v4-enrollments") return adminV4EnrollmentsHandler(req, res);
+  if (endpoint === "v4-prepublish") return adminV4PrepublishHandler(req, res);
+  if (endpoint === "v5-content") return adminV5ContentHandler(req, res);
+  if (endpoint === "v5-upload") return adminV5UploadHandler(req, res);
 
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
 }
