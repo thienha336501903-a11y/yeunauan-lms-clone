@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
+import { isV5PlaybackConfigured, issueV5PlaybackLease } from "../v5-playback-lease.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -53,11 +54,41 @@ export default async function v5FeedHandler(req, res) {
       if (assetIds.length) {
         const { data: assetRows, error: assetError } = await supabase
           .from("v5_media_assets")
-          .select("id,type,provider,origin,mime_type,original_filename,bytes,width,height,duration_ms,status,thumbnail_asset_id,metadata")
+          .select("id,type,provider,origin,r2_object_key,mime_type,original_filename,bytes,width,height,duration_ms,status,thumbnail_asset_id,metadata")
           .in("id", assetIds)
           .eq("status", "ready");
         if (assetError) throw assetError;
-        assets = assetRows || [];
+        assets = (assetRows || []).map(asset => {
+          const publicAsset = {
+            id: asset.id,
+            type: asset.type,
+            provider: asset.provider,
+            origin: asset.origin,
+            mime_type: asset.mime_type,
+            original_filename: asset.original_filename,
+            bytes: asset.bytes,
+            width: asset.width,
+            height: asset.height,
+            duration_ms: asset.duration_ms,
+            status: asset.status,
+            thumbnail_asset_id: asset.thumbnail_asset_id,
+            metadata: asset.metadata || {}
+          };
+          if (asset.provider === "r2" && asset.r2_object_key && isV5PlaybackConfigured()) {
+            const lease = issueV5PlaybackLease({
+              assetId: asset.id,
+              courseSlug,
+              objectKey: asset.r2_object_key,
+              mimeType: asset.mime_type,
+              filename: asset.original_filename,
+              userAgent: req.headers["user-agent"] || "",
+              email: access.email
+            });
+            publicAsset.playback_url = lease.url;
+            publicAsset.playback_expires_at = lease.expiresAt;
+          }
+          return publicAsset;
+        });
       }
     }
 
@@ -66,6 +97,7 @@ export default async function v5FeedHandler(req, res) {
       course: { slug: course.slug, title: access.courseTitle || course.title, subtitle: course.subtitle || "", imageUrl: course.image_url || "" },
       sourceMode: config.source_mode,
       releaseId: config.published_release_id,
+      playbackConfigured: isV5PlaybackConfigured(),
       lessons: lessons || [],
       posts: posts || [],
       links,
