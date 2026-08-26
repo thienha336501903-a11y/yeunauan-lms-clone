@@ -28,7 +28,16 @@ jobs:
         run: |
           node --check api/learning.js
           node --check api/lms/portal.js
+          node --check api/lms/admin.js
           node --check utils/lms-handlers/student-dashboard.js
           node --check utils/lms-handlers/v4-telegram-feed.js
           node --check utils/v4-telegram-access.js
           node --check utils/lms-handlers/admin-v4-prepublish.js
+          node --check utils/lms-handlers/admin-v5-content.js
+          node --check utils/lms-handlers/admin-v5-upload.js
+          node --check utils/lms-handlers/admin-v5-release.js
+          node --check utils/lms-handlers/admin-v5-telegram-import.js
+          node --check utils/lms-handlers/v5-feed.js
+          node --check utils/v5-r2.js
+          node --check utils/v5-playback-lease.js
+          node --check cloudflare/v5-media-worker/src/index.js
