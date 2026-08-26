@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>V5 Course Composer</title>
+  <style>
+    :root{--bg:#dfeadd;--panel:#fff;--ink:#17212b;--muted:#6b7b8c;--line:#dce4e8;--green:#2cab55;--green2:#249a49;--purple:#8b4df4;--bubble:#fff;--soft:#f5f8fa;--danger:#d94b57}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef3f6;color:var(--ink)}
+    button,input,textarea,select{font:inherit} button{cursor:pointer}
+    .app{min-height:100vh;display:grid;grid-template-columns:280px minmax(0,1fr)}
+    .side{background:#fff;border-right:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:14px}
+    .brand{font-weight:900;font-size:18px}.tiny{font-size:12px;color:var(--muted)}
+    .course-select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
+    .side-card{padding:14px;border-radius:14px;background:var(--soft);border:1px solid var(--line)}
+    .side-card strong{display:block;margin-bottom:6px}.lesson-list{display:flex;flex-direction:column;gap:7px;overflow:auto}
+    .lesson-btn{border:1px solid transparent;border-radius:12px;background:transparent;text-align:left;padding:10px 11px;color:#34495b;display:flex;justify-content:space-between;gap:8px}
+    .lesson-btn:hover,.lesson-btn.active{background:#edf8f0;border-color:#cde9d4;color:#16743a}.lesson-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .new-lesson{border:1px dashed #9fcbb0;background:#f5fff8;color:#16813e;border-radius:12px;padding:11px;font-weight:800}
+    .main{min-width:0;display:flex;flex-direction:column;height:100vh}.top{height:72px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:14px}
+    .top h1{font-size:18px;margin:0}.top .meta{font-size:12px;color:var(--muted);margin-top:3px}.status{padding:6px 10px;border-radius:999px;background:#fff5d9;color:#9a6a00;font-size:12px;font-weight:800}
+    .actions{display:flex;gap:8px}.ghost,.primary{border-radius:10px;padding:10px 13px;font-weight:800}.ghost{background:#fff;border:1px solid var(--line);color:#425466}.primary{background:var(--green);border:1px solid var(--green);color:#fff}.primary:hover{background:var(--green2)}
+    .channel{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;background-color:#cfe2c7;background-image:radial-gradient(circle at 20% 20%,rgba(255,255,255,.35) 0 2px,transparent 3px),radial-gradient(circle at 80% 60%,rgba(68,120,75,.12) 0 3px,transparent 4px);background-size:42px 42px}
+    .feed{flex:1;overflow:auto;padding:22px clamp(12px,4vw,64px) 150px;scroll-behavior:smooth}.empty{max-width:520px;margin:80px auto;text-align:center;background:rgba(255,255,255,.9);border-radius:18px;padding:24px;border:1px solid rgba(255,255,255,.7);box-shadow:0 5px 24px rgba(25,60,30,.08)}
+    .lesson-marker{max-width:780px;margin:18px auto 8px;display:flex;justify-content:center}.lesson-marker span{background:rgba(49,91,55,.64);color:#fff;border-radius:999px;padding:6px 13px;font-size:12px;font-weight:800;backdrop-filter:blur(6px)}
+    .post{max-width:780px;margin:8px auto;display:flex}.bubble{background:var(--bubble);border-radius:17px 17px 17px 5px;padding:12px 14px;min-width:180px;max-width:92%;box-shadow:0 1px 2px rgba(0,0,0,.10);position:relative}.post-text{white-space:pre-wrap;line-height:1.48;font-size:15px}.caption{color:#526779;margin-top:7px;font-size:13px}.post-meta{display:flex;justify-content:flex-end;gap:8px;color:#94a2ad;font-size:11px;margin-top:7px}.post-menu{position:absolute;right:-36px;top:4px;border:0;background:rgba(255,255,255,.75);width:30px;height:30px;border-radius:50%;font-size:18px;color:#6c7b88}.post-menu:hover{background:#fff}
+    .asset-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:8px}.asset{border:1px solid var(--line);border-radius:10px;background:#f7f9fa;padding:9px;font-size:12px}.asset.video:before{content:'▶ ';color:#7355df}.asset.image:before{content:'▣ ';color:#2eae5e}.asset.document:before{content:'📎 '}
+    .composer-wrap{position:absolute;left:0;right:0;bottom:0;padding:14px clamp(12px,4vw,64px) 18px;background:linear-gradient(transparent,rgba(207,226,199,.95) 35%)}.composer{max-width:820px;margin:auto;display:flex;align-items:flex-end;gap:8px}.compose-box{flex:1;display:flex;align-items:flex-end;background:#fff;border-radius:20px;padding:7px 8px 7px 10px;box-shadow:0 2px 8px rgba(0,0,0,.14)}
+    .attach{width:40px;height:40px;border:0;background:transparent;border-radius:50%;font-size:22px;color:#768794}.attach:hover{background:#f0f4f6}.compose-box textarea{flex:1;min-height:40px;max-height:150px;resize:none;border:0;outline:0;padding:9px 6px;font-size:15px;line-height:1.4}.send{width:48px;height:48px;border:0;background:var(--green);color:#fff;border-radius:50%;font-size:20px;box-shadow:0 3px 9px rgba(44,172,85,.35)}.send:disabled{opacity:.45;cursor:not-allowed}
+    .notice{position:fixed;top:82px;right:18px;z-index:20;max-width:360px;background:#15222e;color:#fff;border-radius:12px;padding:11px 14px;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;transform:translateY(-8px);pointer-events:none;transition:.2s}.notice.show{opacity:1;transform:none}
+    .modal{position:fixed;inset:0;background:rgba(15,24,31,.55);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}.modal.show{display:flex}.dialog{background:#fff;border-radius:18px;padding:20px;width:min(440px,100%);box-shadow:0 20px 60px rgba(0,0,0,.28)}.dialog h3{margin:0 0 12px}.dialog input,.dialog textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px}.dialog .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+    .auth-block{max-width:520px;margin:80px auto;background:#fff;border-radius:18px;padding:25px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.1)}
+    @media(max-width:820px){.app{grid-template-columns:1fr}.side{display:none}.top{padding:0 12px}.top h1{font-size:15px}.actions .ghost{display:none}.feed{padding-left:9px;padding-right:9px}.composer-wrap{padding-left:8px;padding-right:8px}.bubble{max-width:96%}.post-menu{right:-31px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div><div class="brand">V5 Course Channel</div><div class="tiny">Soạn khóa học như đăng bài Telegram</div></div>
+    <select id="courseSelect" class="course-select"><option value="">Đang tải khóa học…</option></select>
+    <div class="side-card"><strong>Nguồn nội dung</strong><div class="tiny">Upload trực tiếp · Telegram import</div></div>
+    <button id="newLessonBtn" class="new-lesson">＋ Bài học mới</button>
+    <div id="lessonList" class="lesson-list"></div>
+    <div style="margin-top:auto" class="tiny">V5 chạy song song; không thay đổi nội dung V4.</div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div><h1 id="channelTitle">Chọn một khóa học</h1><div class="meta" id="channelMeta">V5 Telegram-like Composer</div></div>
+      <div class="actions"><span id="statusPill" class="status">Draft</span><button id="previewBtn" class="ghost">Xem trước</button><button id="publishBtn" class="primary">Preflight / Publish</button></div>
+    </header>
+    <section class="channel">
+      <div id="feed" class="feed"><div class="empty"><strong>V5 Composer</strong><p>Chọn khóa học bên trái để bắt đầu đăng nội dung như một kênh Telegram.</p></div></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="compose-box"><button id="attachBtn" class="attach" title="Đính kèm media">📎</button><textarea id="composerInput" placeholder="Broadcast a lesson message…" rows="1"></textarea></div>
+          <button id="sendBtn" class="send" title="Gửi" disabled>➤</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="notice" class="notice"></div>
+<div id="lessonModal" class="modal"><div class="dialog"><h3>Tạo bài học mới</h3><input id="lessonTitleInput" placeholder="Ví dụ: Bài 03 — Làm sốt"><div class="row"><button class="ghost" data-close="lessonModal">Hủy</button><button id="confirmLessonBtn" class="primary">Tạo bài</button></div></div></div>
+<div id="editModal" class="modal"><div class="dialog"><h3>Sửa Post</h3><textarea id="editTextInput" rows="7"></textarea><div class="row"><button id="deletePostBtn" class="ghost" style="color:var(--danger);margin-right:auto">Xóa</button><button class="ghost" data-close="editModal">Hủy</button><button id="savePostBtn" class="primary">Lưu</button></div></div></div>
+<script>
+  const state={courses:[],courseSlug:'',data:null,activeLessonId:null,editingPostId:null,busy:false};
+  const $=id=>document.getElementById(id);
+  function toast(message){const n=$('notice');n.textContent=message;n.classList.add('show');clearTimeout(n._t);n._t=setTimeout(()=>n.classList.remove('show'),2600)}
+  function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]))}
+  async function api(url,options={}){const res=await fetch(url,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const data=await res.json().catch(()=>({}));if(res.status===401)throw Object.assign(new Error('AUTH_REQUIRED'),{auth:true});if(!res.ok||data.success===false)throw new Error(data.error||`HTTP ${res.status}`);return data}
+  async function loadCourses(){try{const data=await api('/api/lms/admin?endpoint=courses');const rows=Array.isArray(data)?data:(data.courses||data.data||[]);state.courses=rows;const select=$('courseSelect');select.innerHTML='<option value="">Chọn khóa học…</option>'+rows.map(c=>`<option value="${escapeHtml(c.slug)}">${escapeHtml(c.title||c.courseName||c.slug)}</option>`).join('');const q=new URLSearchParams(location.search).get('course');if(q&&rows.some(c=>c.slug===q)){select.value=q;await chooseCourse(q)}}catch(error){if(error.auth)showAuth();else toast(error.message)}}
+  function showAuth(){$('feed').innerHTML='<div class="auth-block"><h2>Cần đăng nhập Admin</h2><p>V5 dùng đúng phiên Admin hiện có của LMS. Hãy đăng nhập LMS Admin trước rồi quay lại trang này.</p><a class="primary" style="display:inline-block;text-decoration:none" href="/admin.html">Mở LMS Admin</a></div>'}
+  async function chooseCourse(slug){state.courseSlug=slug;state.activeLessonId=null;if(!slug){state.data=null;render();return}history.replaceState(null,'',`?course=${encodeURIComponent(slug)}`);await refresh()}
+  async function refresh(){if(!state.courseSlug)return;try{const data=await api(`/api/lms/admin?endpoint=v5-content&course=${encodeURIComponent(state.courseSlug)}`);state.data=data;if(!state.activeLessonId&&data.lessons?.length)state.activeLessonId=data.lessons[0].id;render()}catch(error){if(error.auth)showAuth();else toast(error.message)}}
+  async function postAction(action,payload={}){if(state.busy||!state.courseSlug)return;state.busy=true;updateSend();try{const data=await api(`/api/lms/admin?endpoint=v5-content&course=${encodeURIComponent(state.courseSlug)}`,{method:'POST',body:JSON.stringify({action,course:state.courseSlug,...payload})});state.data=data.state||state.data;render();return data}catch(error){if(error.auth)showAuth();else toast(error.message);throw error}finally{state.busy=false;updateSend()}}
+  function render(){const data=state.data;if(!data){$('channelTitle').textContent='Chọn một khóa học';$('channelMeta').textContent='V5 Telegram-like Composer';$('lessonList').innerHTML='';$('feed').innerHTML='<div class="empty"><strong>V5 Composer</strong><p>Chọn khóa học bên trái để bắt đầu.</p></div>';updateSend();return}
+    $('channelTitle').textContent=data.course?.title||data.course?.slug||'V5 Course';$('channelMeta').textContent=`${data.lessons.length} bài · ${data.posts.length} post · nguồn ${data.config?.source_mode||'direct'}`;$('statusPill').textContent=(data.config?.status||'draft').replace(/^./,x=>x.toUpperCase());
+    $('lessonList').innerHTML=(data.lessons||[]).map((l,i)=>`<button class="lesson-btn ${l.id===state.activeLessonId?'active':''}" data-lesson="${l.id}"><span class="lesson-title">${escapeHtml(l.title)}</span><span class="tiny">${(data.posts||[]).filter(p=>p.lesson_id===l.id).length}</span></button>`).join('');
+    const lessons=data.lessons||[],posts=data.posts||[],links=data.links||[],assets=new Map((data.assets||[]).map(a=>[a.id,a]));let html='';for(const lesson of lessons){const lessonPosts=posts.filter(p=>p.lesson_id===lesson.id);html+=`<div class="lesson-marker" id="lesson-${lesson.id}"><span>${escapeHtml(lesson.title)}</span></div>`;for(const p of lessonPosts)html+=postHtml(p,links,assets)}const loose=posts.filter(p=>!p.lesson_id);if(loose.length){html+='<div class="lesson-marker"><span>Nội dung chưa xếp bài</span></div>';for(const p of loose)html+=postHtml(p,links,assets)}if(!posts.length)html='<div class="empty"><strong>Kênh đang trống</strong><p>Tạo một Bài học rồi nhập nội dung ở ô phía dưới và bấm Gửi.</p></div>';$('feed').innerHTML=html;bindFeed();updateSend()}
+  function postHtml(p,links,assets){const postLinks=links.filter(l=>l.post_id===p.id).sort((a,b)=>a.position-b.position);const assetHtml=postLinks.length?`<div class="asset-strip">${postLinks.map(l=>{const a=assets.get(l.asset_id)||{};return `<div class="asset ${escapeHtml(a.type||'other')}">${escapeHtml(a.original_filename||a.type||'Media')} · ${escapeHtml(a.status||'pending')}</div>`}).join('')}</div>`:'';return `<div class="post" data-post="${p.id}"><div class="bubble"><button class="post-menu" data-edit="${p.id}" title="Sửa">⋮</button><div class="post-text">${escapeHtml(p.text_content||'')}</div>${p.caption?`<div class="caption">${escapeHtml(p.caption)}</div>`:''}${assetHtml}<div class="post-meta"><span>${escapeHtml(p.origin)}</span><span>${new Date(p.updated_at||p.created_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</span><span>✓</span></div></div></div>`}
+  function bindFeed(){document.querySelectorAll('[data-edit]').forEach(btn=>btn.onclick=()=>openEdit(btn.dataset.edit));document.querySelectorAll('[data-lesson]').forEach(btn=>btn.onclick=()=>{state.activeLessonId=btn.dataset.lesson;document.querySelectorAll('.lesson-btn').forEach(x=>x.classList.toggle('active',x.dataset.lesson===state.activeLessonId));document.getElementById(`lesson-${state.activeLessonId}`)?.scrollIntoView({behavior:'smooth',block:'start'});updateSend()})}
+  function updateSend(){const text=$('composerInput').value.trim();$('sendBtn').disabled=state.busy||!state.courseSlug||!text}
+  async function send(){const text=$('composerInput').value.trim();if(!text)return;if(!state.activeLessonId){toast('Hãy tạo/chọn một Bài học trước.');return}await postAction('createPost',{lessonId:state.activeLessonId,textContent:text});$('composerInput').value='';autoGrow();updateSend();setTimeout(()=>$('feed').scrollTo({top:$('feed').scrollHeight,behavior:'smooth'}),50)}
+  function autoGrow(){const t=$('composerInput');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,150)+'px'}
+  function openEdit(id){const p=state.data?.posts?.find(x=>x.id===id);if(!p)return;state.editingPostId=id;$('editTextInput').value=p.text_content||'';$('editModal').classList.add('show')}
+  function closeModal(id){$(id).classList.remove('show')}
+  $('courseSelect').onchange=e=>chooseCourse(e.target.value);$('composerInput').oninput=()=>{autoGrow();updateSend()};$('composerInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('sendBtn').onclick=send;
+  $('newLessonBtn').onclick=()=>{$('lessonTitleInput').value='';$('lessonModal').classList.add('show');setTimeout(()=>$('lessonTitleInput').focus(),30)};$('confirmLessonBtn').onclick=async()=>{const title=$('lessonTitleInput').value.trim();if(!title)return;const result=await postAction('createLesson',{title});state.activeLessonId=result.result?.id||state.activeLessonId;closeModal('lessonModal');render()};
+  $('savePostBtn').onclick=async()=>{if(!state.editingPostId)return;await postAction('updatePost',{postId:state.editingPostId,textContent:$('editTextInput').value});closeModal('editModal')};$('deletePostBtn').onclick=async()=>{if(!state.editingPostId||!confirm('Xóa Post này?'))return;await postAction('deletePost',{postId:state.editingPostId});closeModal('editModal')};document.querySelectorAll('[data-close]').forEach(btn=>btn.onclick=()=>closeModal(btn.dataset.close));
+  $('attachBtn').onclick=()=>toast('Media uploader R2 sẽ được nối ở V5-2/V5-3. Composer text hiện đã ghi vào Canonical V5.');$('previewBtn').onclick=()=>toast('Student Renderer sẽ được nối ở V5-5.');$('publishBtn').onclick=()=>toast('Preflight/Release sẽ được nối ở V5-9/V5-10.');
+  loadCourses();
+</script>
+</body>
+</html>
