@@ -5,7 +5,11 @@ import {
   isR2Configured,
   presignUploadPart
 } from "../v5-r2.js";
-import { publicJwkFromPrivateEnv } from "../v5-playback-lease.js";
+import { supabase } from "../supabase.js";
+import { issueV5PlaybackLease, publicJwkFromPrivateEnv } from "../v5-playback-lease.js";
+
+const PLAYBACK_PROBE_COURSE = "__clone_factory_test_v5_r2_gate";
+const PLAYBACK_PROBE_UA = "V5-Playback-Probe/1.0";
 
 function playbackSigningReady() {
   try {
@@ -14,6 +18,92 @@ function playbackSigningReady() {
   } catch {
     return false;
   }
+}
+
+async function loadPlaybackProbeAsset() {
+  const { data: course, error: courseError } = await supabase
+    .from("courses")
+    .select("id,slug")
+    .eq("slug", PLAYBACK_PROBE_COURSE)
+    .maybeSingle();
+  if (courseError) throw courseError;
+  if (!course) throw new Error("probe_course_missing");
+
+  const { data: posts, error: postsError } = await supabase
+    .from("v5_posts")
+    .select("id")
+    .eq("course_id", course.id)
+    .neq("status", "archived");
+  if (postsError) throw postsError;
+  const postIds = (posts || []).map(row => row.id).filter(Boolean);
+  if (!postIds.length) throw new Error("probe_post_missing");
+
+  const { data: links, error: linksError } = await supabase
+    .from("v5_post_assets")
+    .select("asset_id")
+    .in("post_id", postIds);
+  if (linksError) throw linksError;
+  const assetIds = [...new Set((links || []).map(row => row.asset_id).filter(Boolean))];
+  if (!assetIds.length) throw new Error("probe_asset_link_missing");
+
+  const { data: assets, error: assetsError } = await supabase
+    .from("v5_media_assets")
+    .select("id,r2_object_key,bytes,mime_type,original_filename,status,provider")
+    .in("id", assetIds)
+    .eq("status", "ready")
+    .eq("provider", "r2")
+    .limit(1);
+  if (assetsError) throw assetsError;
+  const asset = assets?.[0] || null;
+  if (!asset?.id || !asset?.r2_object_key || !Number(asset?.bytes || 0)) throw new Error("probe_ready_asset_missing");
+  return asset;
+}
+
+async function runPlaybackProbe() {
+  if (!playbackSigningReady()) throw new Error("playback_signing_not_ready");
+  if (!String(process.env.V5_MEDIA_PUBLIC_URL || "").trim()) throw new Error("media_public_url_not_ready");
+
+  const asset = await loadPlaybackProbeAsset();
+  const expectedBytes = Number(asset.bytes || 0);
+  const expectedRangeBytes = Math.min(10, expectedBytes);
+  const expectedEnd = expectedRangeBytes - 1;
+  const lease = issueV5PlaybackLease({
+    assetId: asset.id,
+    courseSlug: PLAYBACK_PROBE_COURSE,
+    objectKey: asset.r2_object_key,
+    mimeType: asset.mime_type,
+    filename: asset.original_filename,
+    userAgent: PLAYBACK_PROBE_UA,
+    email: "preview-probe@local.invalid",
+    ttlMs: 2 * 60 * 1000
+  });
+
+  const response = await fetch(lease.url, {
+    method: "GET",
+    headers: {
+      Range: `bytes=0-${expectedEnd}`,
+      "User-Agent": PLAYBACK_PROBE_UA
+    },
+    redirect: "error"
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  const contentRange = response.headers.get("content-range") || "";
+  const acceptRanges = response.headers.get("accept-ranges") || "";
+  const expectedContentRange = `bytes 0-${expectedEnd}/${expectedBytes}`;
+  const ok = response.status === 206
+    && body.length === expectedRangeBytes
+    && contentRange === expectedContentRange
+    && acceptRanges.toLowerCase() === "bytes";
+
+  return {
+    ok,
+    workerStatus: response.status,
+    rangeBytes: body.length,
+    expectedRangeBytes,
+    objectBytes: expectedBytes,
+    contentRange,
+    acceptRanges: acceptRanges.toLowerCase() === "bytes"
+  };
 }
 
 export default async function handler(req, res) {
@@ -25,6 +115,28 @@ export default async function handler(req, res) {
   }
   if (!isR2Configured()) {
     return res.status(503).json({ success: false, r2: false, playbackSigning: playbackSigningReady(), error: "r2_not_configured" });
+  }
+
+  if (String(req.query?.playback || "") === "1") {
+    try {
+      const result = await runPlaybackProbe();
+      return res.status(result.ok ? 200 : 502).json({
+        success: result.ok,
+        r2: true,
+        playbackSigning: playbackSigningReady(),
+        probe: "playback_range",
+        ...result
+      });
+    } catch (error) {
+      return res.status(502).json({
+        success: false,
+        r2: true,
+        playbackSigning: playbackSigningReady(),
+        probe: "playback_range",
+        error: "playback_probe_failed",
+        detail: String(error?.message || error || "unknown").slice(0, 180)
+      });
+    }
   }
 
   const requestedKey = String(req.query?.key || "").trim();
