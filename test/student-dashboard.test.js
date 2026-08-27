@@ -16,12 +16,13 @@ assert.match(handler, /createdAt:course\.created_at/);
 assert.match(portal, /endpoint === "student-dashboard"/);
 assert.match(page, /Đã nhận đăng ký và bill chuyển khoản/);
 assert.match(page, /Đã duyệt – Chờ lên bài/);
-assert.match(page, /\['lms','v4'\]\.includes/);
+assert.match(page, /\['lms','v4','v5'\]\.includes/);
 assert.doesNotMatch(page, /deliveryMode\|\|''\).*===\s*'v4'/);
-assert.match(page, /mode==='v4'\?'LMS V4':'LMS CŨ'/);
-assert.match(page, /`\/legacy-post\.html\?course=/);
+assert.match(page, /mode==='v5'\?'LMS V5':mode==='v4'\?'LMS V4':'LMS CŨ'/);
+assert.match(page, /mode==='v5'\?`\/learning\?course=/);
+assert.match(page, /:`\/legacy-post\.html\?course=/);
 assert.doesNotMatch(page, /mode==='v4'\?`\/learning\?course=/);
 assert.match(page, /data-mode=/);
 assert.match(page, /endpoint=public-config/);
 
-console.log('student dashboard regression checks passed');
+console.log('student dashboard LMS/V4/V5 regression checks passed');
