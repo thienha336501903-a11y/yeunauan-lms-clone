@@ -5,6 +5,7 @@ const handler = fs.readFileSync(new URL('../utils/lms-handlers/student-dashboard
 const portal = fs.readFileSync(new URL('../api/lms/portal.js', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../my-courses.html', import.meta.url), 'utf8');
 
+// Unified course manager must expose all enrollment-based LMS modes, including V5.
 assert.match(handler, /\.from\("orders"\)/);
 assert.match(handler, /\.from\("student_enrollments"\)/);
 assert.match(handler, /state\s*=\s*"ready"/);
