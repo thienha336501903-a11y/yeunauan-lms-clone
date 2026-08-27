@@ -43,10 +43,11 @@ test('Telegram-like UI is a channel composer rather than a technical upload dash
   assert.doesNotMatch(admin, /Thumbnail URL:/);
 });
 
-test('V5 internal sync normalizes copied secrets before timing-safe comparison', () => {
+test('V5 internal sync accepts dedicated and legacy secrets during transition', () => {
   const sync = read('api/v5-sync.js');
   assert.match(sync, /req\.headers\["x-sync-secret"\].*\.trim\(\)/s);
-  assert.match(sync, /process\.env\.V5_SYNC_SECRET \|\| process\.env\.INTERNAL_SYNC_SECRET/);
-  assert.match(sync, /\.trim\(\)/);
-  assert.match(sync, /safeEqual\(supplied, secret\)/);
+  assert.match(sync, /process\.env\.V5_SYNC_SECRET/);
+  assert.match(sync, /process\.env\.INTERNAL_SYNC_SECRET/);
+  assert.match(sync, /\.filter\(Boolean\)/);
+  assert.match(sync, /secrets\.some\(secret => safeEqual\(supplied, secret\)\)/);
 });
