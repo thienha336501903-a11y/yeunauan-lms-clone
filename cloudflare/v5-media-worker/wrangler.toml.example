@@ -10,8 +10,10 @@ binding = "V5_MEDIA"
 bucket_name = "yeubep-v5-media-prod"
 
 [vars]
-# Comma-separated exact origins. Add Preview origins only while testing.
-V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop"
+# Comma-separated exact origins.
+# Keep the canonical V5 Preview branch alias only while V5 is being tested;
+# remove it after V5 Production is stable.
+V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop,https://yeunauan-lms-v4-test-git-bb43d1-thienha336501903-a11ys-projects.vercel.app"
 
 # Secret required at runtime (set with `wrangler secret put`, not here):
 # V5_PLAYBACK_PUBLIC_JWK={...public EC P-256 JWK...}
