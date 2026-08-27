@@ -12,7 +12,7 @@ test('learning route resolves delivery_mode once per requested course', () => {
 });
 
 test('explicit V5 and V4 course routes happen before legacy global routing', () => {
-  assert.match(source, /const target = requestedV5\s*\? "\/v5\.html"\s*:\s*requestedV4\s*\? "\/v4-sw-refresh\.html"/);
+  assert.match(source, /const target = requestedV5\s*\? "\/v5\/"\s*:\s*requestedV4\s*\? "\/v4-sw-refresh\.html"/);
   assert.match(source, /isV4RoutingEnabled\(\) \? "\/v4-sw-refresh\.html" : "\/v3"/);
   assert.match(source, /: "\/lms\.html"/);
 });
