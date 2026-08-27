@@ -93,7 +93,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   if (req.method !== "POST") return res.status(405).json({ success: false, error: "Method not allowed" });
   const supplied = String(req.headers["x-sync-secret"] || "").trim();
-  const secret = String(process.env.INTERNAL_SYNC_SECRET || "").trim();
+  const secret = String(process.env.V5_SYNC_SECRET || process.env.INTERNAL_SYNC_SECRET || "").trim();
   if (!secret) return res.status(503).json({ success: false, error: "Internal sync is unavailable." });
   if (!supplied || !safeEqual(supplied, secret)) return res.status(401).json({ success: false, error: "Unauthorized" });
   try {
