@@ -1,4 +1,10 @@
-import { headR2Object, isR2Configured } from "../v5-r2.js";
+import {
+  abortMultipartUpload,
+  createMultipartUpload,
+  headR2Object,
+  isR2Configured,
+  presignUploadPart
+} from "../v5-r2.js";
 
 export default async function handler(req, res) {
   if (process.env.VERCEL_ENV !== "preview") {
@@ -11,14 +17,42 @@ export default async function handler(req, res) {
     return res.status(503).json({ success: false, r2: false, error: "r2_not_configured" });
   }
 
+  const key = `__v5_probe__/presign-${Date.now()}.txt`;
+  let uploadId = "";
   try {
-    const key = `__v5_probe__/never-exists-${Date.now()}`;
     const object = await headR2Object({ key });
     if (object) {
-      return res.status(200).json({ success: true, r2: true, probe: "object_exists" });
+      return res.status(200).json({ success: true, r2: true, probe: "unexpected_object_exists" });
     }
-    return res.status(200).json({ success: true, r2: true, probe: "authenticated_404" });
+
+    const multipart = await createMultipartUpload({ key, contentType: "text/plain" });
+    uploadId = multipart.uploadId;
+    const url = presignUploadPart({ key, uploadId, partNumber: 1, expiresSeconds: 300 });
+    const put = await fetch(url, { method: "PUT", body: Buffer.from("v5-r2-presign-probe", "utf8") });
+    const etag = put.headers.get("etag") || "";
+    const body = await put.text().catch(() => "");
+    await abortMultipartUpload({ key, uploadId }).catch(() => {});
+    uploadId = "";
+
+    if (!put.ok) {
+      return res.status(502).json({
+        success: false,
+        r2: true,
+        presignedPut: false,
+        status: put.status,
+        detail: body.slice(0, 180)
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      r2: true,
+      probe: "presigned_put_ok",
+      presignedPut: true,
+      etagVisible: Boolean(etag)
+    });
   } catch (error) {
+    if (uploadId) await abortMultipartUpload({ key, uploadId }).catch(() => {});
     return res.status(502).json({
       success: false,
       r2: false,
