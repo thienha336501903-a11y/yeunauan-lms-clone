@@ -172,14 +172,42 @@ export async function abortMultipartUpload({ key, uploadId }) {
   return { aborted: true };
 }
 
+async function rangeStatR2Object({ key }) {
+  const request = signedRequest({ method: "GET", key, headers: { Range: "bytes=0-0" } });
+  const response = await fetch(request.url, { method: "GET", headers: request.headers });
+  if (response.status === 404) return null;
+  if (!response.ok && response.status !== 206) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(`R2 range stat failed (${response.status}).`);
+  }
+  const contentRange = response.headers.get("content-range") || "";
+  const rangeMatch = contentRange.match(/\/(\d+)$/);
+  const bytes = rangeMatch ? Number(rangeMatch[1]) : Number(response.headers.get("content-length") || 0);
+  const result = {
+    etag: response.headers.get("etag") || "",
+    bytes,
+    contentType: response.headers.get("content-type") || ""
+  };
+  await response.body?.cancel().catch(() => {});
+  return result;
+}
+
 export async function headR2Object({ key }) {
   const request = signedRequest({ method: "HEAD", key });
   const response = await fetch(request.url, { method: "HEAD", headers: request.headers });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`R2 HEAD failed (${response.status}).`);
-  return {
+  const head = {
     etag: response.headers.get("etag") || "",
     bytes: Number(response.headers.get("content-length") || 0),
     contentType: response.headers.get("content-type") || ""
+  };
+  if (head.bytes > 0) return head;
+  const ranged = await rangeStatR2Object({ key });
+  if (!ranged) return head;
+  return {
+    etag: head.etag || ranged.etag,
+    bytes: ranged.bytes,
+    contentType: head.contentType || ranged.contentType
   };
 }
