@@ -103,6 +103,7 @@ export function presignUploadPart({ key, uploadId, partNumber, expiresSeconds = 
   query.set("partNumber", String(partNumber));
   query.set("uploadId", String(uploadId));
   query.set("X-Amz-Algorithm", ALGORITHM);
+  query.set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD");
   query.set("X-Amz-Credential", `${cfg.accessKeyId}/${credentialScope}`);
   query.set("X-Amz-Date", amzDate);
   query.set("X-Amz-Expires", String(Math.min(3600, Math.max(60, Number(expiresSeconds) || 900))));
