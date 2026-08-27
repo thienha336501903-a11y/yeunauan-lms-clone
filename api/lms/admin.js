@@ -25,6 +25,7 @@ import adminV5ContentHandler from "../../utils/lms-handlers/admin-v5-content.js"
 import adminV5UploadHandler from "../../utils/lms-handlers/admin-v5-upload.js";
 import adminV5ReleaseHandler from "../../utils/lms-handlers/admin-v5-release.js";
 import adminV5TelegramImportHandler from "../../utils/lms-handlers/admin-v5-telegram-import.js";
+import adminV5CapabilitiesHandler from "../../utils/lms-handlers/admin-v5-capabilities.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
@@ -57,5 +58,6 @@ export default async function handler(req, res) {
   if (endpoint === "v5-upload") return adminV5UploadHandler(req, res);
   if (endpoint === "v5-release") return adminV5ReleaseHandler(req, res);
   if (endpoint === "v5-telegram-import") return adminV5TelegramImportHandler(req, res);
+  if (endpoint === "v5-capabilities") return adminV5CapabilitiesHandler(req, res);
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
 }
