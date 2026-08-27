@@ -50,8 +50,15 @@ function objectPath(bucket, key) {
 
 function canonicalQuery(params) {
   return [...params.entries()]
-    .sort(([aKey, aVal], [bKey, bVal]) => aKey === bKey ? String(aVal).localeCompare(String(bVal)) : aKey.localeCompare(bKey))
-    .map(([key, value]) => `${rfc3986(key)}=${rfc3986(value)}`)
+    .map(([key, value]) => [rfc3986(key), rfc3986(value)])
+    .sort(([aKey, aVal], [bKey, bVal]) => {
+      if (aKey < bKey) return -1;
+      if (aKey > bKey) return 1;
+      if (aVal < bVal) return -1;
+      if (aVal > bVal) return 1;
+      return 0;
+    })
+    .map(([key, value]) => `${key}=${value}`)
     .join("&");
 }
 
