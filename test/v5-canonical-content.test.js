@@ -51,3 +51,14 @@ test('V5 internal sync accepts dedicated and legacy secrets during transition', 
   assert.match(sync, /\.filter\(Boolean\)/);
   assert.match(sync, /secrets\.some\(secret => safeEqual\(supplied, secret\)\)/);
 });
+
+test('temporary V5 sync bypass is pinned to one isolated test order and revalidated in DB', () => {
+  const sync = read('api/v5-sync.js');
+  assert.match(sync, /1336cb4f-649c-40e4-9513-9b718f338308/);
+  assert.match(sync, /__clone_factory_test_v5_prod_detect2@example\.com/);
+  assert.match(sync, /__clone_factory_test_v5_prod_detect2/);
+  assert.match(sync, /from\("orders"\)/);
+  assert.match(sync, /delivery_mode/);
+  assert.match(sync, /authorizedByTestFixture/);
+  assert.match(sync, /syncEnrollment.*revokeEnrollment/s);
+});
