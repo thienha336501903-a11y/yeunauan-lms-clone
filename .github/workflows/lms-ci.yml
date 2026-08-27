@@ -39,6 +39,8 @@ jobs:
           node --check utils/lms-handlers/admin-v5-telegram-import.js
           node --check utils/lms-handlers/admin-v5-capabilities.js
           node --check utils/lms-handlers/v5-feed.js
+          node --check utils/lms-handlers/v5-play.js
           node --check utils/v5-r2.js
           node --check utils/v5-playback-lease.js
+          node --check v5/media-sw.js
           node --check cloudflare/v5-media-worker/src/index.js
