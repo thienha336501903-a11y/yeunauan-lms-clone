@@ -33,9 +33,12 @@ test('V5 student feed keeps enrollment gate and publish gate', () => {
 
 test('Telegram-like UI is a channel composer rather than a technical upload dashboard', () => {
   const admin = read('v5-admin.html');
-  assert.match(admin, /Broadcast a lesson message/);
+  assert.match(admin, /Nhập nội dung như Telegram/);
   assert.match(admin, /attachBtn/);
+  assert.match(admin, /folderBtn/);
   assert.match(admin, /sendBtn/);
   assert.match(admin, /newLessonBtn/);
   assert.match(admin, /post-menu/);
+  assert.doesNotMatch(admin, /Video URL:/);
+  assert.doesNotMatch(admin, /Thumbnail URL:/);
 });
