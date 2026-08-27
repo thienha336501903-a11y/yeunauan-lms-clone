@@ -95,6 +95,7 @@ async function runPreviewAccessGate() {
   const slug = `clone-factory-test-v5-access-${suffix}`;
   const email = `__clone_factory_test_v5_access_${suffix}@example.com`;
   const orderId = crypto.randomUUID();
+  const title = `__clone_factory_test_v5_access_${suffix}`;
   const checks = [];
   const record = (name, ok, detail = null) => {
     checks.push({ name, ok: Boolean(ok), detail });
@@ -102,7 +103,7 @@ async function runPreviewAccessGate() {
   };
 
   try {
-    const created = await syncCourse({ slug, title: `__clone_factory_test_v5_access_${suffix}`, active: true });
+    const created = await syncCourse({ slug, title, active: true });
     record("sync_course_v5", created.course?.delivery_mode === "v5");
     const courseId = created.course.id;
     const now = new Date().toISOString();
@@ -110,6 +111,20 @@ async function runPreviewAccessGate() {
     if (publishError) throw publishError;
     const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", updated_at: now }).eq("course_id", courseId);
     if (configError) throw configError;
+
+    const { error: orderError } = await supabase.from("orders").insert({
+      id: orderId,
+      course_id: courseId,
+      course_slug: slug,
+      course_title: title,
+      customer_email: email,
+      proof_image_url: "https://example.com/clone-factory-test.png",
+      status: "Đã duyệt",
+      delivery_mode: "v5",
+      raw_data: { probe: "v5-access-runtime" }
+    });
+    if (orderError) throw orderError;
+    record("commerce_order_exists", true);
 
     const granted = await syncEnrollment({ email, courseSlug: slug, orderId, action: "create" });
     record("grant_active", granted.enrollment?.status === "active", JSON.stringify(granted.enrollment));
@@ -141,6 +156,7 @@ async function runPreviewAccessGate() {
     return { success: false, error: error.message || String(error), slug, email, checks };
   } finally {
     await supabase.from("student_enrollments").delete().eq("email", email).eq("course_slug", slug);
+    await supabase.from("orders").delete().eq("id", orderId);
     const { data: course } = await supabase.from("courses").select("id").eq("slug", slug).maybeSingle();
     if (course?.id) {
       await supabase.from("v5_course_configs").delete().eq("course_id", course.id);
