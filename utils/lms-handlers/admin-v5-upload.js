@@ -51,9 +51,10 @@ function validateUploadMetadata(body) {
 async function loadCourse(courseSlug) {
   const slug = clean(courseSlug);
   if (!slug) return null;
-  const { data, error } = await supabase.from("courses").select("id,slug,title").eq("slug", slug).maybeSingle();
+  const { data, error } = await supabase.from("courses").select("id,slug,title,delivery_mode").eq("slug", slug).maybeSingle();
   if (error) throw error;
-  return data || null;
+  if (!data || String(data.delivery_mode || "").toLowerCase() !== "v5") return null;
+  return data;
 }
 
 async function requireAdmin(req, res) {
@@ -83,6 +84,51 @@ async function loadSession(sessionId, courseId) {
   return data;
 }
 
+async function requirePost(courseId, postId) {
+  const id = clean(postId);
+  if (!id) return null;
+  const { data, error } = await supabase.from("v5_posts").select("id,status").eq("id", id).eq("course_id", courseId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Post nhận media không thuộc khóa học này.");
+  return data;
+}
+
+async function refreshPostReadiness(courseId, postId) {
+  const post = await requirePost(courseId, postId);
+  if (!post) return;
+  const { data: links, error: linkError } = await supabase.from("v5_post_assets").select("asset_id").eq("post_id", post.id);
+  if (linkError) throw linkError;
+  const assetIds = (links || []).map(row => row.asset_id).filter(Boolean);
+  let nextStatus = "processing";
+  if (assetIds.length) {
+    const { data: assets, error: assetError } = await supabase.from("v5_media_assets").select("id,status").in("id", assetIds);
+    if (assetError) throw assetError;
+    if ((assets || []).length === assetIds.length && assets.every(asset => asset.status === "ready" || asset.status === "archived")) {
+      nextStatus = "ready";
+    }
+  }
+  const metadataPatch = nextStatus === "ready" ? { pending_attachments: false } : { pending_attachments: true };
+  const { error } = await supabase
+    .from("v5_posts")
+    .update({ status: nextStatus, metadata: metadataPatch, updated_at: new Date().toISOString() })
+    .eq("id", post.id)
+    .eq("course_id", courseId);
+  if (error) throw error;
+}
+
+async function linkAssetToPost(course, postId, assetId, position, role) {
+  const post = await requirePost(course.id, postId);
+  if (!post) return;
+  const { error } = await supabase.from("v5_post_assets").upsert({
+    post_id: post.id,
+    asset_id: assetId,
+    position: Number(position || 0),
+    role: clean(role) || "attachment"
+  }, { onConflict: "post_id,asset_id" });
+  if (error) throw error;
+  await refreshPostReadiness(course.id, post.id);
+}
+
 async function tryChecksumDedupe(course, body, meta) {
   const checksum = clean(body?.checksumSha256).toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(checksum)) return null;
@@ -99,13 +145,7 @@ async function tryChecksumDedupe(course, body, meta) {
   if (!asset) return null;
 
   const postId = clean(body?.postId);
-  if (postId) {
-    const { data: post, error: postError } = await supabase.from("v5_posts").select("id").eq("id", postId).eq("course_id", course.id).maybeSingle();
-    if (postError) throw postError;
-    if (!post) throw new Error("Post không thuộc khóa học này.");
-    const { error: linkError } = await supabase.from("v5_post_assets").upsert({ post_id: postId, asset_id: asset.id, position: Number(body?.position || 0), role: clean(body?.role) || "attachment" }, { onConflict: "post_id,asset_id" });
-    if (linkError) throw linkError;
-  }
+  if (postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
   return asset;
 }
 
@@ -118,6 +158,9 @@ async function initUpload(course, admin, body) {
   const meta = validateUploadMetadata(body);
   const duplicate = await tryChecksumDedupe(course, body, meta);
   if (duplicate) return { deduplicated: true, asset: duplicate };
+
+  const postId = clean(body?.postId);
+  if (postId) await requirePost(course.id, postId);
 
   const assetId = crypto.randomUUID();
   const objectKey = `media/v5/${course.id}/${assetId}/${meta.filename}`;
@@ -143,11 +186,14 @@ async function initUpload(course, admin, body) {
     .single();
   if (assetError) throw assetError;
 
+  if (postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
+
   let multipart;
   try {
     multipart = await createMultipartUpload({ key: objectKey, contentType: meta.mimeType });
   } catch (error) {
     await supabase.from("v5_media_assets").update({ status: "failed", last_error: error.message, updated_at: new Date().toISOString() }).eq("id", assetId);
+    if (postId) await refreshPostReadiness(course.id, postId).catch(() => {});
     throw error;
   }
 
@@ -165,13 +211,14 @@ async function initUpload(course, admin, body) {
       part_size: partSize,
       expected_bytes: meta.bytes,
       expires_at: expiresAt,
-      metadata: { postId: clean(body?.postId) || null, role: clean(body?.role) || "attachment", position: Number(body?.position || 0) }
+      metadata: { postId: postId || null, role: clean(body?.role) || "attachment", position: Number(body?.position || 0) }
     })
     .select("*")
     .single();
   if (sessionError) {
     await abortMultipartUpload({ key: objectKey, uploadId: multipart.uploadId }).catch(() => {});
-    await supabase.from("v5_media_assets").update({ status: "failed", last_error: sessionError.message }).eq("id", assetId);
+    await supabase.from("v5_media_assets").update({ status: "failed", last_error: sessionError.message, updated_at: new Date().toISOString() }).eq("id", assetId);
+    if (postId) await refreshPostReadiness(course.id, postId).catch(() => {});
     throw sessionError;
   }
 
@@ -222,13 +269,8 @@ async function complete(course, body) {
 
   const postId = clean(session.metadata?.postId || body?.postId);
   if (postId) {
-    const { data: post, error: postError } = await supabase.from("v5_posts").select("id").eq("id", postId).eq("course_id", course.id).maybeSingle();
-    if (postError) throw postError;
-    if (!post) throw new Error("Post nhận media không thuộc khóa học này.");
-    const { error: linkError } = await supabase.from("v5_post_assets").upsert({ post_id: postId, asset_id: asset.id, position: Number(session.metadata?.position || 0), role: clean(session.metadata?.role) || "attachment" }, { onConflict: "post_id,asset_id" });
-    if (linkError) throw linkError;
-    const { error: postUpdateError } = await supabase.from("v5_posts").update({ status: "ready", updated_at: now }).eq("id", postId).eq("course_id", course.id);
-    if (postUpdateError) throw postUpdateError;
+    await linkAssetToPost(course, postId, asset.id, session.metadata?.position, session.metadata?.role);
+    await refreshPostReadiness(course.id, postId);
   }
 
   const { error: sessionUpdateError } = await supabase.from("v5_upload_sessions").update({ status: "completed", completed_at: now, updated_at: now }).eq("id", session.id);
@@ -246,6 +288,8 @@ async function abort(course, body) {
     supabase.from("v5_upload_sessions").update({ status: "aborted", updated_at: now }).eq("id", session.id),
     supabase.from("v5_media_assets").update({ status: "failed", last_error: "Upload aborted by admin", updated_at: now }).eq("id", session.asset_id)
   ]);
+  const postId = clean(session.metadata?.postId);
+  if (postId) await refreshPostReadiness(course.id, postId).catch(() => {});
   return { aborted: true };
 }
 
@@ -256,7 +300,7 @@ export default async function adminV5UploadHandler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ success: false, error: "Method not allowed" });
   try {
     const course = await loadCourse(req.query?.course || req.body?.course);
-    if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+    if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa V5." });
     const action = clean(req.body?.action);
     let result;
     if (action === "init") result = await initUpload(course, admin, req.body || {});
