@@ -50,11 +50,11 @@ export default async function handler(req, res) {
   const requestedV5 = deliveryMode === "v5";
   const requestedV4 = deliveryMode === "v4";
 
-  // V5 is an explicit per-course route and never depends on the global V4
-  // routing flag. V4 keeps its existing service-worker refresh bootstrap;
+  // V5 is an explicit per-course route and uses its own /v5/ Service Worker
+  // scope. V4 keeps the existing refresh bootstrap and worker unchanged;
   // legacy LMS/V3 routing remains unchanged.
   const target = requestedV5
-    ? "/v5.html"
+    ? "/v5/"
     : requestedV4
       ? "/v4-sw-refresh.html"
       : mode === "v3"
