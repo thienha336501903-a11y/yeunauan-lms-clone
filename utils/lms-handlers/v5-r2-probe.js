@@ -17,6 +17,32 @@ export default async function handler(req, res) {
     return res.status(503).json({ success: false, r2: false, error: "r2_not_configured" });
   }
 
+  const requestedKey = String(req.query?.key || "").trim();
+  if (requestedKey) {
+    if (!/^media\/v5\/[A-Za-z0-9._/-]+$/.test(requestedKey)) {
+      return res.status(400).json({ success: false, r2: true, error: "invalid_probe_key" });
+    }
+    try {
+      const object = await headR2Object({ key: requestedKey });
+      return res.status(200).json({
+        success: true,
+        r2: true,
+        probe: "object_stat",
+        exists: Boolean(object),
+        bytes: Number(object?.bytes || 0),
+        etagVisible: Boolean(object?.etag),
+        contentType: object?.contentType || ""
+      });
+    } catch (error) {
+      return res.status(502).json({
+        success: false,
+        r2: false,
+        error: "r2_stat_failed",
+        detail: String(error?.message || error || "unknown").slice(0, 180)
+      });
+    }
+  }
+
   const key = `__v5_probe__/presign-${Date.now()}.txt`;
   let uploadId = "";
   try {
