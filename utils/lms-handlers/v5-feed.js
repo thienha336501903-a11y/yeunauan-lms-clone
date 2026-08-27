@@ -1,6 +1,6 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
-import { isV5PlaybackConfigured, issueV5PlaybackLease } from "../v5-playback-lease.js";
+import { isV5PlaybackConfigured } from "../v5-playback-lease.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -16,11 +16,13 @@ export default async function v5FeedHandler(req, res) {
 
     const { data: course, error: courseError } = await supabase
       .from("courses")
-      .select("id,slug,title,subtitle,image_url")
+      .select("id,slug,title,subtitle,image_url,delivery_mode")
       .eq("slug", courseSlug)
       .maybeSingle();
     if (courseError) throw courseError;
-    if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+    if (!course || clean(course.delivery_mode).toLowerCase() !== "v5") {
+      return res.status(404).json({ success: false, code: "v5_course_not_found", error: "Không tìm thấy khóa V5." });
+    }
 
     const { data: config, error: configError } = await supabase
       .from("v5_course_configs")
@@ -58,37 +60,23 @@ export default async function v5FeedHandler(req, res) {
           .in("id", assetIds)
           .eq("status", "ready");
         if (assetError) throw assetError;
-        assets = (assetRows || []).map(asset => {
-          const publicAsset = {
-            id: asset.id,
-            type: asset.type,
-            provider: asset.provider,
-            origin: asset.origin,
-            mime_type: asset.mime_type,
-            original_filename: asset.original_filename,
-            bytes: asset.bytes,
-            width: asset.width,
-            height: asset.height,
-            duration_ms: asset.duration_ms,
-            status: asset.status,
-            thumbnail_asset_id: asset.thumbnail_asset_id,
-            metadata: asset.metadata || {}
-          };
-          if (asset.provider === "r2" && asset.r2_object_key && isV5PlaybackConfigured()) {
-            const lease = issueV5PlaybackLease({
-              assetId: asset.id,
-              courseSlug,
-              objectKey: asset.r2_object_key,
-              mimeType: asset.mime_type,
-              filename: asset.original_filename,
-              userAgent: req.headers["user-agent"] || "",
-              email: access.email
-            });
-            publicAsset.playback_url = lease.url;
-            publicAsset.playback_expires_at = lease.expiresAt;
-          }
-          return publicAsset;
-        });
+        const playbackConfigured = isV5PlaybackConfigured();
+        assets = (assetRows || []).map(asset => ({
+          id: asset.id,
+          type: asset.type,
+          provider: asset.provider,
+          origin: asset.origin,
+          mime_type: asset.mime_type,
+          original_filename: asset.original_filename,
+          bytes: asset.bytes,
+          width: asset.width,
+          height: asset.height,
+          duration_ms: asset.duration_ms,
+          status: asset.status,
+          thumbnail_asset_id: asset.thumbnail_asset_id,
+          metadata: asset.metadata || {},
+          playback_ready: Boolean(playbackConfigured && asset.provider === "r2" && asset.r2_object_key)
+        }));
       }
     }
 
