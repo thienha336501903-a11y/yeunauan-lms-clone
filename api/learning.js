@@ -6,9 +6,9 @@ function isV4RoutingEnabled() {
   return ["1", "true", "yes", "on", "enabled"].includes(raw);
 }
 
-async function courseUsesV4(courseSlug) {
+async function courseDeliveryMode(courseSlug) {
   const slug = String(courseSlug || "").trim();
-  if (!slug) return false;
+  if (!slug) return "";
 
   const { data, error } = await supabase
     .from("courses")
@@ -18,10 +18,10 @@ async function courseUsesV4(courseSlug) {
 
   if (error) {
     console.warn("[learning-route] course delivery lookup failed:", error.message);
-    return false;
+    return "";
   }
 
-  return String(data?.delivery_mode || "").trim().toLowerCase() === "v4";
+  return String(data?.delivery_mode || "").trim().toLowerCase();
 }
 
 export default async function handler(req, res) {
@@ -38,27 +38,28 @@ export default async function handler(req, res) {
   const qs = params.toString();
   const courseSlug = String(params.get("course") || "").trim();
   const hasCourse = Boolean(courseSlug);
-  const requestedV4 = hasCourse ? await courseUsesV4(courseSlug) : false;
 
   // A bare /learning URL has no course context. Send students to the course
-  // manager instead of guessing a legacy runtime and accidentally opening an
-  // empty Telegram/V3 feed. Course-specific links continue through the normal
-  // V4/legacy routing below.
+  // manager instead of guessing a runtime.
   if (!hasCourse) {
     res.setHeader("Cache-Control", "no-store");
     return res.redirect(307, "/my-courses.html");
   }
 
-  // Course-specific V4 traffic first passes through a tiny same-origin service
-  // worker bootstrap. Existing learners can otherwise remain controlled by an
-  // older playback worker forever because v4.html intentionally reuses an
-  // existing controller. The bootstrap upgrades that controller before the V4
-  // auth/entry flow; legacy LMS routing remains unchanged.
-  const target = requestedV4
-    ? "/v4-sw-refresh.html"
-    : mode === "v3"
-      ? (isV4RoutingEnabled() ? "/v4-sw-refresh.html" : "/v3")
-      : (hasCourse ? "/lms.html" : "/v2-entry.html");
+  const deliveryMode = await courseDeliveryMode(courseSlug);
+  const requestedV5 = deliveryMode === "v5";
+  const requestedV4 = deliveryMode === "v4";
+
+  // V5 is an explicit per-course route and uses its own /v5/ Service Worker
+  // scope. V4 keeps the existing refresh bootstrap and worker unchanged;
+  // legacy LMS/V3 routing remains unchanged.
+  const target = requestedV5
+    ? "/v5/"
+    : requestedV4
+      ? "/v4-sw-refresh.html"
+      : mode === "v3"
+        ? (isV4RoutingEnabled() ? "/v4-sw-refresh.html" : "/v3")
+        : "/lms.html";
 
   res.setHeader("Cache-Control", "no-store");
   return res.redirect(307, target + (qs ? `?${qs}` : ""));

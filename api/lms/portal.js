@@ -13,6 +13,8 @@ import v4TelegramMediaHandler from "../../utils/lms-handlers/v4-telegram-media.j
 import v4TelegramPlayHandler from "../../utils/lms-handlers/v4-telegram-play.js";
 import v4TelegramThumbnailHandler from "../../utils/lms-handlers/v4-telegram-thumbnail.js";
 import v4TelegramWarmupHandler from "../../utils/lms-handlers/v4-telegram-warmup.js";
+import v5FeedHandler from "../../utils/lms-handlers/v5-feed.js";
+import v5PlayHandler from "../../utils/lms-handlers/v5-play.js";
 import healthHandler from "../../utils/lms-handlers/health.js";
 
 export default async function handler(req, res) {
@@ -34,6 +36,8 @@ export default async function handler(req, res) {
   if (endpoint === "v4-telegram-play") return v4TelegramPlayHandler(req, res);
   if (endpoint === "v4-telegram-thumbnail") return v4TelegramThumbnailHandler(req, res);
   if (endpoint === "v4-telegram-warmup") return v4TelegramWarmupHandler(req, res);
+  if (endpoint === "v5-feed") return v5FeedHandler(req, res);
+  if (endpoint === "v5-play") return v5PlayHandler(req, res);
 
   return res.status(404).json({ success: false, error: "LMS Portal Endpoint not found" });
 }
