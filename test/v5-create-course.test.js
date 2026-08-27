@@ -28,3 +28,16 @@ test('V5 course slug is normalized server-side and bounded', () => {
   assert.match(handler, /slice\(0, 80\)/);
   assert.match(handler, /\^\[a-z0-9\]\[a-z0-9-\]\{0,79\}\$/);
 });
+
+test('Course Channel can create and immediately open a new V5 draft', () => {
+  const page = read('v5-admin.html');
+  assert.match(page, /id="newCourseBtn"/);
+  assert.match(page, /id="newCourseTopBtn"/);
+  assert.match(page, /id="courseModal"/);
+  assert.match(page, /endpoint=v5-create-course/);
+  assert.match(page, /function openCourseCreate/);
+  assert.match(page, /async function createCourse/);
+  assert.match(page, /await loadCourses\(data\.course\.slug\)/);
+  assert.match(page, /Khóa mới luôn bắt đầu ở Draft và Tắt bán/);
+  assert.match(page, /slugify\(\$\('newCourseTitleInput'\)\.value\)/);
+});
