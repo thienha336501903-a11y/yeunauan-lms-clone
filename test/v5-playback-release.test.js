@@ -41,6 +41,25 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(sw, /fetchLease\(course, assetId, true\)/);
 });
 
+test('V5 capability reporting follows JWK runtime configuration', () => {
+  const capabilities = read('utils/lms-handlers/admin-v5-capabilities.js');
+  assert.match(capabilities, /V5_PLAYBACK_PRIVATE_JWK/);
+  assert.match(capabilities, /V5_MEDIA_PUBLIC_URL/);
+  assert.doesNotMatch(capabilities, /V5_PLAYBACK_PRIVATE_KEY_PEM/);
+  assert.doesNotMatch(capabilities, /V5_PLAYBACK_PUBLIC_KEY_PEM/);
+});
+
+test('browser-only V5 key generator never sends generated keys over the network', () => {
+  const keygen = read('v5/keygen.html');
+  assert.match(keygen, /crypto\.subtle\.generateKey/);
+  assert.match(keygen, /namedCurve:'P-256'/);
+  assert.match(keygen, /exportKey\('jwk',pair\.privateKey\)/);
+  assert.match(keygen, /exportKey\('jwk',pair\.publicKey\)/);
+  assert.doesNotMatch(keygen, /fetch\s*\(/);
+  assert.doesNotMatch(keygen, /XMLHttpRequest/);
+  assert.doesNotMatch(keygen, /sendBeacon/);
+});
+
 test('Cloudflare Worker verifies lease, UA binding, and serves private R2 byte ranges', () => {
   const worker = read('cloudflare/v5-media-worker/src/index.js');
   assert.match(worker, /crypto\.subtle\.verify/);
