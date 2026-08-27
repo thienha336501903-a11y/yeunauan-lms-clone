@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V5 Playback Key Generator</title>
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:900px;margin:40px auto;padding:0 18px;color:#17212b}button{padding:10px 14px;border:0;border-radius:9px;background:#2cab55;color:#fff;font-weight:700;cursor:pointer}textarea{width:100%;min-height:180px;margin-top:8px;padding:10px;border:1px solid #ccd7dd;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.box{margin:20px 0}.note{background:#fff7df;border:1px solid #f0dca1;padding:12px;border-radius:10px}.ok{color:#16743a;font-weight:700}</style>
+</head>
+<body>
+<h1>V5 Playback Key Generator</h1>
+<p class="note">Trang này tạo khóa bằng WebCrypto ngay trong trình duyệt. Không có request nào gửi Private JWK lên server. Không gửi Private JWK qua chat, email hoặc GitHub.</p>
+<button id="generate">Tạo cặp khóa EC P-256 mới</button>
+<p id="status"></p>
+<div class="box"><strong>Private JWK — dán vào Vercel: V5_PLAYBACK_PRIVATE_JWK</strong><textarea id="private" readonly></textarea></div>
+<div class="box"><strong>Public JWK — dán vào Cloudflare Worker secret: V5_PLAYBACK_PUBLIC_JWK</strong><textarea id="public" readonly></textarea></div>
+<script>
+const $=id=>document.getElementById(id);
+$('generate').onclick=async()=>{
+  $('status').textContent='Đang tạo khóa…';$('private').value='';$('public').value='';
+  try{
+    const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+    const priv=await crypto.subtle.exportKey('jwk',pair.privateKey);
+    const pub=await crypto.subtle.exportKey('jwk',pair.publicKey);
+    $('private').value=JSON.stringify(priv);
+    $('public').value=JSON.stringify(pub);
+    $('status').textContent='✓ Đã tạo. Hãy lưu Private JWK trực tiếp vào Vercel và Public JWK trực tiếp vào Worker.';
+    $('status').className='ok';
+  }catch(error){$('status').textContent='Lỗi: '+error.message;$('status').className='';}
+};
+</script>
+</body></html>
