@@ -15,8 +15,7 @@ export default async function adminV5CapabilitiesHandler(req, res) {
     success: true,
     capabilities: {
       r2Upload: isR2Configured(),
-      playbackSigning: configured("V5_PLAYBACK_PRIVATE_KEY_PEM"),
-      playbackPublicKey: configured("V5_PLAYBACK_PUBLIC_KEY_PEM"),
+      playbackSigning: configured("V5_PLAYBACK_PRIVATE_JWK"),
       mediaPublicUrl: configured("V5_MEDIA_PUBLIC_URL")
     }
   });
