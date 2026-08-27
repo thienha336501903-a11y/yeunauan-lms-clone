@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { supabase } from "../utils/supabase.js";
-import { normalizeEmail } from "../utils/lms.js";
+import { createStudentSession, normalizeEmail } from "../utils/lms.js";
+import { requireV4CourseAccess } from "../utils/v4-telegram-access.js";
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ""));
@@ -89,8 +90,72 @@ async function syncCourse(body) {
   return { success: true, course };
 }
 
+async function runPreviewAccessGate() {
+  const suffix = crypto.randomBytes(5).toString("hex");
+  const slug = `clone-factory-test-v5-access-${suffix}`;
+  const email = `__clone_factory_test_v5_access_${suffix}@example.com`;
+  const orderId = crypto.randomUUID();
+  const checks = [];
+  const record = (name, ok, detail = null) => {
+    checks.push({ name, ok: Boolean(ok), detail });
+    if (!ok) throw new Error(`CHECK_FAILED:${name}`);
+  };
+
+  try {
+    const created = await syncCourse({ slug, title: `__clone_factory_test_v5_access_${suffix}`, active: true });
+    record("sync_course_v5", created.course?.delivery_mode === "v5");
+    const courseId = created.course.id;
+    const now = new Date().toISOString();
+    const { error: publishError } = await supabase.from("courses").update({ is_published: true, active: true, updated_at: now }).eq("id", courseId);
+    if (publishError) throw publishError;
+    const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", updated_at: now }).eq("course_id", courseId);
+    if (configError) throw configError;
+
+    const granted = await syncEnrollment({ email, courseSlug: slug, orderId, action: "create" });
+    record("grant_active", granted.enrollment?.status === "active", JSON.stringify(granted.enrollment));
+    record("grant_source", granted.enrollment?.source_system === "commerce_v5" && granted.enrollment?.source_order_id === orderId, JSON.stringify(granted.enrollment));
+
+    const session = createStudentSession(email);
+    const accessReq = { headers: { cookie: `course_session_token=${encodeURIComponent(session.token)}` } };
+    let access = await requireV4CourseAccess(accessReq, slug);
+    record("active_access_allowed", access.ok === true, JSON.stringify(access));
+
+    const expiredAt = new Date(Date.now() - 60_000).toISOString();
+    const { error: expireError } = await supabase.from("student_enrollments").update({ expired_at: expiredAt, status: "active", updated_at: new Date().toISOString() }).eq("email", email).eq("course_slug", slug);
+    if (expireError) throw expireError;
+    access = await requireV4CourseAccess(accessReq, slug);
+    record("expired_access_blocked", access.ok === false && access.status === 403, JSON.stringify(access));
+
+    const { error: reactivateError } = await supabase.from("student_enrollments").update({ expired_at: null, status: "active", updated_at: new Date().toISOString() }).eq("email", email).eq("course_slug", slug);
+    if (reactivateError) throw reactivateError;
+    access = await requireV4CourseAccess(accessReq, slug);
+    record("reactivated_access_allowed", access.ok === true, JSON.stringify(access));
+
+    const revoked = await syncEnrollment({ email, courseSlug: slug, orderId, action: "revoke" });
+    record("revoke_status", revoked.enrollment?.status === "revoked", JSON.stringify(revoked.enrollment));
+    access = await requireV4CourseAccess(accessReq, slug);
+    record("revoked_access_blocked", access.ok === false && access.status === 403, JSON.stringify(access));
+
+    return { success: true, slug, email, checks };
+  } catch (error) {
+    return { success: false, error: error.message || String(error), slug, email, checks };
+  } finally {
+    await supabase.from("student_enrollments").delete().eq("email", email).eq("course_slug", slug);
+    const { data: course } = await supabase.from("courses").select("id").eq("slug", slug).maybeSingle();
+    if (course?.id) {
+      await supabase.from("v5_course_configs").delete().eq("course_id", course.id);
+      await supabase.from("courses").delete().eq("id", course.id);
+    }
+    await supabase.from("students").delete().eq("email", email);
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
+  if (req.method === "GET" && process.env.VERCEL_ENV === "preview" && String(req.query?.gate || "") === "v5-access-runtime") {
+    const result = await runPreviewAccessGate();
+    return res.status(result.success ? 200 : 500).json(result);
+  }
   if (req.method !== "POST") return res.status(405).json({ success: false, error: "Method not allowed" });
   const supplied = String(req.headers["x-sync-secret"] || "");
   const secret = String(process.env.INTERNAL_SYNC_SECRET || "");
