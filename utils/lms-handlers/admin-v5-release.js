@@ -50,26 +50,39 @@ function preflightFromState(course, state) {
   const warnings = [];
   const lessons = state.lessons || [];
   const posts = state.posts || [];
-  const assets = state.assets || [];
-  if (!state.config) errors.push("Khóa chưa được khởi tạo V5.");
-  if (!lessons.length) errors.push("Khóa chưa có bài học.");
-  if (!posts.length) errors.push("Khóa chưa có nội dung.");
-  const orphanPosts = posts.filter(p => !p.lesson_id && p.status !== "archived");
-  if (orphanPosts.length) errors.push(`Có ${orphanPosts.length} Post chưa thuộc Bài học.`);
   const activeLessons = lessons.filter(l => l.status !== "archived");
   const activePosts = posts.filter(p => p.status !== "archived");
+  const activeLessonIds = new Set(activeLessons.map(l => l.id));
+  const activePostIds = new Set(activePosts.map(p => p.id));
+  const activeLinks = (state.links || []).filter(link => activePostIds.has(link.post_id));
+  const linkedAssetIds = new Set(activeLinks.map(link => link.asset_id).filter(Boolean));
+  const activeAssets = (state.assets || []).filter(asset => linkedAssetIds.has(asset.id));
+  const returnedAssetIds = new Set(activeAssets.map(asset => asset.id));
+  const missingAssetCount = [...linkedAssetIds].filter(id => !returnedAssetIds.has(id)).length;
+
+  if (!state.config) errors.push("Khóa chưa được khởi tạo V5.");
+  if (!activeLessons.length) errors.push("Khóa chưa có Bài học hoạt động để Publish.");
+  if (!activePosts.length) errors.push("Khóa chưa có nội dung hoạt động để Publish.");
+
+  const orphanPosts = activePosts.filter(p => !p.lesson_id);
+  if (orphanPosts.length) errors.push(`Có ${orphanPosts.length} Post chưa thuộc Bài học.`);
+  const invalidParentPosts = activePosts.filter(p => p.lesson_id && !activeLessonIds.has(p.lesson_id));
+  if (invalidParentPosts.length) errors.push(`Có ${invalidParentPosts.length} Post thuộc Bài học đã archived/không hợp lệ.`);
+
   const emptyLessons = activeLessons.filter(l => !activePosts.some(p => p.lesson_id === l.id));
   if (emptyLessons.length) warnings.push(`Có ${emptyLessons.length} Bài học đang trống.`);
   const processingPosts = activePosts.filter(p => p.status === "processing");
   if (processingPosts.length) errors.push(`Có ${processingPosts.length} Post đang xử lý media.`);
-  const failedAssets = assets.filter(a => a.status === "failed");
-  const pendingAssets = assets.filter(a => !["ready", "archived"].includes(a.status));
+
+  if (missingAssetCount) errors.push(`Có ${missingAssetCount} media được gắn vào Post nhưng không còn tồn tại.`);
+  const failedAssets = activeAssets.filter(a => a.status === "failed");
   if (failedAssets.length) errors.push(`Có ${failedAssets.length} media bị lỗi.`);
-  if (pendingAssets.length) errors.push(`Có ${pendingAssets.length} media chưa READY.`);
-  const directWithoutR2 = assets.filter(a => a.origin === "direct" && a.status !== "archived" && (a.provider !== "r2" || !a.r2_object_key));
-  if (directWithoutR2.length) errors.push(`Có ${directWithoutR2.length} media upload trực tiếp chưa có object R2.`);
-  if (!course.active) warnings.push("Khóa đang active=false trong bảng courses.");
-  if (!course.is_published) warnings.push("Khóa chưa bật is_published ở cổng LMS; học viên sẽ chưa vào được dù V5 đã Publish.");
+  const nonReadyAssets = activeAssets.filter(a => a.status !== "ready");
+  if (nonReadyAssets.length) errors.push(`Có ${nonReadyAssets.length} media chưa READY.`);
+  const nonR2Assets = activeAssets.filter(a => a.status === "ready" && (a.provider !== "r2" || !a.r2_object_key));
+  if (nonR2Assets.length) errors.push(`Có ${nonR2Assets.length} media READY nhưng chưa có object R2 phát cho học viên.`);
+
+  if (!course.active) warnings.push("Khóa đang Tắt bán. Publish chỉ cập nhật nội dung; hệ thống sẽ không tự mở bán.");
   return {
     ok: errors.length === 0,
     errors,
@@ -77,11 +90,11 @@ function preflightFromState(course, state) {
     counts: {
       lessons: activeLessons.length,
       posts: activePosts.length,
-      assets: assets.filter(a => a.status !== "archived").length,
-      videos: assets.filter(a => a.type === "video" && a.status !== "archived").length,
-      images: assets.filter(a => a.type === "image" && a.status !== "archived").length,
-      documents: assets.filter(a => a.type === "document" && a.status !== "archived").length,
-      readyAssets: assets.filter(a => a.status === "ready").length
+      assets: activeAssets.length,
+      videos: activeAssets.filter(a => a.type === "video").length,
+      images: activeAssets.filter(a => a.type === "image").length,
+      documents: activeAssets.filter(a => a.type === "document").length,
+      readyAssets: activeAssets.filter(a => a.status === "ready" && a.provider === "r2" && a.r2_object_key).length
     }
   };
 }
@@ -235,6 +248,9 @@ export default async function adminV5ReleaseHandler(req, res) {
   try {
     const course = await loadCourse(req.query?.course || req.body?.course);
     if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+    if (clean(course.delivery_mode).toLowerCase() !== "v5") {
+      return res.status(409).json({ success: false, code: "v5_course_mode_required", error: "Chỉ khóa LMS V5 mới dùng được V5 Release." });
+    }
     if (req.method === "GET") {
       const { report } = await preflight(course);
       return res.status(200).json({ success: true, report, releases: await listReleases(course) });
