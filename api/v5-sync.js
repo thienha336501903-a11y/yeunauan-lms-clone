@@ -53,11 +53,16 @@ async function requireCanonicalPublishedRelease(course) {
   return { config, release };
 }
 
-async function requireV5ReadyForEnrollment(courseSlug) {
+async function requireV5PublishedForExistingAccess(courseSlug) {
   const course = await requireV5Course(courseSlug);
-  if (course.active !== true) throw conflict("Khóa V5 chưa mở bán.", "v5_course_inactive");
   if (course.is_published !== true) throw conflict("Khóa V5 chưa Publish.", "v5_course_unpublished");
   await requireCanonicalPublishedRelease(course);
+  return course;
+}
+
+async function requireV5ReadyForEnrollment(courseSlug) {
+  const course = await requireV5PublishedForExistingAccess(courseSlug);
+  if (course.active !== true) throw conflict("Khóa V5 chưa mở bán.", "v5_course_inactive");
   return course;
 }
 
@@ -78,11 +83,13 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
   if (!validUuid(cleanOrderId)) {
     throw Object.assign(new Error("Thiếu hoặc sai orderId cho đồng bộ enrollment V5"), { statusCode: 400, code: "v5_invalid_order_id" });
   }
+  if (!["create", "restore", "revoke"].includes(action)) {
+    throw Object.assign(new Error("Hành động enrollment V5 không hợp lệ"), { statusCode: 400, code: "v5_invalid_enrollment_action" });
+  }
   const now = new Date().toISOString();
 
   // Revoke is idempotent and remains available after unpublish/deactivation, but
   // it may only revoke the entitlement owned by this exact Commerce V5 order.
-  // This prevents rejecting an older order from revoking a newer/manual grant.
   if (action === "revoke") {
     const course = await requireV5Course(courseSlug);
     const { data, error } = await supabase
@@ -98,7 +105,13 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
     return { success: true, enrollment: data || null, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
   }
 
-  const course = await requireV5ReadyForEnrollment(courseSlug);
+  // New approval requires the Commerce sale switch ON. Recovery/resync of an
+  // order that is already approved only requires learner content to remain
+  // Published; turning sales OFF must never prevent restoring an existing grant.
+  const course = action === "restore"
+    ? await requireV5PublishedForExistingAccess(courseSlug)
+    : await requireV5ReadyForEnrollment(courseSlug);
+
   const { data: existingEnrollment, error: enrollmentReadError } = await supabase
     .from("student_enrollments")
     .select("id,status,expired_at,source_system,source_order_id")
@@ -201,10 +214,6 @@ async function syncCourse(body) {
     const { data, error } = await supabase.from("courses").update(patch).eq("id", existing.id).select("id,slug,title,delivery_mode,active,is_published").single();
     if (error) throw error;
     course = data;
-
-    // Commerce can create the shared V5 course shell before this sync call.
-    // Bootstrap a Draft config only when it is genuinely missing; an existing
-    // config (including Published + release pointer) is returned untouched.
     await ensureDraftConfigIfMissing(course.id);
   } else {
     const { data, error } = await supabase.from("courses").insert({
@@ -235,6 +244,7 @@ export default async function handler(req, res) {
     const action = String(req.body?.action || "").trim();
     if (action === "syncCourse") return res.status(200).json(await syncCourse(req.body || {}));
     if (action === "syncEnrollment") return res.status(200).json(await syncEnrollment({ ...req.body, action: "create" }));
+    if (action === "restoreEnrollment") return res.status(200).json(await syncEnrollment({ ...req.body, action: "restore" }));
     if (action === "revokeEnrollment") return res.status(200).json(await syncEnrollment({ ...req.body, action: "revoke" }));
     return res.status(400).json({ success: false, error: "Action không hợp lệ" });
   } catch (error) {
