@@ -1,5 +1,7 @@
 -- Atomic V5 release pointer switch. Learners render from the selected immutable
 -- release snapshot; authoring rows may be prepared before this transaction.
+-- Content Publish owns courses.is_published, while courses.active remains the
+-- independent Commerce sale switch and is never enabled by this function.
 
 create or replace function public.v5_publish_release_atomic(
   p_course_id uuid,
@@ -54,6 +56,17 @@ begin
         published_release_id = v_release,
         updated_at = now()
   where course_id = p_course_id;
+
+  -- The canonical release is now selected, so expose content to entitled
+  -- learners. Do not mutate `active`: Publish must never silently open sales.
+  update public.courses
+    set is_published = true,
+        updated_at = now()
+  where id = p_course_id
+    and lower(coalesce(delivery_mode, '')) = 'v5';
+  if not found then
+    raise exception 'v5_course_missing_or_mode_invalid';
+  end if;
 
   return query select v_release, v_version, v_previous;
 end;

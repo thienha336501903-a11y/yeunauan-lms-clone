@@ -48,3 +48,11 @@ test('atomic switch migration is service-role only and pins search_path', () => 
   assert.match(migration, /revoke all[\s\S]*from authenticated/i);
   assert.match(migration, /grant execute[\s\S]*to service_role/i);
 });
+
+test('V5 Publish owns learner content readiness but never opens Commerce sales', () => {
+  const migration = read('sql/migration_lms_v5_atomic_release_20260828.sql');
+  assert.match(migration, /update public\.v5_course_configs[\s\S]*published_release_id = v_release/);
+  assert.match(migration, /update public\.courses[\s\S]*set is_published = true/);
+  assert.match(migration, /lower\(coalesce\(delivery_mode, ''\)\) = 'v5'/);
+  assert.doesNotMatch(migration, /set[\s\S]{0,80}active\s*=\s*true/i);
+});
