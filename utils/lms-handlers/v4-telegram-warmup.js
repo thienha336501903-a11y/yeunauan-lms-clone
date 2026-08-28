@@ -3,21 +3,28 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import {
   findMtprotoVideoMessage,
-  telegramVideoMessageTypes
+  telegramVideoMessageTypes,
+  videoTransport
 } from "../v4-telegram-media-meta.js";
 import { cloneConfig } from "../clone-config.js";
 
 const TICKET_TTL_MS = 2 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20 * 1000;
-const WARMUP_DEFER_MS = 1800;
+const WARMUP_MAX_ATTEMPTS = 2;
+const WARMUP_RETRY_DELAY_MS = 350;
+const FALLBACK_WARMUP_DEFER_MS = 1800;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mtprotoPrepareGatewayUrl() {
-  const configured = String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim();
-  const base = configured || `${cloneConfig().telegramMtprotoGatewayUrl}?prepare=1`;
+function prepareGatewayUrl(transport) {
+  const configured = transport === "mtproto"
+    ? String(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "").trim()
+    : String(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").trim();
+  const base = configured || (transport === "mtproto"
+    ? cloneConfig().telegramMtprotoGatewayUrl
+    : cloneConfig().telegramMediaGatewayUrl);
   try {
     const url = new URL(base);
     url.searchParams.delete("stream");
@@ -32,6 +39,48 @@ function mtprotoPrepareGatewayUrl() {
 
 function gatewayUrlWithTicket(url, ticket) {
   return `${url}${url.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
+}
+
+function retryableWarmupStatus(status) {
+  return [500, 502, 503, 504].includes(Number(status));
+}
+
+async function prepareUpstream(transport, warmupToken) {
+  const url = gatewayUrlWithTicket(prepareGatewayUrl(transport), warmupToken);
+  let upstream = null;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= WARMUP_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
+    try {
+      upstream = await fetch(url, {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller.signal
+      });
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+      upstream = null;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const shouldRetry = attempt < WARMUP_MAX_ATTEMPTS && (
+      Boolean(lastError) || retryableWarmupStatus(upstream?.status)
+    );
+    if (!shouldRetry) return { upstream, error: lastError, attempts: attempt };
+
+    console.warn(
+      "[v4-telegram-warmup] prepare retry",
+      transport,
+      lastError?.name || upstream?.status || "network"
+    );
+    await sleep(WARMUP_RETRY_DELAY_MS);
+  }
+
+  return { upstream, error: lastError, attempts: WARMUP_MAX_ATTEMPTS };
 }
 
 async function cleanupWarmupTicket(token) {
@@ -52,9 +101,10 @@ export default async function handler(req, res) {
 
   let warmupToken = "";
   try {
-    await sleep(WARMUP_DEFER_MS);
-
     const courseSlug = String(req.query?.course || "").trim();
+    const messageRowId = String(req.body?.message || req.query?.message || "").trim();
+    if (!messageRowId) await sleep(FALLBACK_WARMUP_DEFER_MS);
+
     const access = await requireV4CourseAccess(req, courseSlug);
     if (!access.ok) {
       return res.status(access.status).json({ success: false, code: access.code, error: access.error });
@@ -71,18 +121,36 @@ export default async function handler(req, res) {
       return res.status(204).end();
     }
 
-    const { data: rows, error: rowsError } = await supabase
-      .from("tgcloner_source_messages")
-      .select("id,source_id,source_message_id,message_type,raw_message")
-      .eq("source_id", mapping.source_id)
-      .in("message_type", telegramVideoMessageTypes())
-      .order("source_message_id", { ascending: true })
-      .limit(2000);
-    if (rowsError) throw rowsError;
-
-    const row = findMtprotoVideoMessage(rows);
+    let row = null;
+    if (messageRowId) {
+      const { data, error } = await supabase
+        .from("tgcloner_source_messages")
+        .select("id,source_id,source_message_id,message_type,raw_message")
+        .eq("id", messageRowId)
+        .eq("source_id", mapping.source_id)
+        .in("message_type", telegramVideoMessageTypes())
+        .maybeSingle();
+      if (error) throw error;
+      row = data || null;
+    } else {
+      const { data: rows, error: rowsError } = await supabase
+        .from("tgcloner_source_messages")
+        .select("id,source_id,source_message_id,message_type,raw_message")
+        .eq("source_id", mapping.source_id)
+        .in("message_type", telegramVideoMessageTypes())
+        .order("source_message_id", { ascending: true })
+        .limit(2000);
+      if (rowsError) throw rowsError;
+      row = findMtprotoVideoMessage(rows);
+    }
     if (!row) {
-      res.setHeader("X-MTProto-Warmup", "skipped-no-mtproto-video");
+      res.setHeader("X-Media-Warmup", messageRowId ? "skipped-message" : "skipped-no-mtproto-video");
+      return res.status(204).end();
+    }
+
+    const transport = videoTransport(row.raw_message, row.message_type);
+    if (!transport) {
+      res.setHeader("X-Media-Warmup", "skipped-not-video");
       return res.status(204).end();
     }
 
@@ -101,35 +169,31 @@ export default async function handler(req, res) {
       });
     if (ticketError) throw ticketError;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
-    let upstream;
-    try {
-      upstream = await fetch(gatewayUrlWithTicket(mtprotoPrepareGatewayUrl(), warmupToken), {
-        method: "HEAD",
-        cache: "no-store",
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const prepared = await prepareUpstream(transport, warmupToken);
+    const upstream = prepared.upstream;
+    res.setHeader("X-Media-Warmup-Attempts", String(prepared.attempts));
+
+    if (prepared.error) throw prepared.error;
+    if (!upstream) throw new Error("Warm-up gateway returned no response");
 
     const timing = upstream.headers.get("server-timing");
     if (timing) res.setHeader("Server-Timing", timing);
-    const transport = upstream.headers.get("x-telegram-media-transport");
-    if (transport) res.setHeader("X-Telegram-Media-Transport", transport);
+    const upstreamTransport = upstream.headers.get("x-telegram-media-transport");
+    if (upstreamTransport) res.setHeader("X-Telegram-Media-Transport", upstreamTransport);
     const layout = upstream.headers.get("x-mp4-layout");
     if (layout) res.setHeader("X-MP4-Layout", layout);
     const cacheSource = upstream.headers.get("x-mp4-index-cache");
     if (cacheSource) res.setHeader("X-MP4-Index-Cache", cacheSource);
 
     if (!upstream.ok) {
-      console.warn("[v4-telegram-warmup] MTProto prepare failed", upstream.status);
-      res.setHeader("X-MTProto-Warmup", "failed");
+      console.warn("[v4-telegram-warmup] prepare failed", transport, upstream.status);
+      res.setHeader("X-Media-Warmup", "failed");
       return res.status(502).json({ success: false, code: "warmup_gateway_failed" });
     }
 
-    res.setHeader("X-MTProto-Warmup", "ready");
+    res.setHeader("X-Media-Warmup", "ready");
+    res.setHeader("X-MTProto-Warmup", transport === "mtproto" ? "ready" : "not-required");
+    res.setHeader("X-V4-Warmup-Transport", transport);
     res.setHeader("X-Media-Warmup-Count", "1/1");
     return res.status(204).end();
   } catch (error) {
