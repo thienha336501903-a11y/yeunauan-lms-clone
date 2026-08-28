@@ -1,6 +1,7 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { issueV5PlaybackLease } from "../v5-playback-lease.js";
+import { v5ReleaseHasAsset } from "../v5-release-snapshot.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -30,12 +31,23 @@ export default async function v5PlayHandler(req, res) {
 
     const { data: config, error: configError } = await supabase
       .from("v5_course_configs")
-      .select("status")
+      .select("status,published_release_id")
       .eq("course_id", course.id)
       .maybeSingle();
     if (configError) throw configError;
-    if (!config || config.status !== "published") {
+    if (!config || config.status !== "published" || !config.published_release_id) {
       return res.status(403).json({ success: false, code: "v5_not_published", error: "Khóa V5 chưa được Publish." });
+    }
+
+    const { data: release, error: releaseError } = await supabase
+      .from("v5_releases")
+      .select("id,status,snapshot")
+      .eq("id", config.published_release_id)
+      .eq("course_id", course.id)
+      .maybeSingle();
+    if (releaseError) throw releaseError;
+    if (!release || release.status !== "published" || !v5ReleaseHasAsset(release.snapshot, assetId)) {
+      return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
     }
 
     const { data: asset, error: assetError } = await supabase
@@ -47,24 +59,6 @@ export default async function v5PlayHandler(req, res) {
     if (!asset || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) {
       return res.status(404).json({ success: false, code: "v5_media_not_ready", error: "Media V5 chưa sẵn sàng." });
     }
-
-    const { data: links, error: linkError } = await supabase
-      .from("v5_post_assets")
-      .select("post_id")
-      .eq("asset_id", asset.id);
-    if (linkError) throw linkError;
-    const postIds = [...new Set((links || []).map(item => item.post_id).filter(Boolean))];
-    if (!postIds.length) return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc nội dung đã Publish." });
-
-    const { data: posts, error: postError } = await supabase
-      .from("v5_posts")
-      .select("id")
-      .in("id", postIds)
-      .eq("course_id", course.id)
-      .eq("status", "published")
-      .limit(1);
-    if (postError) throw postError;
-    if (!posts?.length) return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc nội dung đã Publish." });
 
     const lease = issueV5PlaybackLease({
       assetId: asset.id,
@@ -79,6 +73,7 @@ export default async function v5PlayHandler(req, res) {
     return res.status(200).json({
       success: true,
       assetId: asset.id,
+      releaseId: release.id,
       playbackUrl: lease.url,
       expiresAt: lease.expiresAt
     });

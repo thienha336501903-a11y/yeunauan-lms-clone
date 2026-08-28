@@ -106,10 +106,38 @@ function releaseSnapshot(state) {
   };
 }
 
-async function nextReleaseVersion(courseId) {
-  const { data, error } = await supabase.from("v5_releases").select("version").eq("course_id", courseId).order("version", { ascending: false }).limit(1);
-  if (error) throw error;
-  return Number(data?.[0]?.version || 0) + 1;
+async function atomicPublishSnapshot(courseId, snapshot, createdBy) {
+  const { data, error } = await supabase.rpc("v5_publish_release_atomic", {
+    p_course_id: courseId,
+    p_snapshot: snapshot,
+    p_created_by: createdBy || null
+  });
+  if (error) {
+    const wrapped = new Error(error.message || "Không thể chuyển release V5 atomically.");
+    wrapped.code = "v5_atomic_publish_failed";
+    throw wrapped;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.release_id) {
+    const error = new Error("RPC Publish V5 không trả release hợp lệ.");
+    error.code = "v5_atomic_publish_failed";
+    throw error;
+  }
+  return { id: row.release_id, version: Number(row.release_version || 0), previousId: row.previous_release_id || null };
+}
+
+async function markSnapshotRowsPublished(courseId, snapshot) {
+  const now = new Date().toISOString();
+  const lessonIds = (snapshot.lessons || []).map(x => x.id).filter(Boolean);
+  const postIds = (snapshot.posts || []).map(x => x.id).filter(Boolean);
+  if (lessonIds.length) {
+    const { error } = await supabase.from("v5_lessons").update({ status: "published", updated_at: now }).in("id", lessonIds).eq("course_id", courseId);
+    if (error) throw error;
+  }
+  if (postIds.length) {
+    const { error } = await supabase.from("v5_posts").update({ status: "published", updated_at: now }).in("id", postIds).eq("course_id", courseId);
+    if (error) throw error;
+  }
 }
 
 async function publish(course, admin) {
@@ -120,34 +148,13 @@ async function publish(course, admin) {
     error.report = report;
     throw error;
   }
-  const version = await nextReleaseVersion(course.id);
   const snapshot = releaseSnapshot(state);
-  const { data: release, error: releaseError } = await supabase.from("v5_releases").insert({ course_id: course.id, version, status: "published", snapshot, created_by: admin.email }).select("*").single();
-  if (releaseError) throw releaseError;
-  const now = new Date().toISOString();
-  try {
-    const previousId = state.config?.published_release_id;
-    if (previousId) {
-      const { error } = await supabase.from("v5_releases").update({ status: "superseded" }).eq("id", previousId).eq("course_id", course.id);
-      if (error) throw error;
-    }
-    const lessonIds = snapshot.lessons.map(x => x.id);
-    const postIds = snapshot.posts.map(x => x.id);
-    if (lessonIds.length) {
-      const { error } = await supabase.from("v5_lessons").update({ status: "published", updated_at: now }).in("id", lessonIds).eq("course_id", course.id);
-      if (error) throw error;
-    }
-    if (postIds.length) {
-      const { error } = await supabase.from("v5_posts").update({ status: "published", updated_at: now }).in("id", postIds).eq("course_id", course.id);
-      if (error) throw error;
-    }
-    const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", published_release_id: release.id, updated_at: now }).eq("course_id", course.id);
-    if (configError) throw configError;
-  } catch (error) {
-    await supabase.from("v5_releases").update({ status: "rolled_back" }).eq("id", release.id);
-    throw error;
-  }
-  return { release: { id: release.id, version: release.version, created_at: release.created_at }, report };
+
+  // Draft/canonical rows may change first because learners no longer read them.
+  // The learner-visible change happens only at the final atomic release-pointer switch.
+  await markSnapshotRowsPublished(course.id, snapshot);
+  const release = await atomicPublishSnapshot(course.id, snapshot, admin.email);
+  return { release: { id: release.id, version: release.version, created_at: snapshot.created_at }, report };
 }
 
 async function movePositionsToTemporarySpace(courseId, rows, table, base) {
@@ -169,7 +176,8 @@ async function rollback(course, admin, releaseIdInput) {
   const snapshotPostIds = new Set((snapshot.posts || []).map(x => x.id));
   const now = new Date().toISOString();
 
-  // Avoid unique(course_id, position) collisions while restoring historical order.
+  // Restore the authoring projection first. If any step fails, learners remain on
+  // the previous immutable release because the pointer has not changed yet.
   await movePositionsToTemporarySpace(course.id, current.lessons, "v5_lessons", 200000000);
   await movePositionsToTemporarySpace(course.id, current.posts, "v5_posts", 300000000);
 
@@ -203,14 +211,14 @@ async function rollback(course, admin, releaseIdInput) {
     }
   }
 
-  const version = await nextReleaseVersion(course.id);
-  const { data: newRelease, error: newReleaseError } = await supabase.from("v5_releases").insert({ course_id: course.id, version, status: "published", snapshot, created_by: admin.email }).select("*").single();
-  if (newReleaseError) throw newReleaseError;
-  if (current.config?.published_release_id && current.config.published_release_id !== newRelease.id) {
-    await supabase.from("v5_releases").update({ status: "superseded" }).eq("id", current.config.published_release_id).eq("course_id", course.id);
-  }
-  const { error: configError } = await supabase.from("v5_course_configs").update({ status: "published", published_release_id: newRelease.id, source_mode: snapshot.config?.source_mode || "direct", settings: snapshot.config?.settings || {}, updated_at: now }).eq("course_id", course.id);
-  if (configError) throw configError;
+  const { error: configDraftError } = await supabase.from("v5_course_configs").update({
+    source_mode: snapshot.config?.source_mode || "direct",
+    settings: snapshot.config?.settings || {},
+    updated_at: now
+  }).eq("course_id", course.id);
+  if (configDraftError) throw configDraftError;
+
+  const newRelease = await atomicPublishSnapshot(course.id, snapshot, admin.email);
   return { rollbackFrom: release.id, release: { id: newRelease.id, version: newRelease.version } };
 }
 
