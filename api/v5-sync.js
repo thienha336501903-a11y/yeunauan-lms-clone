@@ -76,6 +76,52 @@ async function upsertStudent(email) {
   return data;
 }
 
+async function readCommerceOrderEnrollment(orderId) {
+  const { data, error } = await supabase
+    .from("student_enrollments")
+    .select("id,email,course_slug,status,expired_at,source_system,source_order_id")
+    .eq("source_system", "commerce_v5")
+    .eq("source_order_id", orderId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function readTargetEnrollment(email, courseSlug) {
+  const { data, error } = await supabase
+    .from("student_enrollments")
+    .select("id,email,course_slug,status,expired_at,source_system,source_order_id")
+    .eq("email", email)
+    .eq("course_slug", courseSlug)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+function sameEnrollmentIdentity(enrollment, email, courseSlug) {
+  return normalizeEmail(enrollment?.email) === email && String(enrollment?.course_slug || "") === courseSlug;
+}
+
+function guardNullable(query, column, value) {
+  return value === null || value === undefined ? query.is(column, null) : query.eq(column, value);
+}
+
+async function activateEnrollmentRow(existing, payload) {
+  let query = supabase
+    .from("student_enrollments")
+    .update(payload)
+    .eq("id", existing.id)
+    .eq("email", normalizeEmail(existing.email))
+    .eq("course_slug", String(existing.course_slug || ""));
+  query = guardNullable(query, "status", existing.status);
+  query = guardNullable(query, "source_system", existing.source_system);
+  query = guardNullable(query, "source_order_id", existing.source_order_id);
+  const { data, error } = await query.select("id,email,course_slug,status,source_system,source_order_id,expired_at").maybeSingle();
+  if (error) throw error;
+  if (!data) throw conflict("Enrollment V5 đã thay đổi trong lúc đồng bộ.", "v5_enrollment_write_race");
+  return data;
+}
+
 async function syncEnrollment({ email, courseSlug, orderId, action }) {
   if (!validEmail(email)) throw Object.assign(new Error("Email học viên không hợp lệ"), { statusCode: 400, code: "v5_invalid_email" });
   const cleanEmail = normalizeEmail(email);
@@ -88,8 +134,6 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
   }
   const now = new Date().toISOString();
 
-  // Revoke is idempotent and remains available after unpublish/deactivation, but
-  // it may only revoke the entitlement owned by this exact Commerce V5 order.
   if (action === "revoke") {
     const course = await requireV5Course(courseSlug);
     const { data, error } = await supabase
@@ -105,28 +149,39 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
     return { success: true, enrollment: data || null, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
   }
 
-  // New approval requires the Commerce sale switch ON. Recovery/resync of an
-  // order that is already approved only requires learner content to remain
-  // Published; turning sales OFF must never prevent restoring an existing grant.
   const course = action === "restore"
     ? await requireV5PublishedForExistingAccess(courseSlug)
     : await requireV5ReadyForEnrollment(courseSlug);
 
-  const { data: existingEnrollment, error: enrollmentReadError } = await supabase
-    .from("student_enrollments")
-    .select("id,status,expired_at,source_system,source_order_id")
-    .eq("email", cleanEmail)
-    .eq("course_slug", course.slug)
-    .maybeSingle();
-  if (enrollmentReadError) throw enrollmentReadError;
+  const [orderEnrollment, targetEnrollment] = await Promise.all([
+    readCommerceOrderEnrollment(cleanOrderId),
+    readTargetEnrollment(cleanEmail, course.slug)
+  ]);
 
-  if (existingEnrollment && isEnrollmentUsable(existingEnrollment)) {
-    const sameOrder = String(existingEnrollment.source_system || "") === "commerce_v5"
-      && String(existingEnrollment.source_order_id || "") === cleanOrderId;
-    if (!sameOrder) {
+  if (orderEnrollment && isEnrollmentUsable(orderEnrollment) && !sameEnrollmentIdentity(orderEnrollment, cleanEmail, course.slug)) {
+    throw conflict(
+      "Order V5 này đang sở hữu một quyền học còn hiệu lực cho học viên/khóa khác; phải revoke trước khi đổi identity.",
+      "v5_order_entitlement_identity_locked"
+    );
+  }
+
+  if (targetEnrollment && targetEnrollment.id !== orderEnrollment?.id) {
+    if (isEnrollmentUsable(targetEnrollment)) {
       throw conflict(
         "Học viên đã có quyền V5 còn hiệu lực từ một nguồn/order khác; không tự động chuyển ownership.",
         "v5_enrollment_owned_by_other_grant"
+      );
+    }
+    if (String(targetEnrollment.source_system || "") !== "commerce_v5") {
+      throw conflict(
+        "Enrollment lịch sử của học viên thuộc nguồn khác; cần cleanup/điều phối thủ công trước khi gán Commerce V5.",
+        "v5_enrollment_history_owned_by_other_source"
+      );
+    }
+    if (orderEnrollment) {
+      throw conflict(
+        "Có hai enrollment lịch sử cần hợp nhất; không tự động xóa hoặc chuyển ownership.",
+        "v5_enrollment_history_conflict"
       );
     }
   }
@@ -144,9 +199,25 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
     expired_at: null,
     updated_at: now
   };
-  const { data, error } = await supabase.from("student_enrollments").upsert(payload, { onConflict: "email,course_slug" }).select("id,email,course_slug,status,source_system,source_order_id,expired_at").single();
-  if (error) throw error;
-  return { success: true, enrollment: data, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
+
+  let enrollment;
+  if (orderEnrollment) {
+    enrollment = await activateEnrollmentRow(orderEnrollment, payload);
+  } else if (targetEnrollment) {
+    // Only a non-usable historical Commerce V5 row reaches this branch. Guard
+    // its old owner/status/identity so concurrent approvals cannot steal it.
+    enrollment = await activateEnrollmentRow(targetEnrollment, payload);
+  } else {
+    const { data, error } = await supabase
+      .from("student_enrollments")
+      .insert(payload)
+      .select("id,email,course_slug,status,source_system,source_order_id,expired_at")
+      .single();
+    if (error) throw error;
+    enrollment = data;
+  }
+
+  return { success: true, enrollment, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
 }
 
 async function canActivateExistingV5(course) {
@@ -196,11 +267,11 @@ async function syncCourse(body) {
   const patch = {
     slug,
     title,
-    subtitle: String(body.subtitle || "").trim() || null,
-    image_url: String(body.imageUrl || "").trim() || null,
     delivery_mode: "v5",
     updated_at: new Date().toISOString()
   };
+  if (body.subtitle !== undefined) patch.subtitle = String(body.subtitle || "").trim() || null;
+  if (body.imageUrl !== undefined) patch.image_url = String(body.imageUrl || "").trim() || null;
   if (body.expected_start_date !== undefined) patch.expected_start_date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expected_start_date || "")) ? String(body.expected_start_date) : null;
 
   let course;
