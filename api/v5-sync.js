@@ -11,6 +11,7 @@ function safeEqual(left, right) {
 
 function validSlug(value) { return /^[a-z0-9_-]+$/.test(String(value || "").trim()); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value)); }
+function validUuid(value) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim()); }
 function conflict(message, code) { return Object.assign(new Error(message), { statusCode: 409, code }); }
 
 async function requireV5Course(courseSlug) {
@@ -72,12 +73,26 @@ async function upsertStudent(email) {
 async function syncEnrollment({ email, courseSlug, orderId, action }) {
   if (!validEmail(email)) throw Object.assign(new Error("Email học viên không hợp lệ"), { statusCode: 400, code: "v5_invalid_email" });
   const cleanEmail = normalizeEmail(email);
+  const cleanOrderId = String(orderId || "").trim();
+  if (!validUuid(cleanOrderId)) {
+    throw Object.assign(new Error("Thiếu hoặc sai orderId cho đồng bộ enrollment V5"), { statusCode: 400, code: "v5_invalid_order_id" });
+  }
   const now = new Date().toISOString();
 
-  // Revoke must stay fail-safe even after a course is unpublished or deactivated.
+  // Revoke is idempotent and remains available after unpublish/deactivation, but
+  // it may only revoke the entitlement owned by this exact Commerce V5 order.
+  // This prevents rejecting an older order from revoking a newer/manual grant.
   if (action === "revoke") {
     const course = await requireV5Course(courseSlug);
-    const { data, error } = await supabase.from("student_enrollments").update({ status: "revoked", updated_at: now }).eq("email", cleanEmail).eq("course_slug", course.slug).select("id,email,course_slug,status").maybeSingle();
+    const { data, error } = await supabase
+      .from("student_enrollments")
+      .update({ status: "revoked", updated_at: now })
+      .eq("email", cleanEmail)
+      .eq("course_slug", course.slug)
+      .eq("source_system", "commerce_v5")
+      .eq("source_order_id", cleanOrderId)
+      .select("id,email,course_slug,status,source_system,source_order_id")
+      .maybeSingle();
     if (error) throw error;
     return { success: true, enrollment: data || null, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
   }
@@ -92,7 +107,7 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
     normalized_email: cleanEmail,
     status: "active",
     source_system: "commerce_v5",
-    source_order_id: orderId || null,
+    source_order_id: cleanOrderId,
     updated_at: now
   };
   const { data, error } = await supabase.from("student_enrollments").upsert(payload, { onConflict: "email,course_slug" }).select("id,email,course_slug,status,source_system,source_order_id").single();
