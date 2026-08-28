@@ -51,6 +51,18 @@ test('V5 capability reporting follows JWK runtime configuration', () => {
   assert.doesNotMatch(capabilities, /V5_PLAYBACK_PUBLIC_KEY_PEM/);
 });
 
+test('Cloudflare Worker verifies lease, UA binding, and serves private R2 byte ranges', () => {
+  const worker = read('cloudflare/v5-media-worker/src/index.js');
+  assert.match(worker, /crypto\.subtle\.verify/);
+  assert.match(worker, /lease_ua_mismatch/);
+  assert.match(worker, /env\.V5_MEDIA\.head/);
+  assert.match(worker, /env\.V5_MEDIA\.get/);
+  assert.match(worker, /Content-Range/);
+  assert.match(worker, /Accept-Ranges/);
+  assert.match(worker, /Content-Disposition/);
+  assert.match(worker, /private, no-store/);
+});
+
 test('V5 release lifecycle blocks unfinished media and switches the learner release atomically', () => {
   const release = read('utils/lms-handlers/admin-v5-release.js');
   const migration = read('sql/migration_lms_v5_atomic_release_20260828.sql');
