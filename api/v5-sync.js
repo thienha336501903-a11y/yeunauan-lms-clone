@@ -11,14 +11,52 @@ function safeEqual(left, right) {
 
 function validSlug(value) { return /^[a-z0-9_-]+$/.test(String(value || "").trim()); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value)); }
+function conflict(message, code) { return Object.assign(new Error(message), { statusCode: 409, code }); }
 
 async function requireV5Course(courseSlug) {
   const slug = String(courseSlug || "").trim();
-  if (!validSlug(slug)) throw Object.assign(new Error("Slug khóa học không hợp lệ"), { statusCode: 400 });
-  const { data, error } = await supabase.from("courses").select("id,slug,title,delivery_mode").eq("slug", slug).maybeSingle();
+  if (!validSlug(slug)) throw Object.assign(new Error("Slug khóa học không hợp lệ"), { statusCode: 400, code: "v5_invalid_slug" });
+  const { data, error } = await supabase
+    .from("courses")
+    .select("id,slug,title,delivery_mode,active,is_published")
+    .eq("slug", slug)
+    .maybeSingle();
   if (error) throw error;
-  if (!data || String(data.delivery_mode || "").toLowerCase() !== "v5") throw Object.assign(new Error("Khóa học không tồn tại hoặc không phải V5"), { statusCode: 409 });
+  if (!data || String(data.delivery_mode || "").toLowerCase() !== "v5") {
+    throw conflict("Khóa học không tồn tại hoặc không phải V5", "v5_course_not_found");
+  }
   return data;
+}
+
+async function requireCanonicalPublishedRelease(course) {
+  const { data: config, error: configError } = await supabase
+    .from("v5_course_configs")
+    .select("status,published_release_id")
+    .eq("course_id", course.id)
+    .maybeSingle();
+  if (configError) throw configError;
+  if (!config || config.status !== "published" || !config.published_release_id) {
+    throw conflict("Khóa V5 chưa có release Published hợp lệ.", "v5_release_not_published");
+  }
+  const { data: release, error: releaseError } = await supabase
+    .from("v5_releases")
+    .select("id,course_id,status")
+    .eq("id", config.published_release_id)
+    .eq("course_id", course.id)
+    .maybeSingle();
+  if (releaseError) throw releaseError;
+  if (!release || release.status !== "published") {
+    throw conflict("Release Published của khóa V5 không hợp lệ.", "v5_release_not_published");
+  }
+  return { config, release };
+}
+
+async function requireV5ReadyForEnrollment(courseSlug) {
+  const course = await requireV5Course(courseSlug);
+  if (course.active !== true) throw conflict("Khóa V5 chưa mở bán.", "v5_course_inactive");
+  if (course.is_published !== true) throw conflict("Khóa V5 chưa Publish.", "v5_course_unpublished");
+  await requireCanonicalPublishedRelease(course);
+  return course;
 }
 
 async function upsertStudent(email) {
@@ -32,15 +70,19 @@ async function upsertStudent(email) {
 }
 
 async function syncEnrollment({ email, courseSlug, orderId, action }) {
-  if (!validEmail(email)) throw Object.assign(new Error("Email học viên không hợp lệ"), { statusCode: 400 });
-  const course = await requireV5Course(courseSlug);
+  if (!validEmail(email)) throw Object.assign(new Error("Email học viên không hợp lệ"), { statusCode: 400, code: "v5_invalid_email" });
   const cleanEmail = normalizeEmail(email);
   const now = new Date().toISOString();
+
+  // Revoke must stay fail-safe even after a course is unpublished or deactivated.
   if (action === "revoke") {
+    const course = await requireV5Course(courseSlug);
     const { data, error } = await supabase.from("student_enrollments").update({ status: "revoked", updated_at: now }).eq("email", cleanEmail).eq("course_slug", course.slug).select("id,email,course_slug,status").maybeSingle();
     if (error) throw error;
     return { success: true, enrollment: data || null, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
   }
+
+  const course = await requireV5ReadyForEnrollment(courseSlug);
   const student = await upsertStudent(cleanEmail);
   const payload = {
     student_id: student.id,
@@ -58,34 +100,71 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
   return { success: true, enrollment: data, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
 }
 
+async function canActivateExistingV5(course) {
+  if (course.is_published !== true) return false;
+  try {
+    await requireCanonicalPublishedRelease(course);
+    return true;
+  } catch (error) {
+    if (Number(error?.statusCode || 0) === 409) return false;
+    throw error;
+  }
+}
+
 async function syncCourse(body) {
   const slug = String(body.slug || "").trim();
   const title = String(body.title || "").trim();
-  if (!validSlug(slug) || !title) throw Object.assign(new Error("Thiếu hoặc sai slug/title"), { statusCode: 400 });
-  const { data: existing, error: readError } = await supabase.from("courses").select("id,delivery_mode").eq("slug", slug).maybeSingle();
+  if (!validSlug(slug) || !title) throw Object.assign(new Error("Thiếu hoặc sai slug/title"), { statusCode: 400, code: "v5_invalid_course" });
+  const { data: existing, error: readError } = await supabase
+    .from("courses")
+    .select("id,delivery_mode,active,is_published")
+    .eq("slug", slug)
+    .maybeSingle();
   if (readError) throw readError;
-  if (existing && String(existing.delivery_mode || "").toLowerCase() !== "v5") throw Object.assign(new Error("Không thể đổi khóa hiện hữu sang V5 bằng sync API"), { statusCode: 409 });
+  if (existing && String(existing.delivery_mode || "").toLowerCase() !== "v5") {
+    throw conflict("Không thể đổi khóa hiện hữu sang V5 bằng sync API", "v5_mode_conflict");
+  }
+
   const patch = {
     slug,
     title,
     subtitle: String(body.subtitle || "").trim() || null,
     image_url: String(body.imageUrl || "").trim() || null,
     delivery_mode: "v5",
-    active: body.active !== false,
     updated_at: new Date().toISOString()
   };
   if (body.expected_start_date !== undefined) patch.expected_start_date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expected_start_date || "")) ? String(body.expected_start_date) : null;
+
   let course;
   if (existing) {
-    const { data, error } = await supabase.from("courses").update(patch).eq("id", existing.id).select("id,slug,title,delivery_mode").single();
+    if (body.active !== undefined) {
+      if (body.active === true && !(await canActivateExistingV5(existing))) {
+        throw conflict("Không thể bật bán khóa V5 trước khi có release Published hợp lệ.", "v5_not_ready_for_sale");
+      }
+      patch.active = body.active === true;
+    }
+    const { data, error } = await supabase.from("courses").update(patch).eq("id", existing.id).select("id,slug,title,delivery_mode,active,is_published").single();
     if (error) throw error;
     course = data;
+    // Commerce metadata sync must never reset the canonical V5 lifecycle/release state.
   } else {
-    const { data, error } = await supabase.from("courses").insert({ id: crypto.randomUUID(), ...patch, is_published: false, sort_order: 999 }).select("id,slug,title,delivery_mode").single();
+    const { data, error } = await supabase.from("courses").insert({
+      id: crypto.randomUUID(),
+      ...patch,
+      active: false,
+      is_published: false,
+      sort_order: 999
+    }).select("id,slug,title,delivery_mode,active,is_published").single();
     if (error) throw error;
     course = data;
+    const { error: configError } = await supabase.from("v5_course_configs").insert({
+      course_id: course.id,
+      source_mode: "direct",
+      status: "draft",
+      updated_at: new Date().toISOString()
+    });
+    if (configError) throw configError;
   }
-  await supabase.from("v5_course_configs").upsert({ course_id: course.id, source_mode: "direct", status: "draft", updated_at: new Date().toISOString() }, { onConflict: "course_id" });
   return { success: true, course };
 }
 
@@ -107,6 +186,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, error: "Action không hợp lệ" });
   } catch (error) {
     console.error("[v5-sync]", error);
-    return res.status(Number(error.statusCode || 500)).json({ success: false, error: error.message || "V5 sync error" });
+    return res.status(Number(error.statusCode || 500)).json({
+      success: false,
+      code: error.code || "v5_sync_error",
+      error: error.message || "V5 sync error"
+    });
   }
 }
