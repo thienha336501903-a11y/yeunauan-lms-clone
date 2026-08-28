@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { supabase } from "../utils/supabase.js";
 import { normalizeEmail } from "../utils/lms.js";
+import { isEnrollmentUsable } from "../utils/lms-enrollment-status.js";
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ""));
@@ -98,6 +99,25 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
   }
 
   const course = await requireV5ReadyForEnrollment(courseSlug);
+  const { data: existingEnrollment, error: enrollmentReadError } = await supabase
+    .from("student_enrollments")
+    .select("id,status,expired_at,source_system,source_order_id")
+    .eq("email", cleanEmail)
+    .eq("course_slug", course.slug)
+    .maybeSingle();
+  if (enrollmentReadError) throw enrollmentReadError;
+
+  if (existingEnrollment && isEnrollmentUsable(existingEnrollment)) {
+    const sameOrder = String(existingEnrollment.source_system || "") === "commerce_v5"
+      && String(existingEnrollment.source_order_id || "") === cleanOrderId;
+    if (!sameOrder) {
+      throw conflict(
+        "Học viên đã có quyền V5 còn hiệu lực từ một nguồn/order khác; không tự động chuyển ownership.",
+        "v5_enrollment_owned_by_other_grant"
+      );
+    }
+  }
+
   const student = await upsertStudent(cleanEmail);
   const payload = {
     student_id: student.id,
@@ -108,9 +128,10 @@ async function syncEnrollment({ email, courseSlug, orderId, action }) {
     status: "active",
     source_system: "commerce_v5",
     source_order_id: cleanOrderId,
+    expired_at: null,
     updated_at: now
   };
-  const { data, error } = await supabase.from("student_enrollments").upsert(payload, { onConflict: "email,course_slug" }).select("id,email,course_slug,status,source_system,source_order_id").single();
+  const { data, error } = await supabase.from("student_enrollments").upsert(payload, { onConflict: "email,course_slug" }).select("id,email,course_slug,status,source_system,source_order_id,expired_at").single();
   if (error) throw error;
   return { success: true, enrollment: data, lms: "SUCCESS", portal: "SKIPPED_V5", error: null };
 }
