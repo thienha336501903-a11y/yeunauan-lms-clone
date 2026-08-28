@@ -68,7 +68,7 @@ test('V5 release lifecycle blocks unfinished media and switches the learner rele
   const migration = read('sql/migration_lms_v5_atomic_release_20260828.sql');
   assert.match(release, /Post đang xử lý media/);
   assert.match(release, /media chưa READY/);
-  assert.match(release, /media upload trực tiếp chưa có object R2/);
+  assert.match(release, /media READY nhưng chưa có object R2 phát cho học viên/);
   assert.match(release, /releaseSnapshot/);
   assert.match(release, /v5_publish_release_atomic/);
   assert.match(migration, /for update/);

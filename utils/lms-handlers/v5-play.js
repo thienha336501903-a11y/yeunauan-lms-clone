@@ -44,9 +44,10 @@ export default async function v5PlayHandler(req, res) {
       .select("id,status,snapshot")
       .eq("id", config.published_release_id)
       .eq("course_id", course.id)
+      .eq("status", "published")
       .maybeSingle();
     if (releaseError) throw releaseError;
-    if (!release || release.status !== "published" || !v5ReleaseHasAsset(release.snapshot, assetId)) {
+    if (!release || !v5ReleaseHasAsset(release.snapshot, assetId)) {
       return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
     }
 

@@ -40,9 +40,10 @@ export default async function v5FeedHandler(req, res) {
       .select("id,status,snapshot")
       .eq("id", config.published_release_id)
       .eq("course_id", course.id)
+      .eq("status", "published")
       .maybeSingle();
     if (releaseError) throw releaseError;
-    const content = release?.status === "published" ? v5ReleaseContent(release.snapshot) : null;
+    const content = release ? v5ReleaseContent(release.snapshot) : null;
     if (!content) {
       return res.status(403).json({ success: false, code: "v5_release_invalid", error: "Release V5 hiện tại không hợp lệ." });
     }

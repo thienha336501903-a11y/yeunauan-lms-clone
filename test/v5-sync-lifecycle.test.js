@@ -7,11 +7,12 @@ const source = fs.readFileSync(new URL('../api/v5-sync.js', import.meta.url), 'u
 test('new/shared-shell V5 sync is fail-closed and only bootstraps a missing Draft config', () => {
   assert.match(source, /active:\s*false/);
   assert.match(source, /is_published:\s*false/);
-  assert.match(source, /ensureDraftConfigIfMissing/);
+  assert.match(source, /async function ensureDraftConfigIfMissing\(courseId\)/);
   assert.match(source, /if \(existingConfig\) return existingConfig/);
-  assert.match(source, /status:\s*"draft"/);
-  assert.match(source, /Bootstrap a Draft config only when it is genuinely missing/);
-  assert.doesNotMatch(source, /v5_course_configs"\)\.upsert\([\s\S]*status:\s*"draft"/);
+  const ensureBlock = source.match(/async function ensureDraftConfigIfMissing\(courseId\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(ensureBlock, /\.insert\(\{[\s\S]*status:\s*"draft"/);
+  assert.doesNotMatch(ensureBlock, /\.update\(/);
+  assert.doesNotMatch(ensureBlock, /\.upsert\(/);
 });
 
 test('existing Published V5 metadata sync never mutates canonical lifecycle fields', () => {

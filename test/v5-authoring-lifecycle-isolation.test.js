@@ -15,9 +15,11 @@ test('generic V5 content API cannot mutate config release lifecycle', () => {
 test('Telegram import preserves an existing Published config and release pointer', () => {
   assert.match(telegram, /preserveReleaseLifecycleWhileSelectingTelegram/);
   const helper = telegram.match(/async function preserveReleaseLifecycleWhileSelectingTelegram[\s\S]*?\n}\n\nfunction telegramMedia/)?.[0] || '';
+  const existingUpdate = helper.match(/if \(existing\) \{([\s\S]*?)\n  \}\n\n  const \{ data, error \} = await supabase\.from\("v5_course_configs"\)\.insert/)?.[1] || '';
   assert.match(helper, /select\("course_id,status,published_release_id,source_mode,telegram_source_id"\)/);
-  assert.match(helper, /\.update\(\{[\s\S]*source_mode: "telegram"[\s\S]*telegram_source_id: sourceId/);
-  assert.doesNotMatch(helper, /\.update\(\{[\s\S]*status:\s*"draft"/);
+  assert.match(existingUpdate, /\.update\(\{[\s\S]*source_mode: "telegram"[\s\S]*telegram_source_id: sourceId/);
+  assert.doesNotMatch(existingUpdate, /status:\s*"draft"/);
+  assert.doesNotMatch(existingUpdate, /published_release_id\s*:/);
   assert.match(helper, /\.insert\(\{[\s\S]*status:\s*"draft"/);
 });
 
