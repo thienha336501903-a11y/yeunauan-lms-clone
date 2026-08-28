@@ -2,6 +2,9 @@
 -- A V5 course may only be activated for sale after canonical Publish. Once that
 -- check succeeds, is_published becomes a verified compatibility mirror so the
 -- shared course manager/feed/storefront gates all agree on sale readiness.
+-- Commerce may turn selling off, but it may not clear the Published mirror while
+-- the canonical LMS V5 release is still Published; otherwise existing learners
+-- would lose access even though only the commercial sale state changed.
 
 create or replace function public.enforce_v5_course_lifecycle()
 returns trigger
@@ -50,7 +53,9 @@ begin
     return new;
   end if;
 
-  if new.active is true or new.is_published is true then
+  if new.active is true
+     or new.is_published is true
+     or (old.is_published is true and new.is_published is false) then
     select exists (
       select 1
       from public.v5_course_configs c
@@ -62,10 +67,18 @@ begin
         and c.published_release_id is not null
         and r.status = 'published'
     ) into v_ready;
+  end if;
 
-    if not v_ready then
-      raise exception 'v5_course_not_ready_for_sale';
-    end if;
+  if (new.active is true or new.is_published is true) and not v_ready then
+    raise exception 'v5_course_not_ready_for_sale';
+  end if;
+
+  -- `is_published` is learner-visible release state, not a Commerce sale switch.
+  -- Turning active=false must not take paying learners offline while canonical
+  -- LMS V5 still has a Published release. The canonical release lifecycle may
+  -- clear this mirror after it first changes config/release state to non-ready.
+  if old.is_published is true and new.is_published is false and v_ready then
+    raise exception 'v5_publish_state_owned_by_release';
   end if;
 
   -- `active=true` is the Commerce sale transition. Because the canonical release
