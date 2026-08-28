@@ -190,16 +190,21 @@ async function reorder(table, course, ids) {
 }
 
 async function updateConfig(course, body) {
+  // Content authoring must not own the learner-visible release lifecycle.
+  // Published/Draft transitions and published_release_id are changed only by
+  // the atomic V5 release handler/RPC. This keeps the current Published release
+  // online while an admin authors the next draft.
+  if (body.status !== undefined || body.publishedReleaseId !== undefined || body.published_release_id !== undefined) {
+    const error = new Error("Lifecycle config V5 chỉ được thay đổi bằng Preflight / Publish / Rollback.");
+    error.code = "v5_config_lifecycle_owned_by_release";
+    throw error;
+  }
+
   const patch = { updated_at: new Date().toISOString() };
   if (body.sourceMode !== undefined) {
     const sourceMode = clean(body.sourceMode);
     if (!["direct", "telegram", "hybrid"].includes(sourceMode)) throw new Error("sourceMode không hợp lệ.");
     patch.source_mode = sourceMode;
-  }
-  if (body.status !== undefined) {
-    const status = clean(body.status);
-    if (!V5_STATUSES.has(status)) throw new Error("Trạng thái V5 không hợp lệ.");
-    patch.status = status;
   }
   const { data, error } = await supabase.from("v5_course_configs").update(patch).eq("course_id", course.id).select("*").single();
   if (error) throw error;
@@ -233,6 +238,7 @@ export default async function adminV5ContentHandler(req, res) {
     return res.status(200).json({ success: true, result, state: await loadState(course), admin: admin.email });
   } catch (error) {
     console.error("[admin-v5-content]", error);
-    return res.status(500).json({ success: false, error: error?.message || "V5 server error" });
+    const status = error?.code === "v5_config_lifecycle_owned_by_release" ? 409 : 500;
+    return res.status(status).json({ success: false, code: error?.code || "v5_content_error", error: error?.message || "V5 server error" });
   }
 }

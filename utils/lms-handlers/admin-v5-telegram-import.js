@@ -22,6 +22,35 @@ async function loadCourse(slugInput) {
   return data || null;
 }
 
+async function preserveReleaseLifecycleWhileSelectingTelegram(courseId, sourceId) {
+  const { data: existing, error: readError } = await supabase
+    .from("v5_course_configs")
+    .select("course_id,status,published_release_id,source_mode,telegram_source_id")
+    .eq("course_id", courseId)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  if (existing) {
+    const { data, error } = await supabase.from("v5_course_configs").update({
+      source_mode: "telegram",
+      telegram_source_id: sourceId,
+      updated_at: new Date().toISOString()
+    }).eq("course_id", courseId).select("course_id,status,published_release_id,source_mode,telegram_source_id").single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabase.from("v5_course_configs").insert({
+    course_id: courseId,
+    source_mode: "telegram",
+    status: "draft",
+    telegram_source_id: sourceId,
+    updated_at: new Date().toISOString()
+  }).select("course_id,status,published_release_id,source_mode,telegram_source_id").single();
+  if (error) throw error;
+  return data;
+}
+
 function telegramMedia(row) {
   const raw = row.raw_message && typeof row.raw_message === "object" ? row.raw_message : {};
   if (row.message_type === "photo") {
@@ -120,6 +149,12 @@ async function importSource(course, sourceIdInput) {
   const { data: source, error: sourceError } = await supabase.from("tgcloner_sources").select("id,title,username,chat_id,indexed_message_count").eq("id", sourceId).maybeSingle();
   if (sourceError) throw sourceError;
   if (!source) throw new Error("Không tìm thấy Telegram source.");
+
+  // Selecting/importing a Telegram source is an authoring operation. Preserve
+  // any current Published status + release pointer so existing learners stay on
+  // the immutable release while the new Telegram draft is imported/mirrored.
+  await preserveReleaseLifecycleWhileSelectingTelegram(course.id, sourceId);
+
   const { data: rows, error: rowsError } = await supabase
     .from("tgcloner_source_messages")
     .select("id,source_id,source_message_id,media_group_id,message_type,text,caption,raw_message,source_date,updated_at")
@@ -215,9 +250,6 @@ async function importSource(course, sourceIdInput) {
     const { error: jobError } = await supabase.from("v5_jobs").insert(jobs);
     if (jobError) throw jobError;
   }
-
-  const { error: configError } = await supabase.from("v5_course_configs").upsert({ course_id: course.id, source_mode: "telegram", status: "draft", telegram_source_id: sourceId, updated_at: new Date().toISOString() }, { onConflict: "course_id" });
-  if (configError) throw configError;
 
   return {
     source: { id: source.id, title: source.title || source.username || "Telegram", indexedMessageCount: source.indexed_message_count || 0 },
