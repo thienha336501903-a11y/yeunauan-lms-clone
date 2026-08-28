@@ -24,6 +24,9 @@ begin
   if p_snapshot is null or coalesce(p_snapshot->>'schema','') <> 'v5-release-v1' then
     raise exception 'v5_release_snapshot_invalid';
   end if;
+  if jsonb_typeof(coalesce(p_snapshot->'asset_ids', '[]'::jsonb)) <> 'array' then
+    raise exception 'v5_release_asset_ids_invalid';
+  end if;
 
   select c.published_release_id
     into v_previous
@@ -33,6 +36,22 @@ begin
 
   if not found then
     raise exception 'v5_course_config_missing';
+  end if;
+
+  -- Fail closed at the DB boundary: every asset referenced by the immutable
+  -- release must currently exist and already be learner-playable from private R2.
+  -- This catches archived/stale links even if a caller bypasses UI preflight.
+  if exists (
+    select 1
+    from jsonb_array_elements_text(coalesce(p_snapshot->'asset_ids', '[]'::jsonb)) as release_asset(asset_id)
+    left join public.v5_media_assets a
+      on a.id::text = release_asset.asset_id
+    where a.id is null
+       or a.status <> 'ready'
+       or a.provider <> 'r2'
+       or nullif(btrim(coalesce(a.r2_object_key, '')), '') is null
+  ) then
+    raise exception 'v5_release_asset_not_ready';
   end if;
 
   select coalesce(max(r.version), 0) + 1
