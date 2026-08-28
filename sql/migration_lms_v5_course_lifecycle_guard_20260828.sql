@@ -1,6 +1,7 @@
 -- V5 course lifecycle guard.
--- Canonical V5 release/config state owns publish readiness; Commerce may only
--- manage sale state after a valid Published release exists.
+-- Canonical V5 release/config state owns content readiness. Commerce may keep
+-- sale/readiness flags OFF at any time, but may only turn them ON after a valid
+-- canonical Published release exists.
 
 create or replace function public.enforce_v5_course_lifecycle()
 returns trigger
@@ -51,26 +52,26 @@ begin
     return new;
   end if;
 
-  select exists (
-    select 1
-    from public.v5_course_configs c
-    join public.v5_releases r
-      on r.id = c.published_release_id
-     and r.course_id = c.course_id
-    where c.course_id = new.id
-      and c.status = 'published'
-      and c.published_release_id is not null
-      and r.status = 'published'
-  ) into v_ready;
+  if new.active is true or new.is_published is true then
+    select exists (
+      select 1
+      from public.v5_course_configs c
+      join public.v5_releases r
+        on r.id = c.published_release_id
+       and r.course_id = c.course_id
+      where c.course_id = new.id
+        and c.status = 'published'
+        and c.published_release_id is not null
+        and r.status = 'published'
+    ) into v_ready;
 
-  -- is_published is a derived mirror for storefront compatibility. Generic
-  -- Commerce writes cannot make a V5 course look Published or unpublish one.
-  new.is_published := v_ready;
-
-  if new.active is true and not v_ready then
-    raise exception 'v5_course_not_ready_for_sale';
+    if not v_ready then
+      raise exception 'v5_course_not_ready_for_sale';
+    end if;
   end if;
 
+  -- OFF is always allowed. This preserves the ownership split: LMS owns
+  -- canonical content Publish; Commerce owns whether a ready course is for sale.
   return new;
 end;
 $$;
@@ -84,7 +85,7 @@ create trigger trg_enforce_v5_course_lifecycle
 before insert or update or delete on public.courses
 for each row execute function public.enforce_v5_course_lifecycle();
 
-create or replace function public.sync_v5_course_publish_flag()
+create or replace function public.sync_v5_course_failclosed_flags()
 returns trigger
 language plpgsql
 security definer
@@ -109,12 +110,17 @@ begin
     ) into v_ready;
   end if;
 
-  update public.courses
-     set is_published = v_ready,
-         active = case when v_ready then active else false end,
-         updated_at = now()
-   where id = v_course_id
-     and lower(coalesce(delivery_mode, '')) = 'v5';
+  -- Canonical state may force Commerce flags OFF, never ON. A successful LMS
+  -- Publish leaves sale/readiness flags untouched until Commerce explicitly
+  -- enables them; unpublish/archive/delete immediately fails closed.
+  if not v_ready then
+    update public.courses
+       set is_published = false,
+           active = false,
+           updated_at = now()
+     where id = v_course_id
+       and lower(coalesce(delivery_mode, '')) = 'v5';
+  end if;
 
   if tg_op = 'DELETE' then
     return old;
@@ -123,11 +129,12 @@ begin
 end;
 $$;
 
-revoke all on function public.sync_v5_course_publish_flag() from public;
-revoke all on function public.sync_v5_course_publish_flag() from anon;
-revoke all on function public.sync_v5_course_publish_flag() from authenticated;
+revoke all on function public.sync_v5_course_failclosed_flags() from public;
+revoke all on function public.sync_v5_course_failclosed_flags() from anon;
+revoke all on function public.sync_v5_course_failclosed_flags() from authenticated;
 
 drop trigger if exists trg_sync_v5_course_publish_flag on public.v5_course_configs;
-create trigger trg_sync_v5_course_publish_flag
+drop trigger if exists trg_sync_v5_course_failclosed_flags on public.v5_course_configs;
+create trigger trg_sync_v5_course_failclosed_flags
 after insert or update or delete on public.v5_course_configs
-for each row execute function public.sync_v5_course_publish_flag();
+for each row execute function public.sync_v5_course_failclosed_flags();
