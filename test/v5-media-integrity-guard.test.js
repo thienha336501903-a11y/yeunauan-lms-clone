@@ -11,8 +11,19 @@ test('READY V5 media must be backed by R2 before Publish/playback', () => {
   assert.match(migration, /v5_ready_asset_requires_r2/);
 });
 
-test('released asset identity, locator and learner-visible media metadata are immutable', () => {
+test('released asset detection covers both asset_ids and linked asset membership', () => {
   assert.match(migration, /snapshot->'asset_ids'/);
+  assert.match(migration, /jsonb_array_elements\(coalesce\(r\.snapshot->'links'/);
+  assert.match(migration, /release_link\.value->>'asset_id' = old\.id::text/);
+});
+
+test('released asset status cannot leave READY so current and rollback releases keep media', () => {
+  assert.match(migration, /old\.status is distinct from new\.status/);
+  assert.match(migration, /new\.status <> 'ready'/);
+  assert.match(migration, /v5_released_asset_status_immutable/);
+});
+
+test('released asset identity, locator and learner-visible media metadata are immutable', () => {
   assert.match(migration, /old\.r2_object_key/);
   assert.match(migration, /old\.provider/);
   assert.match(migration, /old\.checksum_sha256/);

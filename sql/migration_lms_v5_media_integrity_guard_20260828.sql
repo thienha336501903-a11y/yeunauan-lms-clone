@@ -1,7 +1,7 @@
 -- V5 media integrity guard.
 -- 1) A learner-playable READY asset must already be backed by private R2.
 -- 2) Once an asset id has appeared in any immutable release snapshot, its
---    content locator/identity/display fields cannot be rewritten in-place.
+--    content locator/identity/display/status fields cannot be rewritten in-place.
 --    New media must receive a new asset id and be published in a new release.
 
 create or replace function public.enforce_v5_media_integrity()
@@ -27,7 +27,14 @@ begin
     select 1
       from public.v5_releases r
      where coalesce(r.snapshot->>'schema', '') = 'v5-release-v1'
-       and coalesce(r.snapshot->'asset_ids', '[]'::jsonb) ? old.id::text
+       and (
+         coalesce(r.snapshot->'asset_ids', '[]'::jsonb) ? old.id::text
+         or exists (
+           select 1
+           from jsonb_array_elements(coalesce(r.snapshot->'links', '[]'::jsonb)) as release_link(value)
+           where release_link.value->>'asset_id' = old.id::text
+         )
+       )
   ) into v_released;
 
   if not v_released then
@@ -37,6 +44,13 @@ begin
 
   if tg_op = 'DELETE' then
     raise exception 'v5_released_asset_delete_forbidden';
+  end if;
+
+  -- A released asset must remain learner-playable forever so the selected release
+  -- and historical rollback points cannot silently lose media. Archiving/replacing
+  -- media therefore requires a new asset id and a new release.
+  if old.status is distinct from new.status or new.status <> 'ready' then
+    raise exception 'v5_released_asset_status_immutable';
   end if;
 
   if row(
