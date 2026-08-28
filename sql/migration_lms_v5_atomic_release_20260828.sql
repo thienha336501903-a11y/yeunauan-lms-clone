@@ -24,8 +24,11 @@ begin
   if p_snapshot is null or coalesce(p_snapshot->>'schema','') <> 'v5-release-v1' then
     raise exception 'v5_release_snapshot_invalid';
   end if;
-  if jsonb_typeof(coalesce(p_snapshot->'asset_ids', '[]'::jsonb)) <> 'array' then
-    raise exception 'v5_release_asset_ids_invalid';
+  if jsonb_typeof(coalesce(p_snapshot->'lessons', '[]'::jsonb)) <> 'array'
+     or jsonb_typeof(coalesce(p_snapshot->'posts', '[]'::jsonb)) <> 'array'
+     or jsonb_typeof(coalesce(p_snapshot->'links', '[]'::jsonb)) <> 'array'
+     or jsonb_typeof(coalesce(p_snapshot->'asset_ids', '[]'::jsonb)) <> 'array' then
+    raise exception 'v5_release_snapshot_shape_invalid';
   end if;
 
   select c.published_release_id
@@ -38,15 +41,52 @@ begin
     raise exception 'v5_course_config_missing';
   end if;
 
-  -- Fail closed at the DB boundary: every asset referenced by the immutable
-  -- release must currently exist and already be learner-playable from private R2.
-  -- This catches archived/stale links even if a caller bypasses UI preflight.
+  -- Every published Post must remain reachable from a Lesson in the same
+  -- immutable snapshot. This catches active Posts whose parent Lesson was archived.
   if exists (
     select 1
-    from jsonb_array_elements_text(coalesce(p_snapshot->'asset_ids', '[]'::jsonb)) as release_asset(asset_id)
+    from jsonb_array_elements(coalesce(p_snapshot->'posts', '[]'::jsonb)) as post_row(value)
+    where nullif(btrim(coalesce(post_row.value->>'lesson_id', '')), '') is null
+       or not exists (
+         select 1
+         from jsonb_array_elements(coalesce(p_snapshot->'lessons', '[]'::jsonb)) as lesson_row(value)
+         where lesson_row.value->>'id' = post_row.value->>'lesson_id'
+       )
+  ) then
+    raise exception 'v5_release_post_lesson_invalid';
+  end if;
+
+  -- Every media link must belong to a Post in this release and identify an asset.
+  if exists (
+    select 1
+    from jsonb_array_elements(coalesce(p_snapshot->'links', '[]'::jsonb)) as link_row(value)
+    where nullif(btrim(coalesce(link_row.value->>'post_id', '')), '') is null
+       or nullif(btrim(coalesce(link_row.value->>'asset_id', '')), '') is null
+       or not exists (
+         select 1
+         from jsonb_array_elements(coalesce(p_snapshot->'posts', '[]'::jsonb)) as post_row(value)
+         where post_row.value->>'id' = link_row.value->>'post_id'
+       )
+  ) then
+    raise exception 'v5_release_link_invalid';
+  end if;
+
+  -- Fail closed at the DB boundary: every asset referenced either explicitly or
+  -- by a release link must currently exist and be learner-playable from private R2.
+  if exists (
+    with release_asset_ids as (
+      select value as asset_id
+      from jsonb_array_elements_text(coalesce(p_snapshot->'asset_ids', '[]'::jsonb))
+      union
+      select link_row.value->>'asset_id' as asset_id
+      from jsonb_array_elements(coalesce(p_snapshot->'links', '[]'::jsonb)) as link_row(value)
+    )
+    select 1
+    from release_asset_ids release_asset
     left join public.v5_media_assets a
       on a.id::text = release_asset.asset_id
-    where a.id is null
+    where nullif(btrim(coalesce(release_asset.asset_id, '')), '') is null
+       or a.id is null
        or a.status <> 'ready'
        or a.provider <> 'r2'
        or nullif(btrim(coalesce(a.r2_object_key, '')), '') is null
