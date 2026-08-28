@@ -12,31 +12,6 @@ function safeEqual(left, right) {
 function validSlug(value) { return /^[a-z0-9_-]+$/.test(String(value || "").trim()); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value)); }
 
-const TEST_BYPASS = Object.freeze({
-  orderId: "1336cb4f-649c-40e4-9513-9b718f338308",
-  email: "__clone_factory_test_v5_prod_detect2@example.com",
-  courseSlug: "__clone_factory_test_v5_prod_detect2"
-});
-
-async function validIsolatedTestBypass(body) {
-  const action = String(body?.action || "").trim();
-  if (!new Set(["syncEnrollment", "revokeEnrollment"]).has(action)) return false;
-  const orderId = String(body?.orderId || "").trim();
-  const email = normalizeEmail(body?.email);
-  const courseSlug = String(body?.courseSlug || "").trim();
-  if (orderId !== TEST_BYPASS.orderId || email !== TEST_BYPASS.email || courseSlug !== TEST_BYPASS.courseSlug) return false;
-  const { data, error } = await supabase
-    .from("orders")
-    .select("id,customer_email,course_slug,delivery_mode")
-    .eq("id", orderId)
-    .maybeSingle();
-  if (error || !data) return false;
-  return String(data.id) === TEST_BYPASS.orderId &&
-    normalizeEmail(data.customer_email) === TEST_BYPASS.email &&
-    String(data.course_slug || "").trim() === TEST_BYPASS.courseSlug &&
-    String(data.delivery_mode || "").trim().toLowerCase() === "v5";
-}
-
 async function requireV5Course(courseSlug) {
   const slug = String(courseSlug || "").trim();
   if (!validSlug(slug)) throw Object.assign(new Error("Slug khóa học không hợp lệ"), { statusCode: 400 });
@@ -123,9 +98,7 @@ export default async function handler(req, res) {
     String(process.env.INTERNAL_SYNC_SECRET || "").trim()
   ].filter(Boolean);
   if (!secrets.length) return res.status(503).json({ success: false, error: "Internal sync is unavailable." });
-  const authorizedBySecret = !!supplied && secrets.some(secret => safeEqual(supplied, secret));
-  const authorizedByTestFixture = authorizedBySecret ? false : await validIsolatedTestBypass(req.body || {});
-  if (!authorizedBySecret && !authorizedByTestFixture) return res.status(401).json({ success: false, error: "Unauthorized" });
+  if (!supplied || !secrets.some(secret => safeEqual(supplied, secret))) return res.status(401).json({ success: false, error: "Unauthorized" });
   try {
     const action = String(req.body?.action || "").trim();
     if (action === "syncCourse") return res.status(200).json(await syncCourse(req.body || {}));
