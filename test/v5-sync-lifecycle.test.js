@@ -4,12 +4,22 @@ import test from 'node:test';
 
 const source = fs.readFileSync(new URL('../api/v5-sync.js', import.meta.url), 'utf8');
 
-test('new V5 sync is fail-closed and metadata sync does not reset canonical lifecycle', () => {
+test('new/shared-shell V5 sync is fail-closed and only bootstraps a missing Draft config', () => {
   assert.match(source, /active:\s*false/);
   assert.match(source, /is_published:\s*false/);
+  assert.match(source, /ensureDraftConfigIfMissing/);
+  assert.match(source, /if \(existingConfig\) return existingConfig/);
   assert.match(source, /status:\s*"draft"/);
-  assert.match(source, /Commerce metadata sync must never reset the canonical V5 lifecycle\/release state/);
+  assert.match(source, /Bootstrap a Draft config only when it is genuinely missing/);
   assert.doesNotMatch(source, /v5_course_configs"\)\.upsert\([\s\S]*status:\s*"draft"/);
+});
+
+test('existing Published V5 metadata sync never mutates canonical lifecycle fields', () => {
+  const ensureBlock = source.match(/async function ensureDraftConfigIfMissing\(courseId\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(ensureBlock, /select\("course_id,status,published_release_id,source_mode"\)/);
+  assert.match(ensureBlock, /if \(existingConfig\) return existingConfig/);
+  assert.doesNotMatch(ensureBlock, /\.update\(/);
+  assert.doesNotMatch(ensureBlock, /\.upsert\(/);
 });
 
 test('V5 enrollment create requires active, published config and a published release', () => {

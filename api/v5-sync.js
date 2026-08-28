@@ -111,6 +111,25 @@ async function canActivateExistingV5(course) {
   }
 }
 
+async function ensureDraftConfigIfMissing(courseId) {
+  const { data: existingConfig, error: readError } = await supabase
+    .from("v5_course_configs")
+    .select("course_id,status,published_release_id,source_mode")
+    .eq("course_id", courseId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (existingConfig) return existingConfig;
+
+  const { data, error } = await supabase.from("v5_course_configs").insert({
+    course_id: courseId,
+    source_mode: "direct",
+    status: "draft",
+    updated_at: new Date().toISOString()
+  }).select("course_id,status,published_release_id,source_mode").single();
+  if (error) throw error;
+  return data;
+}
+
 async function syncCourse(body) {
   const slug = String(body.slug || "").trim();
   const title = String(body.title || "").trim();
@@ -146,7 +165,11 @@ async function syncCourse(body) {
     const { data, error } = await supabase.from("courses").update(patch).eq("id", existing.id).select("id,slug,title,delivery_mode,active,is_published").single();
     if (error) throw error;
     course = data;
-    // Commerce metadata sync must never reset the canonical V5 lifecycle/release state.
+
+    // Commerce can create the shared V5 course shell before this sync call.
+    // Bootstrap a Draft config only when it is genuinely missing; an existing
+    // config (including Published + release pointer) is returned untouched.
+    await ensureDraftConfigIfMissing(course.id);
   } else {
     const { data, error } = await supabase.from("courses").insert({
       id: crypto.randomUUID(),
@@ -157,13 +180,7 @@ async function syncCourse(body) {
     }).select("id,slug,title,delivery_mode,active,is_published").single();
     if (error) throw error;
     course = data;
-    const { error: configError } = await supabase.from("v5_course_configs").insert({
-      course_id: course.id,
-      source_mode: "direct",
-      status: "draft",
-      updated_at: new Date().toISOString()
-    });
-    if (configError) throw configError;
+    await ensureDraftConfigIfMissing(course.id);
   }
   return { success: true, course };
 }
