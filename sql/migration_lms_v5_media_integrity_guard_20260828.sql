@@ -1,8 +1,8 @@
 -- V5 media integrity guard.
 -- 1) A learner-playable READY asset must already be backed by private R2.
 -- 2) Once an asset id has appeared in any immutable release snapshot, its
---    content locator/identity fields cannot be rewritten in-place. New media
---    must receive a new asset id and be published in a new release instead.
+--    content locator/identity/display fields cannot be rewritten in-place.
+--    New media must receive a new asset id and be published in a new release.
 
 create or replace function public.enforce_v5_media_integrity()
 returns trigger
@@ -49,7 +49,11 @@ begin
       old.mime_type,
       old.original_filename,
       old.bytes,
-      old.checksum_sha256
+      old.width,
+      old.height,
+      old.duration_ms,
+      old.checksum_sha256,
+      old.thumbnail_asset_id
     ) is distinct from row(
       new.type,
       new.provider,
@@ -60,7 +64,11 @@ begin
       new.mime_type,
       new.original_filename,
       new.bytes,
-      new.checksum_sha256
+      new.width,
+      new.height,
+      new.duration_ms,
+      new.checksum_sha256,
+      new.thumbnail_asset_id
     ) then
     raise exception 'v5_released_asset_content_immutable';
   end if;

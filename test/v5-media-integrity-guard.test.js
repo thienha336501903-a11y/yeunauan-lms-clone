@@ -11,11 +11,15 @@ test('READY V5 media must be backed by R2 before Publish/playback', () => {
   assert.match(migration, /v5_ready_asset_requires_r2/);
 });
 
-test('released asset identity and R2 locator are immutable across future drafts', () => {
+test('released asset identity, locator and learner-visible media metadata are immutable', () => {
   assert.match(migration, /snapshot->'asset_ids'/);
   assert.match(migration, /old\.r2_object_key/);
   assert.match(migration, /old\.provider/);
   assert.match(migration, /old\.checksum_sha256/);
+  assert.match(migration, /old\.width/);
+  assert.match(migration, /old\.height/);
+  assert.match(migration, /old\.duration_ms/);
+  assert.match(migration, /old\.thumbnail_asset_id/);
   assert.match(migration, /v5_released_asset_content_immutable/);
 });
 
