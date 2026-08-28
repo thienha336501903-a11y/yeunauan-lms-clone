@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { findMtprotoVideoMessage, findWarmupVideoMessages } from "../utils/v4-telegram-media-meta.js";
+import {
+  findMtprotoVideoMessage,
+  findWarmupVideoMessages,
+  videoTransport
+} from "../utils/v4-telegram-media-meta.js";
 
 const MiB = 1024 * 1024;
 
@@ -41,6 +45,15 @@ test("ignores non-video documents even when they are large", () => {
 test("supports Telegram video notes", () => {
   const note = videoRow(25 * MiB, { id: "note", message_type: "video_note" });
   assert.equal(findMtprotoVideoMessage([note])?.id, "note");
+});
+
+test("routes Reader descriptors and large videos directly to MTProto", () => {
+  assert.equal(videoTransport(videoRow(20 * MiB).raw_message, "video"), "bot");
+  assert.equal(videoTransport(videoRow(20 * MiB + 1).raw_message, "video"), "mtproto");
+  assert.equal(videoTransport(videoRow(5 * MiB, { file_id: "" }).raw_message, "video"), "mtproto");
+  const reader = videoRow(5 * MiB);
+  reader.raw_message.video.mtproto = true;
+  assert.equal(videoTransport(reader.raw_message, "video"), "mtproto");
 });
 
 test("selects only one MTProto video for one background warm-up", () => {
@@ -100,13 +113,14 @@ test("V4 feed sends large video tickets directly to MTProto streaming", () => {
   assert.match(feed, /url\.includes\("\?"\) \? "&" : "\?"/);
 });
 
-test("V4 starts non-blocking warm-up alongside feed and preconnects the gateway", () => {
+test("V4 starts targeted non-blocking warm-up only after the feed renders", () => {
   const v4 = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
-  const warmAt = v4.indexOf("warmMtprotoInBackground();try{const r=await fetch('/api/lms/portal?endpoint=v4-telegram-feed");
 
-  assert.ok(warmAt > 0);
+  assert.match(v4, /body:JSON\.stringify\(\{message:id\}\)/);
+  assert.match(v4, /scheduleFirstVideoWarmup\(\)/);
+  assert.match(v4, /requestIdleCallback\(run,\{timeout:900\}\)/);
+  assert.doesNotMatch(v4, /warmMtprotoInBackground\(\)/);
   assert.match(v4, /api\/public-config\.js/);
-  assert.doesNotMatch(v4, /render\(d\);if\(Number\(d\.stats\?\.mtprotoGateway/);
 });
 
 test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
@@ -115,12 +129,16 @@ test("LMS Functions run near Vietnam, Supabase Asia, and the Cloner", () => {
   assert.deepEqual(config.regions, ["sin1"]);
 });
 
-test("MTProto warm-up defers expensive work and prepares only the first large video", () => {
+test("targeted warm-up validates the requested video and selects its transport", () => {
   const warmup = readFileSync(new URL("../utils/lms-handlers/v4-telegram-warmup.js", import.meta.url), "utf8");
 
   assert.match(warmup, /cloneConfig\(\)\.telegramMtprotoGatewayUrl/);
-  assert.match(warmup, /WARMUP_DEFER_MS = 1800/);
-  assert.match(warmup, /await sleep\(WARMUP_DEFER_MS\)/);
+  assert.match(warmup, /messageRowId/);
+  assert.match(warmup, /\.eq\("id", messageRowId\)/);
+  assert.match(warmup, /\.eq\("source_id", mapping\.source_id\)/);
+  assert.match(warmup, /videoTransport\(row\.raw_message, row\.message_type\)/);
+  assert.match(warmup, /prepareGatewayUrl\(transport\)/);
+  assert.match(warmup, /if \(!messageRowId\) await sleep\(FALLBACK_WARMUP_DEFER_MS\)/);
   assert.match(warmup, /findMtprotoVideoMessage\(rows\)/);
   assert.match(warmup, /searchParams\.delete\("stream"\)/);
   assert.match(warmup, /searchParams\.set\("prepare", "1"\)/);
