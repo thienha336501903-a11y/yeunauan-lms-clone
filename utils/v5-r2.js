@@ -211,3 +211,13 @@ export async function headR2Object({ key }) {
     contentType: head.contentType || ranged.contentType
   };
 }
+
+export async function deleteR2Object({ key }) {
+  const request = signedRequest({ method: "DELETE", key });
+  const response = await fetch(request.url, { method: "DELETE", headers: request.headers });
+  if (!response.ok && response.status !== 404) {
+    const text = await response.text();
+    throw new Error(`R2 delete failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  return { deleted: response.status !== 404, notFound: response.status === 404 };
+}
