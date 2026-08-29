@@ -81,6 +81,26 @@ function timingSafeEqualString(left, right) {
   }
 }
 
+async function isV5CourseSlug(courseSlug) {
+  const slug = String(courseSlug || "").trim();
+  if (!slug) return false;
+  const { data, error } = await supabase
+    .from("courses")
+    .select("delivery_mode")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw error;
+  return String(data?.delivery_mode || "").trim().toLowerCase() === "v5";
+}
+
+function legacyV5Forbidden(res) {
+  return res.status(409).json({
+    success: false,
+    code: "v5_legacy_sync_forbidden",
+    error: "V5 phải đồng bộ qua /api/v5-sync; /api/sync legacy không được phép ghi V5."
+  });
+}
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -129,8 +149,10 @@ export default async function handler(req, res) {
       if (!/^[a-z0-9_-]+$/.test(normalizedSlug)) {
         return res.status(400).json({ success: false, error: "Slug khóa học không hợp lệ" });
       }
-      const requestedMode = ["lms", "telegram", "v4"].includes(String(deliveryMode || "").trim().toLowerCase())
-        ? String(deliveryMode).trim().toLowerCase()
+      const rawRequestedMode = String(deliveryMode || "").trim().toLowerCase();
+      if (rawRequestedMode === "v5") return legacyV5Forbidden(res);
+      const requestedMode = ["lms", "telegram", "v4"].includes(rawRequestedMode)
+        ? rawRequestedMode
         : null;
 
       // Check if course already exists
@@ -152,6 +174,7 @@ export default async function handler(req, res) {
       let result;
       if (existingCourse) {
         const existingMode = String(existingCourse.delivery_mode || "lms").trim().toLowerCase();
+        if (existingMode === "v5") return legacyV5Forbidden(res);
         if (requestedMode && requestedMode !== existingMode && (requestedMode === "v4" || existingMode === "v4")) {
           return res.status(409).json({ success: false, error: "Không thể đổi khóa qua lại V4 bằng API sync" });
         }
@@ -212,6 +235,7 @@ export default async function handler(req, res) {
       if (!email || !courseSlug) {
         return res.status(400).json({ success: false, error: "Thiếu email hoặc courseSlug" });
       }
+      if (await isV5CourseSlug(courseSlug)) return legacyV5Forbidden(res);
       if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(orderId))) {
         return res.status(400).json({ success: false, error: "orderId không hợp lệ" });
       }
@@ -233,6 +257,7 @@ export default async function handler(req, res) {
       if (!email || !courseSlug) {
         return res.status(400).json({ success: false, error: "Thiếu email hoặc courseSlug" });
       }
+      if (await isV5CourseSlug(courseSlug)) return legacyV5Forbidden(res);
       if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(orderId))) {
         return res.status(400).json({ success: false, error: "orderId không hợp lệ" });
       }
