@@ -14,6 +14,7 @@ const SUPPORTED_DELIVERY_MODES = new Set(["lms", "v4"]);
 const norm = value => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const isActive = status => ACTIVE_ENROLLMENT_STATUSES.has(norm(status));
 function ip(req){return String(req.headers["x-forwarded-for"]||"").split(",")[0].trim()||String(req.headers["x-real-ip"]||"").trim()||null}
+function singleDeviceBlockEnabled(){return String(process.env.STUDENT_SINGLE_DEVICE_BLOCK_ENABLED||"").trim().toLowerCase()==="true"}
 function productionV4Origin(){
   if(process.env.VERCEL_ENV!=="production") return "";
   const configured=cloneConfig().v4PublicUrl;
@@ -49,7 +50,25 @@ export default async function handler(req,res){
 
     let studentSession=await getActiveStudentSessionByEmail(supabase,session.email);
     if(studentSession&&String(studentSession.portal_device_id||"")!==portalDeviceId){
-      return res.status(409).json({ok:false,error:"Tài khoản đang có phiên học trên thiết bị khác. Vui lòng đăng xuất phiên cũ hoặc liên hệ Admin."});
+      if(singleDeviceBlockEnabled()){
+        return res.status(409).json({ok:false,error:"Tài khoản đang có phiên học trên thiết bị khác. Vui lòng đăng xuất phiên cũ hoặc liên hệ Admin."});
+      }
+      const now=new Date().toISOString();
+      const {data:reboundSession,error:reboundError}=await supabase
+        .from("student_active_sessions")
+        .update({
+          portal_device_id:portalDeviceId,
+          ip:ip(req),
+          user_agent:req.headers["user-agent"]||null,
+          last_seen_at:now,
+          updated_at:now
+        })
+        .eq("student_session_id",studentSession.student_session_id)
+        .eq("status","active")
+        .select("*")
+        .maybeSingle();
+      if(reboundError) throw reboundError;
+      if(reboundSession) studentSession=reboundSession;
     }
     if(studentSession) await touchStudentSession(supabase,studentSession.student_session_id);
     else studentSession=await createStudentActiveSession(supabase,{email:session.email,portalDeviceId,ip:ip(req),userAgent:req.headers["user-agent"]||null});
