@@ -3,6 +3,7 @@ import { supabase } from "../supabase.js";
 import { maybeCleanupExpiredV4MediaTickets } from "../v4-media-ticket-retention.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { cloneConfig } from "../clone-config.js";
+import { videoMetadata, videoTransport } from "../v4-telegram-media-meta.js";
 
 const VIDEO_TYPES = new Set(["video", "animation", "video_note"]);
 const MIN_LEASE_MS = 20 * 60 * 1000;
@@ -21,15 +22,28 @@ function mediaGatewayUrl() {
   return clean(process.env.TELEGRAM_MEDIA_GATEWAY_URL || "").replace(/\/$/, "") || cloneConfig().telegramMediaGatewayUrl;
 }
 
+function mtprotoGatewayUrl() {
+  const configured = clean(process.env.TELEGRAM_MTPROTO_GATEWAY_URL || "");
+  const base = configured || cloneConfig().telegramMtprotoGatewayUrl;
+  try {
+    const url = new URL(base);
+    url.searchParams.delete("prepare");
+    url.searchParams.set("stream", "1");
+    return url.toString();
+  } catch {
+    const value = base.replace(/\/$/, "");
+    return value.includes("?") ? `${value}&stream=1` : `${value}?stream=1`;
+  }
+}
+
 function pickVideo(raw, messageType) {
   if (!VIDEO_TYPES.has(messageType)) return null;
-  const value = raw && typeof raw === "object" ? raw : {};
-  const key = messageType === "video_note" ? "video_note" : messageType;
-  const item = value[key] && typeof value[key] === "object" ? value[key] : null;
-  if (!item) return null;
+  const media = videoMetadata(raw, messageType);
+  const transport = videoTransport(raw, messageType);
+  if (!media || !transport) return null;
   return {
-    duration: Number(item.duration || 0),
-    size: Number(item.file_size || 0)
+    ...media,
+    transport
   };
 }
 
@@ -53,6 +67,7 @@ function scheduleTicketCleanup() {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Pragma", "no-cache");
   if (req.method !== "POST") {
@@ -123,13 +138,15 @@ export default async function handler(req, res) {
       });
     if (ticketError) throw ticketError;
 
+    res.setHeader("Server-Timing", `v4-play;dur=${Date.now() - startedAt}`);
+    res.setHeader("X-V4-Playback-Transport", video.transport);
     return res.status(200).json({
       success: true,
       leaseId,
       token,
       signingKey: keys.privateJwk,
       proof: keys.privateJwk,
-      gateway: mediaGatewayUrl(),
+      gateway: video.transport === "mtproto" ? mtprotoGatewayUrl() : mediaGatewayUrl(),
       expiresAt,
       email: access.email
     });

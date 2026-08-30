@@ -21,6 +21,8 @@ test('V4 play endpoint issues ephemeral ECDSA-bound playback leases', () => {
   assert.match(play, /signingKey:\s*keys\.privateJwk/);
   assert.match(play, /bound_ua_hash/);
   assert.match(play, /bound_ip_hash/);
+  assert.match(play, /video\.transport === "mtproto" \? mtprotoGatewayUrl\(\) : mediaGatewayUrl\(\)/);
+  assert.match(play, /X-V4-Playback-Transport/);
 });
 
 test('portal exposes the protected play endpoint without adding a top-level function', () => {
@@ -35,6 +37,7 @@ test('V4 player uses a service-worker virtual URL, hides download controls, and 
   assert.match(page, /nodownload noremoteplayback/);
   assert.match(page, /mark\.hidden=true/);
   assert.doesNotMatch(page, /mark\.textContent=\(lease\.email\|\|data\?\.email/);
+  assert.match(page, /Promise\.all\(\[ensureMediaWorker\(\),requestPlaybackLease\(messageId\)\]\)/);
 });
 
 test('service worker keeps gateway token/key out of video src and signs each upstream request', () => {

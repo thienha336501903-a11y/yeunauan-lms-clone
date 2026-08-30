@@ -20,12 +20,14 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(play, /requireV4CourseAccess/);
   assert.match(play, /issueV5PlaybackLease/);
   assert.match(play, /asset\.provider !== "r2"/);
-  assert.match(play, /\.eq\("course_id", course\.id\)/);
-  assert.match(play, /\.eq\("status", "published"\)/);
+  assert.match(play, /published_release_id/);
+  assert.match(play, /v5ReleaseHasAsset/);
   assert.match(play, /playbackUrl: lease\.url/);
   assert.match(play, /expiresAt: lease\.expiresAt/);
 
   assert.match(feed, /playback_ready/);
+  assert.match(feed, /published_release_id/);
+  assert.match(feed, /v5ReleaseContent/);
   assert.doesNotMatch(feed, /issueV5PlaybackLease/);
   assert.doesNotMatch(feed, /playback_url/);
   assert.doesNotMatch(feed, /r2_object_key\s*:/);
@@ -61,20 +63,25 @@ test('Cloudflare Worker verifies lease, UA binding, and serves private R2 byte r
   assert.match(worker, /private, no-store/);
 });
 
-test('V5 release lifecycle blocks unfinished media and snapshots before publish', () => {
+test('V5 release lifecycle blocks unfinished media and switches the learner release atomically', () => {
   const release = read('utils/lms-handlers/admin-v5-release.js');
+  const migration = read('sql/migration_lms_v5_atomic_release_20260828.sql');
   assert.match(release, /Post đang xử lý media/);
   assert.match(release, /media chưa READY/);
-  assert.match(release, /media upload trực tiếp chưa có object R2/);
+  assert.match(release, /media READY nhưng chưa có object R2 phát cho học viên/);
   assert.match(release, /releaseSnapshot/);
-  assert.match(release, /v5_releases/);
-  assert.match(release, /published_release_id/);
+  assert.match(release, /v5_publish_release_atomic/);
+  assert.match(migration, /for update/);
+  assert.match(migration, /published_release_id = v_release/);
+  assert.match(migration, /status = 'superseded'/);
+  assert.match(migration, /grant execute[\s\S]*service_role/i);
 });
 
-test('V5 rollback moves current positions aside before restoring historical ordering', () => {
+test('V5 rollback moves current positions aside before atomically selecting a historical snapshot copy', () => {
   const release = read('utils/lms-handlers/admin-v5-release.js');
   assert.match(release, /movePositionsToTemporarySpace/);
   assert.match(release, /200000000/);
   assert.match(release, /300000000/);
+  assert.match(release, /atomicPublishSnapshot\(course\.id, snapshot, admin\.email\)/);
   assert.match(release, /rollbackFrom/);
 });

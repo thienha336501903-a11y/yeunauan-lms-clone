@@ -275,7 +275,11 @@ async function complete(course, body) {
 
   const { error: sessionUpdateError } = await supabase.from("v5_upload_sessions").update({ status: "completed", completed_at: now, updated_at: now }).eq("id", session.id);
   if (sessionUpdateError) throw sessionUpdateError;
-  await supabase.from("v5_jobs").insert({ course_id: course.id, asset_id: asset.id, job_type: "media_probe", status: "queued", payload: { reason: "direct_upload_complete" } });
+
+  // No asynchronous media_probe consumer currently exists. The upload has
+  // already been verified against private R2 with HEAD + exact byte size, which
+  // is the learner-playback readiness boundary. Do not enqueue orphan jobs that
+  // could later mutate metadata after an immutable release has been Published.
   return { completed: true, asset, object: head };
 }
 

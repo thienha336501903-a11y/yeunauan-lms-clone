@@ -8,7 +8,7 @@ export function telegramVideoMessageTypes() {
   return [...VIDEO_MESSAGE_TYPES];
 }
 
-function videoMetadata(raw, messageType) {
+export function videoMetadata(raw, messageType) {
   if (!VIDEO_MESSAGE_TYPES.has(messageType)) return null;
   const value = raw && typeof raw === "object" ? raw : {};
   const key = messageType === "video_note" ? "video_note" : messageType;
@@ -17,15 +17,22 @@ function videoMetadata(raw, messageType) {
   return {
     fileId: String(item.file_id || ""),
     size: Number(item.file_size || 0),
+    duration: Number(item.duration || 0),
     mtproto: Boolean(item.mtproto)
   };
 }
 
+export function videoTransport(raw, messageType) {
+  const media = videoMetadata(raw, messageType);
+  if (!media) return null;
+  if (media.mtproto || !media.fileId || media.size > BOT_API_DOWNLOAD_LIMIT) return "mtproto";
+  return "bot";
+}
+
 export function findMtprotoVideoMessage(rows) {
-  return (Array.isArray(rows) ? rows : []).find((row) => {
-    const media = videoMetadata(row?.raw_message, row?.message_type);
-    return Boolean(media && (media.mtproto || media.size > BOT_API_DOWNLOAD_LIMIT));
-  }) || null;
+  return (Array.isArray(rows) ? rows : []).find((row) => (
+    videoTransport(row?.raw_message, row?.message_type) === "mtproto"
+  )) || null;
 }
 
 export function findWarmupVideoMessages(
@@ -44,11 +51,7 @@ export function findWarmupVideoMessages(
     const media = videoMetadata(row?.raw_message, row?.message_type);
     if (!media || (media.size <= 0 && !media.mtproto)) continue;
 
-    const transport = media.mtproto || media.size > BOT_API_DOWNLOAD_LIMIT
-      ? "mtproto"
-      : media.fileId
-        ? "bot"
-        : null;
+    const transport = videoTransport(row?.raw_message, row?.message_type);
     if (!transport || counts[transport] >= perTransportLimit) continue;
 
     selected.push(row);

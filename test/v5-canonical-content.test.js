@@ -23,11 +23,12 @@ test('V5 composer requires existing LMS admin session and course scoping', () =>
   assert.match(handler, /Danh sách sắp xếp chứa dữ liệu ngoài khóa học/);
 });
 
-test('V5 student feed keeps enrollment gate and publish gate', () => {
+test('V5 student feed keeps enrollment gate and selected Published release gate', () => {
   const feed = read('utils/lms-handlers/v5-feed.js');
   assert.match(feed, /requireV4CourseAccess/);
   assert.match(feed, /config\.status !== "published"/);
-  assert.match(feed, /\.eq\("status", "published"\)/);
+  assert.match(feed, /\.eq\("id", config\.published_release_id\)[\s\S]*\.eq\("course_id", course\.id\)[\s\S]*\.eq\("status", "published"\)/);
+  assert.match(feed, /v5ReleaseContent\(release\.snapshot\)/);
   assert.match(feed, /\.eq\("status", "ready"\)/);
 });
 
