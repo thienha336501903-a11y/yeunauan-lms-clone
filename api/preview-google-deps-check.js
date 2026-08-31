@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import fs from "node:fs";
+import zlib from "node:zlib";
 
 function packageVersion(require, name) {
   try {
@@ -23,6 +25,16 @@ function classifyStack(stack) {
 export default async function handler(req, res) {
   if (process.env.VERCEL_ENV !== "preview") {
     return res.status(404).json({ ok: false, error: "not_found" });
+  }
+
+  if (String(req.query?.lock || "") === "1") {
+    try {
+      const lock = fs.readFileSync(new URL("../package-lock.json", import.meta.url));
+      const data = zlib.gzipSync(lock).toString("base64");
+      return res.status(200).json({ ok: true, encoding: "gzip-base64", data });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error?.code || error?.name || "lock_read_failed") });
+    }
   }
 
   const require = createRequire(import.meta.url);
