@@ -1,0 +1,46 @@
+name: Audit Google deps (temporary)
+
+on:
+  push:
+    branches:
+      - chore/upgrade-google-client-deps-20260831
+    paths:
+      - .github/workflows/audit-google-deps-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/upgrade-google-client-deps-20260831
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install exact lock without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Dependency chains
+        run: |
+          echo '--- gaxios tree ---'
+          npm ls gaxios --all || true
+          echo '--- glob tree ---'
+          npm ls glob --all || true
+          echo '--- node-fetch tree ---'
+          npm ls node-fetch --all || true
+      - name: Production npm audit summary
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node - <<'NODE'
+          const fs = require('fs');
+          const audit = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
+          console.log('AUDIT_METADATA', JSON.stringify(audit.metadata?.vulnerabilities || {}));
+          const vulns = audit.vulnerabilities || {};
+          for (const [name, v] of Object.entries(vulns)) {
+            const via = (v.via || []).map(x => typeof x === 'string' ? x : `${x.source || ''}:${x.title || ''}`).slice(0, 6);
+            console.log('AUDIT_VULN', JSON.stringify({name, severity:v.severity, isDirect:v.isDirect, range:v.range, fixAvailable:v.fixAvailable, via}));
+          }
+          NODE
