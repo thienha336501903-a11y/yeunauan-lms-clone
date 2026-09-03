@@ -7,12 +7,10 @@ import {
   touchStudentSession
 } from "../lms-session-guard.js";
 import { cloneConfig } from "../clone-config.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
-const ACTIVE_ENROLLMENT_STATUSES = new Set(["active","approved","approved_ready","approved_waiting_content","completed","da duyet"]);
 const SUPPORTED_DELIVERY_MODES = new Set(["lms", "v4"]);
-const norm = value => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const isActive = status => ACTIVE_ENROLLMENT_STATUSES.has(norm(status));
 function ip(req){return String(req.headers["x-forwarded-for"]||"").split(",")[0].trim()||String(req.headers["x-real-ip"]||"").trim()||null}
 function singleDeviceBlockEnabled(){return String(process.env.STUDENT_SINGLE_DEVICE_BLOCK_ENABLED||"").trim().toLowerCase()==="true"}
 function productionV4Origin(){
@@ -40,13 +38,13 @@ export default async function handler(req,res){
 
     const [{data:course,error:courseError},{data:enrollments,error:enrollError}]=await Promise.all([
       supabase.from("courses").select("slug,active,is_published,delivery_mode,raw_data").eq("slug",courseSlug).maybeSingle(),
-      supabase.from("student_enrollments").select("id,status").eq("email",String(session.email).toLowerCase()).eq("course_slug",courseSlug).limit(10)
+      supabase.from("student_enrollments").select("id,status,expired_at").eq("email",String(session.email).toLowerCase()).eq("course_slug",courseSlug).limit(10)
     ]);
     if(courseError) throw courseError;if(enrollError) throw enrollError;
     const deliveryMode=String(course?.delivery_mode||"lms").trim().toLowerCase();
     if(!course||course.active===false||course.is_published!==true||!SUPPORTED_DELIVERY_MODES.has(deliveryMode)) return res.status(403).json({ok:false,error:"Khóa học chưa sẵn sàng để vào lớp."});
     if(course.raw_data?.originalLessonEntryVisible===false) return res.status(403).json({ok:false,code:"original_lesson_hidden",error:"Bài học gốc hiện chưa được mở."});
-    if(!(enrollments||[]).some(row=>isActive(row.status))) return res.status(403).json({ok:false,error:"Gmail này chưa được cấp quyền học khóa này."});
+    if(!(enrollments||[]).some(row=>isEnrollmentUsable(row))) return res.status(403).json({ok:false,error:"Gmail này chưa được cấp quyền học khóa này."});
 
     let studentSession=await getActiveStudentSessionByEmail(supabase,session.email);
     if(studentSession&&String(studentSession.portal_device_id||"")!==portalDeviceId){

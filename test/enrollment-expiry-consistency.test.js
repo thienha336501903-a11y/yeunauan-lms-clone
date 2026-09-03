@@ -14,6 +14,12 @@ const bootstrap = fs.readFileSync(new URL('../utils/lms-handlers/v3-bootstrap.js
 const dashboard = fs.readFileSync(new URL('../utils/lms-handlers/student-dashboard.js', import.meta.url), 'utf8');
 const v4Access = fs.readFileSync(new URL('../utils/v4-telegram-access.js', import.meta.url), 'utf8');
 const v4Admin = fs.readFileSync(new URL('../utils/lms-handlers/admin-v4-enrollments.js', import.meta.url), 'utf8');
+const lesson = fs.readFileSync(new URL('../utils/lms-handlers/lesson.js', import.meta.url), 'utf8');
+const publicLesson = fs.readFileSync(new URL('../utils/lms-handlers/public-lesson.js', import.meta.url), 'utf8');
+const legacyEntryToken = fs.readFileSync(new URL('../utils/lms-handlers/legacy-entry-token.js', import.meta.url), 'utf8');
+const verifyEntryToken = fs.readFileSync(new URL('../utils/lms-handlers/verify-entry-token.js', import.meta.url), 'utf8');
+const exchangeCode = fs.readFileSync(new URL('../utils/lms-handlers/exchange-code.js', import.meta.url), 'utf8');
+const sessionGuard = fs.readFileSync(new URL('../utils/lms-session-guard.js', import.meta.url), 'utf8');
 
 test('shared enrollment normalization handles Vietnamese đ correctly', () => {
   assert.equal(normalizeEnrollmentStatus('Đã duyệt'), 'da duyet');
@@ -59,4 +65,19 @@ test('V4 access and V4 Admin share the same status and expiry contract', () => {
   assert.match(v4Access, /isEnrollmentExpired\(enrollment\.expired_at\)/);
   assert.match(v4Access, /Quyền học khóa này.*đã hết hạn/);
   assert.match(v4Admin, /isActiveEnrollmentStatus, isEnrollmentExpired, normalizeEnrollmentStatus/);
+});
+
+test('every legacy lesson and entry path rejects expired enrollments', () => {
+  for (const source of [lesson, publicLesson, legacyEntryToken, verifyEntryToken, exchangeCode, sessionGuard]) {
+    assert.match(source, /expired_at/);
+    assert.match(source, /isEnrollmentUsable/);
+  }
+});
+
+test('photo lesson endpoint requires a session and course enrollment', () => {
+  assert.match(publicLesson, /verifyStudentSession/);
+  assert.match(publicLesson, /verifyLmsVerifiedSessionAccess/);
+  assert.match(publicLesson, /missing_login_session/);
+  assert.match(publicLesson, /enrollment_inactive/);
+  assert.match(publicLesson, /Cache-Control", "no-store/);
 });

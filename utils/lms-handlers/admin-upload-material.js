@@ -43,6 +43,14 @@ function cleanFileName(fileName = "document") {
   return String(fileName || "document").replace(/[/\\?%*:|"<>']/g, "-").trim() || `document_${Date.now()}`;
 }
 
+function decodeBase64Strict(value) {
+  const compact = String(value || "").replace(/\s/g, "");
+  if (!compact || compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) {
+    throw new Error("invalid_base64");
+  }
+  return Buffer.from(compact, "base64");
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -105,7 +113,7 @@ export default async function handler(req, res) {
 
     let buffer;
     try {
-      buffer = Buffer.from(cleanBase64, "base64");
+      buffer = decodeBase64Strict(cleanBase64);
     } catch {
       return res.status(400).json({ success: false, error: "Du lieu tai lieu base64 khong hop le" });
     }
@@ -146,7 +154,7 @@ export default async function handler(req, res) {
     }
 
     const finalFileName = cleanFileName(fileName || `document_${Date.now()}.${ext}`);
-    const effectiveMime = mimeType || mimeFromDataUrl || EXTENSION_MIME[ext] || "application/octet-stream";
+    const effectiveMime = EXTENSION_MIME[ext] || "application/octet-stream";
     const fileMetadata = {
       name: finalFileName,
       parents: [resolved.targetFolderId]

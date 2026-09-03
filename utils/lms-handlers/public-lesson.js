@@ -1,5 +1,21 @@
 import { supabase } from "../supabase.js";
 import { google } from "googleapis";
+import { fetchAllowedRecipeUrl } from "../lms-recipe-fetch.js";
+import { parseCookies, safePublicContentUrl, signMediaUrls, verifyStudentSession } from "../lms.js";
+import {
+  isEntryTokenRequiredCourse,
+  verifyLmsVerifiedSessionAccess
+} from "../lms-session-guard.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
+
+const SESSION_COOKIE = "course_session_token";
+
+function getLmsSessionHeaders(req) {
+  return {
+    lmsSessionId: String(req.headers["x-lms-session-id"] || "").trim(),
+    lmsDeviceId: String(req.headers["x-lms-device-id"] || "").trim()
+  };
+}
 
 function getGoogleAuth() {
   const privateKey = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
@@ -178,13 +194,7 @@ async function fetchRecipeTextFromPublicUrl(recipeUrl) {
   let lastError = null;
   for (const url of urls) {
     try {
-      const response = await fetch(url, {
-        redirect: "follow",
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-      if (!response.ok) throw new Error(`Status ${response.status}`);
-      const contentType = response.headers.get("content-type") || "";
-      const text = await response.text();
+      const { contentType, text } = await fetchAllowedRecipeUrl(url);
 
       if (contentType.includes("text/html") && /<html[\s>]/i.test(text)) {
         const plainText = htmlToPlainText(text);
@@ -222,7 +232,8 @@ export async function fetchRecipeText(recipeUrl) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-LMS-Session-Id, X-LMS-Device-Id");
+  res.setHeader("Cache-Control", "no-store");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -241,6 +252,67 @@ export default async function handler(req, res) {
   }
 
   try {
+    const lmsHeaders = getLmsSessionHeaders(req);
+    const hasLmsSessionHeaders = Boolean(lmsHeaders.lmsSessionId && lmsHeaders.lmsDeviceId);
+    let lmsSessionAccess = null;
+    let lmsSessionFailureReason = "";
+    let email = null;
+
+    if (hasLmsSessionHeaders) {
+      const access = await verifyLmsVerifiedSessionAccess(supabase, {
+        ...lmsHeaders,
+        courseSlug
+      });
+      if (access.ok) {
+        lmsSessionAccess = access;
+        email = access.email;
+      } else {
+        lmsSessionFailureReason = access.reason || "invalid_lms_session";
+      }
+    }
+
+    if (!email) {
+      const sessionToken = parseCookies(req)[SESSION_COOKIE];
+      const session = sessionToken ? verifyStudentSession(sessionToken) : null;
+      email = session?.email || null;
+    }
+
+    if (!email) {
+      return res.status(401).json({
+        success: false,
+        authError: "missing_login_session",
+        error: "Vui lòng đăng nhập để truy cập bài học"
+      });
+    }
+
+    if (isEntryTokenRequiredCourse(courseSlug) && !lmsSessionAccess) {
+      const code = hasLmsSessionHeaders
+        ? (lmsSessionFailureReason || "protected_session_invalid")
+        : "entry_token_required";
+      return res.status(403).json({
+        success: false,
+        authError: code,
+        code,
+        course: courseSlug,
+        error: "Liên kết lớp học này cần được mở từ Khóa học của tôi."
+      });
+    }
+
+    const { data: enrollments, error: enrollError } = await supabase
+      .from("student_enrollments")
+      .select("id,status,expired_at")
+      .eq("email", email)
+      .eq("course_slug", courseSlug)
+      .limit(10);
+    if (enrollError) throw enrollError;
+    if (!(enrollments || []).some(enrollment => isEnrollmentUsable(enrollment))) {
+      return res.status(403).json({
+        success: false,
+        authError: "enrollment_inactive",
+        error: "Bạn không có quyền xem bài học của khóa học này."
+      });
+    }
+
     // 1. Get lesson and increment views count
     const { data: lessonRecord, error: fetchError } = await supabase
       .from("lessons")
@@ -282,10 +354,10 @@ export default async function handler(req, res) {
       description: lessonData.description || "",
       duration: lessonData.duration_text || "",
       level: lessonData.level || "",
-      thumbnailUrl: lessonData.thumbnail_url || "",
-      videoUrl: lessonData.video_url || "",
+      thumbnailUrl: safePublicContentUrl(lessonData.thumbnail_url),
+      videoUrl: safePublicContentUrl(lessonData.video_url),
       recipeUrl: lessonData.recipe_url || "",
-      mediaUrls: lessonData.media_urls || "",
+      mediaUrls: signMediaUrls(lessonData.media_urls || ""),
       views: lessonData.views || 0,
       status: lessonData.status || "active",
       recipeText

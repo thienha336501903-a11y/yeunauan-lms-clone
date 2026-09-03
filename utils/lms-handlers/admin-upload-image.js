@@ -3,6 +3,28 @@ import { getAdminFromRequest, getGoogleDriveClient, resolveCourseFolderTree, sav
 import { supabase } from "../supabase.js";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+const IMAGE_MIME_TO_EXT = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+  ["image/gif", "gif"]
+]);
+
+function decodeBase64Strict(value) {
+  const compact = String(value || "").replace(/\s/g, "");
+  if (!compact || compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) {
+    throw new Error("invalid_base64");
+  }
+  return Buffer.from(compact, "base64");
+}
+
+function matchesImageSignature(buffer, mimeType) {
+  if (mimeType === "image/jpeg") return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (mimeType === "image/png") return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  if (mimeType === "image/webp") return buffer.length >= 12 && buffer.subarray(0, 4).toString() === "RIFF" && buffer.subarray(8, 12).toString() === "WEBP";
+  if (mimeType === "image/gif") return buffer.length >= 6 && ["GIF87a", "GIF89a"].includes(buffer.subarray(0, 6).toString());
+  return false;
+}
 
 function bufferToStream(buffer) {
   const pass = new PassThrough();
@@ -77,11 +99,20 @@ export default async function handler(req, res) {
       cleanBase64 = parts[1];
     }
 
+    cleanMimeType = String(cleanMimeType || "").toLowerCase().trim();
+    if (!IMAGE_MIME_TO_EXT.has(cleanMimeType)) {
+      return res.status(400).json({ success: false, error: "Định dạng ảnh không được hỗ trợ" });
+    }
+
     let buffer;
     try {
-      buffer = Buffer.from(cleanBase64, "base64");
+      buffer = decodeBase64Strict(cleanBase64);
     } catch {
       return res.status(400).json({ success: false, error: "Dữ liệu ảnh không hợp lệ" });
+    }
+
+    if (!matchesImageSignature(buffer, cleanMimeType)) {
+      return res.status(400).json({ success: false, error: "Nội dung file không khớp định dạng ảnh" });
     }
 
     if (buffer.byteLength > MAX_IMAGE_BYTES) {
@@ -91,7 +122,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const ext = cleanMimeType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+    const ext = IMAGE_MIME_TO_EXT.get(cleanMimeType);
     let finalFileName = fileName || `image_${Date.now()}.${ext}`;
     
     // Resolve clean name for file

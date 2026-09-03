@@ -582,6 +582,18 @@
 
     // ── Load Lesson Data ─────────────────────────────────────────────────────
 
+    function getLmsSessionHeaders() {
+      try {
+        const sessionId = localStorage.getItem("lms_verified_session_id") || localStorage.getItem("lms_session_id") || "";
+        const deviceId = localStorage.getItem("lms_device_id") || "";
+        return sessionId && deviceId
+          ? { "X-LMS-Session-Id": sessionId, "X-LMS-Device-Id": deviceId }
+          : {};
+      } catch {
+        return {};
+      }
+    }
+
     async function loadLessonData() {
       const loadingView = document.getElementById("loadingView");
       const errorView = document.getElementById("errorView");
@@ -590,7 +602,7 @@
       try {
         const response = await fetch("/api/lms/portal?endpoint=public-lesson", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getLmsSessionHeaders() },
           body: JSON.stringify({ course: COURSE, lesson: LESSON })
         });
 

@@ -4,37 +4,19 @@ import {
   parseCookies,
   signBunnyEmbedUrl,
   signMediaUrls,
-  normalizeEmail
+  normalizeEmail,
+  safePublicContentUrl
 } from "../lms.js";
 import { google } from "googleapis";
+import { fetchAllowedRecipeUrl } from "../lms-recipe-fetch.js";
 import {
   isEntryTokenRequiredCourse,
   verifyLmsVerifiedSessionAccess
 } from "../lms-session-guard.js";
 import { resolveMainMediaInfo } from "../lms-media.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
-}
-
 function getLmsSessionHeaders(req) {
   return {
     lmsSessionId: String(req.headers["x-lms-session-id"] || "").trim(),
@@ -48,13 +30,14 @@ function normalizeMaterials(value) {
     .map((item) => {
       if (!item || typeof item !== "object") return null;
       const name = String(item.name || item.fileName || "").trim();
-      const url = String(item.url || item.webViewLink || item.downloadUrl || "").trim();
+      const url = safePublicContentUrl(item.url || item.webViewLink || item.downloadUrl);
+      const downloadUrl = safePublicContentUrl(item.downloadUrl || url);
       if (!name || !url) return null;
       return {
         id: String(item.id || item.fileId || url),
         name,
         url,
-        downloadUrl: String(item.downloadUrl || url),
+        downloadUrl,
         mimeType: String(item.mimeType || ""),
         size: Number(item.size || 0),
         source: String(item.source || "google_drive")
@@ -250,13 +233,7 @@ async function fetchRecipeTextFromPublicUrl(recipeUrl) {
   let lastError = null;
   for (const url of urls) {
     try {
-      const response = await fetch(url, {
-        redirect: "follow",
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-      if (!response.ok) throw new Error(`Status ${response.status}`);
-      const contentType = response.headers.get("content-type") || "";
-      const text = await response.text();
+      const { contentType, text } = await fetchAllowedRecipeUrl(url);
 
       if (contentType.includes("text/html") && /<html[\s>]/i.test(text)) {
         const plainText = htmlToPlainText(text);
@@ -380,13 +357,13 @@ export default async function handler(req, res) {
     // 3. Verify student enrollment for the course that this lesson belongs to
     const { data: enrollment, error: enrollError } = await supabase
       .from("student_enrollments")
-      .select("id, status")
+      .select("id, status, expired_at")
       .eq("email", email)
       .eq("course_slug", lesson.course_slug)
       .limit(10);
 
     if (enrollError) throw enrollError;
-    const activeEnrollment = (enrollment || []).find(e => isActiveEnrollment(e.status));
+    const activeEnrollment = (enrollment || []).find(e => isEnrollmentUsable(e));
     if (!activeEnrollment) {
       return res.status(403).json({
         success: false,
@@ -443,8 +420,8 @@ export default async function handler(req, res) {
       description: lesson.description || "",
       duration: lesson.duration_text || "",
       level: lesson.level || "",
-      thumbnailUrl: lesson.thumbnail_url || "",
-      videoUrl: lesson.video_url || "",
+      thumbnailUrl: safePublicContentUrl(lesson.thumbnail_url),
+      videoUrl: safePublicContentUrl(lesson.video_url),
       recipeUrl: lesson.recipe_url || "",
       mediaUrls: securedMedia,
       ...mainMediaInfo,

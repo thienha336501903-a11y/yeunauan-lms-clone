@@ -8,27 +8,7 @@ import {
   touchStudentSession,
   verifyLmsEntryToken
 } from "../lms-session-guard.js";
-
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
-}
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 function getClientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
@@ -150,13 +130,13 @@ export default async function handler(req, res) {
 
     const { data: enrollments, error: enrollError } = await supabase
       .from("student_enrollments")
-      .select("id, status")
+      .select("id, status, expired_at")
       .eq("email", email)
       .eq("course_slug", courseSlug)
       .limit(10);
 
     if (enrollError) throw enrollError;
-    const activeEnrollment = (enrollments || []).find(enrollment => isActiveEnrollment(enrollment.status));
+    const activeEnrollment = (enrollments || []).find(enrollment => isEnrollmentUsable(enrollment));
     if (!activeEnrollment) {
       return jsonError(res, 403, "Gmail nay chua duoc cap quyen hoc khoa nay.", "enrollment_inactive");
     }

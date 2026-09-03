@@ -7,9 +7,11 @@ import {
   parseCookies,
   cookieOptions,
   signBunnyEmbedUrl,
-  signMediaUrls
+  signMediaUrls,
+  safePublicContentUrl
 } from "../lms.js";
 import { google } from "googleapis";
+import { fetchAllowedRecipeUrl } from "../lms-recipe-fetch.js";
 import crypto from "crypto";
 import {
   isEntryTokenRequiredCourse,
@@ -216,13 +218,7 @@ async function fetchRecipeTextFromPublicUrl(recipeUrl) {
   let lastError = null;
   for (const url of urls) {
     try {
-      const response = await fetch(url, {
-        redirect: "follow",
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-      if (!response.ok) throw new Error(`Status ${response.status}`);
-      const contentType = response.headers.get("content-type") || "";
-      const text = await response.text();
+      const { contentType, text } = await fetchAllowedRecipeUrl(url);
 
       if (contentType.includes("text/html") && /<html[\s>]/i.test(text)) {
         const plainText = htmlToPlainText(text);
@@ -460,8 +456,8 @@ export default async function handler(req, res) {
         description: l.description || "",
         duration: l.duration_text || "",
         level: l.level || "",
-        thumbnailUrl: l.thumbnail_url || "",
-        videoUrl: l.video_url || "",
+        thumbnailUrl: safePublicContentUrl(l.thumbnail_url),
+        videoUrl: safePublicContentUrl(l.video_url),
         recipeUrl: l.recipe_url || "",
         mediaUrls: securedMedia,
         ...mainMediaInfo,
