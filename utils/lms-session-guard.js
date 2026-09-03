@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isEnrollmentUsable } from "./lms-enrollment-status.js";
 
 export const STUDENT_SESSION_STATUSES = Object.freeze({
   ACTIVE: "active",
@@ -30,15 +31,6 @@ export const ACCOUNT_SHARING_SCHEMA_VERSION = "v2";
 export const ACCOUNT_SHARING_RISK_RULE_VERSION = "risk_v2_p0";
 
 let missingAccountEventHashSecretWarned = false;
-
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
 
 function positiveNumber(value, fallback) {
   const parsed = Number(value);
@@ -363,18 +355,6 @@ function isOlderThan(timestamp, hours) {
   const time = new Date(timestamp).getTime();
   if (!Number.isFinite(time)) return true;
   return time < new Date(cutoffIso(hours)).getTime();
-}
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
 }
 
 async function throwIfSupabaseError(result) {
@@ -840,13 +820,13 @@ export async function verifyLmsVerifiedSessionAccess(supabase, {
 
   const { data: enrollments, error: enrollError } = await supabase
     .from("student_enrollments")
-    .select("id,status")
+    .select("id,status,expired_at")
     .eq("email", normalizeEmail(session.email))
     .eq("course_slug", sessionCourseSlug)
     .limit(10);
 
   if (enrollError) throw enrollError;
-  const activeEnrollment = (enrollments || []).find(enrollment => isActiveEnrollment(enrollment.status));
+  const activeEnrollment = (enrollments || []).find(enrollment => isEnrollmentUsable(enrollment));
   if (!activeEnrollment) {
     return { ok: false, reason: "enrollment_inactive", session };
   }

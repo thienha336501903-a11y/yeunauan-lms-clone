@@ -5,29 +5,29 @@ import {
   createStudentSession,
   cookieOptions,
   signBunnyEmbedUrl,
-  signMediaUrls
+  signMediaUrls,
+  safePublicContentUrl
 } from "../lms.js";
+import { isEnrollmentUsable } from "../lms-enrollment-status.js";
 
 const SESSION_COOKIE = "course_session_token";
-const ACTIVE_ENROLLMENT_STATUSES = new Set([
-  "active",
-  "approved",
-  "approved_ready",
-  "approved_waiting_content",
-  "completed",
-  "da duyet"
-]);
-
-function normalizeEnrollmentStatus(status) {
-  return String(status || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function isActiveEnrollment(status) {
-  return ACTIVE_ENROLLMENT_STATUSES.has(normalizeEnrollmentStatus(status));
+function normalizeMaterials(value) {
+  return (Array.isArray(value) ? value : []).map(item => {
+    if (!item || typeof item !== "object") return null;
+    const name = String(item.name || item.fileName || "").trim();
+    const url = safePublicContentUrl(item.url || item.webViewLink || item.downloadUrl);
+    const downloadUrl = safePublicContentUrl(item.downloadUrl || url);
+    if (!name || !url || !downloadUrl) return null;
+    return {
+      id: String(item.id || item.fileId || url),
+      name,
+      url,
+      downloadUrl,
+      mimeType: String(item.mimeType || ""),
+      size: Number(item.size || 0),
+      source: String(item.source || "google_drive")
+    };
+  }).filter(Boolean);
 }
 
 /**
@@ -70,7 +70,10 @@ export default async function handler(req, res) {
     });
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || tokenData.error) {
-      console.error("[exchange-code] Token exchange failed:", tokenData);
+      console.error("[exchange-code] Token exchange failed:", {
+        error: tokenData.error || "unknown_error",
+        description: tokenData.error_description || ""
+      });
       return res.status(401).json({
         allowed: false, error: "Google token exchange failed",
         detail: tokenData.error_description || tokenData.error || "Unknown error"
@@ -96,11 +99,11 @@ export default async function handler(req, res) {
     // 3. Check enrollment
     const courseSlug = String(course || "").trim();
     const { data: enrollments, error: enrollError } = await supabase
-      .from("student_enrollments").select("course_slug, status").eq("email", email);
+      .from("student_enrollments").select("course_slug, status, expired_at").eq("email", email);
     if (enrollError) throw enrollError;
 
     const allowedCourses = (enrollments || [])
-      .filter(e => isActiveEnrollment(e.status))
+      .filter(e => isEnrollmentUsable(e))
       .map(e => String(e.course_slug || "").trim())
       .filter(Boolean);
     if (allowedCourses.length === 0) {
@@ -151,9 +154,9 @@ export default async function handler(req, res) {
       return {
         id: l.id, course: l.course_slug, lesson: l.lesson_no, title: l.title,
         description: l.description || "", duration: l.duration_text || "", level: l.level || "",
-        thumbnailUrl: l.thumbnail_url || "", videoUrl: l.video_url || "", recipeUrl: l.recipe_url || "",
+        thumbnailUrl: safePublicContentUrl(l.thumbnail_url), videoUrl: safePublicContentUrl(l.video_url), recipeUrl: l.recipe_url || "",
         mediaUrls: securedMedia, views: l.views || 0, status: l.status || "active",
-        isSection: l.is_section || false, materials: l.materials || [], ...securedVideo
+        isSection: l.is_section || false, materials: normalizeMaterials(l.materials), ...securedVideo
       };
     });
 

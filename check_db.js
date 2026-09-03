@@ -1,73 +1,53 @@
 import { createClient } from "@supabase/supabase-js";
-import fs from "fs";
 
-// Parse .env.prod.local manually
-const envText = fs.readFileSync(".env.prod.local", "utf8");
-const envVars = {};
-envText.split("\n").forEach(line => {
-  const match = line.match(/^\s*([\w.-]+)\s*=\s*"(.*)"\s*$/) || line.match(/^\s*([\w.-]+)\s*=\s*(.*)\s*$/);
-  if (match) {
-    envVars[match[1]] = match[2];
-  }
-});
+const SYSTEM_B_PROJECT_REF = "yyiavtiwtekkocqpephr";
+const supabaseUrl = String(process.env.SUPABASE_URL || "").trim();
+const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const email = String(process.env.CHECK_EMAIL || "").trim().toLowerCase();
 
-const supabaseUrl = envVars.SUPABASE_URL;
-const supabaseKey = envVars.SUPABASE_SERVICE_ROLE_KEY;
-
-console.log("Supabase URL:", supabaseUrl);
-console.log("Has Key:", !!supabaseKey);
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error("Missing Supabase credentials in .env.prod.local");
+function fail(message) {
+  console.error(message);
   process.exit(1);
 }
+
+let projectRef = "";
+try {
+  projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+} catch {
+  fail("SUPABASE_URL must be a valid URL");
+}
+
+if (projectRef !== SYSTEM_B_PROJECT_REF) fail("Refusing to query a project outside System B");
+if (!supabaseKey) fail("SUPABASE_SERVICE_ROLE_KEY is required");
+if (!email || !email.includes("@")) fail("CHECK_EMAIL is required");
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function checkStudent() {
-  const email = "thienha336501903@gmail.com";
-  console.log("\n==================================================");
-  console.log("🔍 Checking student_enrollments for:", email);
-  console.log("==================================================");
+  const [{ data: enrollments, error: enrollmentError }, { data: orders, error: orderError }, { data: courses, error: courseError }] = await Promise.all([
+    supabase.from("student_enrollments").select("course_slug,status,expired_at").eq("email", email),
+    supabase.from("orders").select("status,course_slug").eq("customer_email", email),
+    supabase.from("courses").select("slug,title")
+  ]);
 
-  const { data: enrollments, error: enrollError } = await supabase
-    .from("student_enrollments")
-    .select("*")
-    .eq("email", email);
+  if (enrollmentError) throw enrollmentError;
+  if (orderError) throw orderError;
+  if (courseError) throw courseError;
 
-  console.log("Enrollments found:", enrollments?.length || 0);
-  console.log(JSON.stringify(enrollments, null, 2));
-  if (enrollError) console.error("Enrollment error:", enrollError);
-
-  console.log("\n==================================================");
-  console.log("🔍 Checking ALL enrollments in student_enrollments table:");
-  console.log("==================================================");
-
-  const { data: allEnrollments } = await supabase
-    .from("student_enrollments")
-    .select("email, course_slug, status");
-
-  console.log("Total enrollments:", allEnrollments?.length || 0);
-  console.log(JSON.stringify(allEnrollments, null, 2));
-
-  console.log("\n==================================================");
-  console.log("🔍 Checking orders table for email containing thienha:");
-  console.log("==================================================");
-
-  const { data: orders, error: orderError } = await supabase
-    .from("orders")
-    .select("*")
-    .ilike("customer_email", `%thienha%`);
-
-  console.log("Orders found:", orders?.length || 0);
-  console.log(JSON.stringify(orders, null, 2));
-  if (orderError) console.error("Orders error:", orderError);
-
-  console.log("\n==================================================");
-  console.log("🔍 Checking courses table:");
-  console.log("==================================================");
-  const { data: courses } = await supabase.from("courses").select("id, slug, title");
-  console.log(courses);
+  console.log("System B student diagnostic:", {
+    enrollmentCount: enrollments?.length || 0,
+    enrollmentStates: (enrollments || []).map(row => ({
+      course: row.course_slug,
+      status: row.status,
+      expired: Boolean(row.expired_at && Date.parse(row.expired_at) <= Date.now())
+    })),
+    orderCount: orders?.length || 0,
+    orderStates: (orders || []).map(row => ({ course: row.course_slug, status: row.status })),
+    courseCount: courses?.length || 0
+  });
 }
 
-checkStudent().catch(console.error);
+checkStudent().catch(error => {
+  console.error("System B diagnostic failed:", error?.message || "unknown_error");
+  process.exitCode = 1;
+});

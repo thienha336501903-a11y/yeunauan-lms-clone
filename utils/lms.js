@@ -270,7 +270,7 @@ export function signBunnyEmbedUrl(videoUrl) {
   const parsed = parseBunnyVideoIdAndLibraryId(videoUrl);
   if (!parsed) {
     return {
-      secureVideoUrl: videoUrl || "",
+      secureVideoUrl: safePublicContentUrl(videoUrl),
       videoProvider: "",
       videoAuthStatus: "not_bunny_embed"
     };
@@ -326,6 +326,9 @@ export function signMediaUrls(rawMediaUrlsStr) {
     const captionPart = thirdPipe === -1 ? "" : trimmed.slice(thirdPipe + 1).trim();
     const captionSuffix = captionPart ? `|${captionPart}` : "";
     const url = extractIframeSrc(rawUrl).replace(/&amp;/g, "&").trim();
+    if (!safePublicContentUrl(url)) {
+      return `${type}|${title}|error:unsafe_media_url${captionSuffix}`;
+    }
 
     if (type === "video") {
       if (
@@ -389,6 +392,18 @@ export function signMediaUrls(rawMediaUrlsStr) {
     }
     return `${type}|${title}|${url}${captionSuffix}`;
   }).filter(Boolean).join("\n");
+}
+
+export function safePublicContentUrl(input) {
+  const value = String(input || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return "";
+    return value;
+  } catch {
+    return "";
+  }
 }
 
 // Auto Enroll Logic when orders are approved
@@ -538,7 +553,7 @@ export async function addDriveFolderPermission(accessToken, folderId, emailAddre
       sendNotificationEmail: false
     });
   } catch (err) {
-    console.error(`[addDriveFolderPermission] Failed for ${emailAddress} on ${folderId}:`, err.message);
+    console.error("[addDriveFolderPermission] Drive permission grant failed:", err.message);
   }
 }
 
@@ -561,7 +576,7 @@ export async function removeDriveFolderPermission(accessToken, folderId, emailAd
       });
     }
   } catch (err) {
-    console.error(`[removeDriveFolderPermission] Failed for ${emailAddress} on ${folderId}:`, err.message);
+    console.error("[removeDriveFolderPermission] Drive permission revoke failed:", err.message);
   }
 }
 
@@ -1220,9 +1235,9 @@ async function ensureAdminHasFolderAccess(supabase, folderId, adminEmail) {
       supportsAllDrives: true,
       sendNotificationEmail: false
     });
-    console.log(`[drive-admin-pool] Proactively shared folder ${folderId} with admin ${adminEmail} as Editor`);
+    console.log("[drive-admin-pool] Proactively shared course folder with an admin account");
   } catch (err) {
-    console.warn(`[drive-admin-pool] Could not proactively share folder ${folderId} with admin ${adminEmail}:`, err.message);
+    console.warn("[drive-admin-pool] Could not proactively share course folder with an admin account:", err.message);
   }
 }
 
@@ -1281,7 +1296,7 @@ async function syncGoogleDrivePermissionWithAdminPool(supabase, { email, courseS
             p => p.emailAddress && p.emailAddress.toLowerCase().trim() === cleanEmail
           )?.id || null;
         } catch (listErr) {
-          console.warn(`[drive-admin-pool] Could not list folder permissions with ${account.email}:`, listErr.message);
+          console.warn("[drive-admin-pool] Could not list course folder permissions:", listErr.message);
         }
 
         const permissionId = existingPermissionId || await addDriveFolderPermissionDirect(drive, folderId, cleanEmail);
@@ -1363,7 +1378,7 @@ async function syncGoogleDrivePermissionWithAdminPool(supabase, { email, courseS
         errorMessage,
         retryCount: attempt - 1
       });
-      console.error(`[drive-admin-pool] ${account.email} failed for ${cleanEmail}/${courseSlug}:`, errorMessage);
+      console.error(`[drive-admin-pool] Permission sync failed for course ${courseSlug}:`, errorMessage);
     }
   }
 

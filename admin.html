@@ -2253,7 +2253,7 @@
               return;
             }
 
-            console.log(`[Google Drive] Session URL acquired: ${sessionUrl}`);
+            console.log("[Google Drive] Resumable upload session acquired");
             if (statusText) statusText.innerText = "Đang tải video trực tiếp lên Drive...";
 
             // Step 3: PUT the file binary data directly to Google Drive sessionUrl
@@ -2286,7 +2286,7 @@
 
                 const fileId = driveFileData.id;
                 if (!fileId) {
-                  console.error("[Google Drive] No file ID returned in response:", putXhr.responseText);
+                  console.error("[Google Drive] No file ID returned after upload");
                   toast("Lỗi: Không nhận được ID file từ Google Drive.", "error");
                   if (statusText) statusText.innerText = "Lỗi nhận file ID";
                   resetInput();
@@ -2324,7 +2324,7 @@
                   }
                 }
               } else {
-                console.error(`[Google Drive] PUT request failed. Status: ${putXhr.status}, Response: ${putXhr.responseText}`);
+                console.error(`[Google Drive] PUT request failed. Status: ${putXhr.status}`);
                 toast(`Tải video thất bại (PUT: ${putXhr.status})`, "error");
                 if (statusText) statusText.innerText = `Lỗi upload: code ${putXhr.status}`;
               }
@@ -2342,7 +2342,7 @@
             putXhr.send(file);
 
           } else {
-            console.error(`[Google Drive] Session Init failed. Status: ${initXhr.status}, Response: ${initXhr.responseText}`);
+            console.error(`[Google Drive] Session Init failed. Status: ${initXhr.status}`);
             toast(`Khởi tạo upload thất bại: code ${initXhr.status}`, "error");
             if (statusText) statusText.innerText = `Lỗi khởi tạo: code ${initXhr.status}`;
             resetInput();
@@ -3043,7 +3043,7 @@
           STATE.sessionToken = d.sessionToken;
           STATE.adminEmail = d.email;
 
-          document.cookie = `admin_session_token=${encodeURIComponent(d.sessionToken)}; path=/; samesite=lax; max-age=${30 * 24 * 60 * 60}`;
+          document.cookie = `admin_session_token=${encodeURIComponent(d.sessionToken)}; path=/; samesite=lax; max-age=${30 * 24 * 60 * 60}${location.protocol === "https:" ? "; secure" : ""}`;
           
           document.getElementById("hdrEmail").innerText = d.email;
           
@@ -3108,7 +3108,7 @@
     }
 
     function logoutAdmin() {
-      document.cookie = "admin_session_token=; path=/; max-age=0; samesite=lax";
+      document.cookie = `admin_session_token=; path=/; max-age=0; samesite=lax${location.protocol === "https:" ? "; secure" : ""}`;
       STATE.sessionToken = "";
       STATE.adminEmail = "";
       location.reload();
