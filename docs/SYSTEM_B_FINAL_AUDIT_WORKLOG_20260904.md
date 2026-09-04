@@ -2,8 +2,8 @@
 
 ## Canonical status
 
-- Updated: 2026-09-04 17:03 ICT
-- Status: READY FOR REVIEW — PR #130 pending final gates/merge
+- Updated: 2026-09-04 17:12 ICT
+- Status: READY FOR REVIEW — PR #130 pending squash-merge
 - Current owner window: ChatGPT Work
 - Scope: System B only
 - Forbidden: System A / Legacy Production, including Supabase `aqozjkfwzmyfunqvcyjv`
@@ -60,7 +60,7 @@
 ## Active branch / PR
 
 - Worklog branch: `audit/system-b-final-handover-20260904`
-- PR: LMS #130 (Draft until the final documentation commit passes all gates)
+- PR: LMS #130 (Ready for review)
 - Code-fix branch is consolidated into the audit branch to avoid a fragmented LMS PR.
 - Dirty worktrees: LMS has the audited fix/test/worklog pending commit; Commerce and Telegram clean.
 
@@ -112,10 +112,10 @@ Final cleanup query: 0 courses, 0 orders and 0 enrollments matching `__clone_fac
 ## TRANSFER CHECKPOINT
 
 1. **ĐÃ HOÀN THÀNH:** A1–F1; one verified client-log defect fixed; read-only load passed through 100 concurrent and 158 reached-app requests in the 300 batch; cleanup zero.
-2. **ĐANG LÀM DỞ:** Only the final documentation commit gates and transition of PR #130 to Ready for review.
-3. **VIỆC TIẾP THEO:** Wait for final-head CI/Preview, fresh-read head/reviews, mark Ready, then request one squash-merge confirmation.
-4. **BRANCH / PR / HEAD SHA:** LMS `audit/system-b-final-handover-20260904`; Draft PR #130; pre-final-doc head `b25cea3390fdd79de598c7e1773a265999840994`.
-5. **CI / PREVIEW / PRODUCTION:** PR pre-final-doc head LMS CI PASS; both Vercel checks SUCCESS; Preview READY; production remains READY on main and was not redeployed.
+2. **ĐANG LÀM DỞ:** No technical work; only user-authorized squash-merge of PR #130 remains.
+3. **VIỆC TIẾP THEO:** Squash-merge PR #130 after the final documentation-only head repeats CI/Preview gates, then verify production SHA and smoke.
+4. **BRANCH / PR / HEAD SHA:** LMS `audit/system-b-final-handover-20260904`; Ready PR #130; last fully gated head `1b4bd73cf3780a60ec584d4d515fffbb868f9a5c`.
+5. **CI / PREVIEW / PRODUCTION:** Head `1b4bd73c…`: LMS CI run 330 PASS; both Vercel checks SUCCESS; Preview `dpl_3eMvkKJYNHv4wZbQGUJ2LXAiNyH7` READY with error-only build log clean. Production remains READY on main and was not redeployed.
 6. **TEST DATA CHƯA CLEANUP:** None created by this audit.
 7. **BLOCKER:** Work network cannot complete a true 300-concurrent batch or load the custom domain/browser reliably; authenticated multi-user playback load lacks 300 test identities. This limits certification but is not evidence of an application failure.
 8. **CẢNH BÁO KHÔNG ĐƯỢC LÀM:** Do not touch System A; do not use real data destructively; do not bypass auth; do not commit main directly.
