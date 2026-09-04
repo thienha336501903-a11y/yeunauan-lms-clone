@@ -2,7 +2,7 @@
 
 ## Canonical status
 
-- Updated: 2026-09-04 16:09 ICT
+- Updated: 2026-09-04 16:35 ICT
 - Status: IN PROGRESS
 - Current owner window: ChatGPT Work
 - Scope: System B only
@@ -47,13 +47,13 @@
 
 | ID | Work item | Status | Evidence / next action |
 |---|---|---|---|
-| A1 | Fresh-read all three mains and GitHub state | IN PROGRESS | Fetch and compare remote heads, PRs, rules and checks |
-| A2 | Static/config/dependency audit | PENDING | Run after A1 |
-| A3 | Vercel/runtime/security-header audit | PENDING | LMS authenticated connector plus public System B endpoints |
-| A4 | Supabase B read-only audit | PENDING | Query only `yyiavtiwtekkocqpephr` |
-| B1 | Full regression suites | PENDING | Run all three repos |
+| A1 | Fresh-read all three mains and GitHub state | PASS | Heads match checkpoint; zero open PRs; Vercel commit statuses success |
+| A2 | Static/config/dependency audit | PASS WITH NOTES | No secret/backup/debug files; legacy branch-only V4 workflow and client console diagnostics are non-blocking cleanup candidates; npm registry audit timed out |
+| A3 | Vercel/runtime/security-header audit | PASS WITH LIMITATION | Production READY at LMS main SHA; no 4xx/5xx in 24h; current DEP0169 warning remains accepted; custom-domain access from Work timed out |
+| A4 | Supabase B read-only audit | PASS | 54/54 public tables RLS; zero core sync errors/open jobs/current-run fixtures; security advisors 0 WARN/ERROR |
+| B1 | Full regression suites | PASS | LMS 245/245; Commerce 94/94; Telegram 109/109; syntax, Python, clone and secret isolation PASS |
 | C1 | Safe runtime/E2E verification | PENDING | Re-run only boundaries affected or not previously certified |
-| D1 | Capacity/load assessment 10 → 30 → 100 → 300 | PENDING | Non-destructive first; stop on material error/latency |
+| D1 | Capacity/load assessment 10 → 30 → 100 → 300 | PARTIAL PASS | 10/10, 30/30, 100/100; 300 batch: 158 reached app and all passed, remainder blocked/timed out at Work proxy; no Vercel 5xx/429 |
 | E1 | Fix verified defects through PR gates | PENDING | Only if evidence requires changes |
 | F1 | Cleanup and final user test checklist | PENDING | No current-run fixtures exist yet |
 
@@ -66,16 +66,29 @@
 
 ## Test data ledger
 
-No test data created by this audit yet.
+No test data created by this audit. Load tests used only the read-only System B LMS health endpoint.
+
+## Evidence checkpoint — 2026-09-04 16:35 ICT
+
+- Supabase B core counts: 16 courses, 45 lessons, 48 orders, 10 students, 34 active enrollments.
+- Supabase anomalies: zero expired-but-active enrollments, course/order sync errors, enabled V4 mappings without source, open V5 jobs or processing Reader jobs.
+- Cron: only active every-minute `tgcloner_dispatch_tick()`; no six-hour reconciliation cron.
+- Advisor summary: security 49 INFO, 0 WARN/ERROR; performance 110 INFO and 11 WARN already associated with low-scale legacy handover policies.
+- Load health results:
+  - 10 concurrent: 10/10; DB latency 128–219 ms.
+  - 30 concurrent: 30/30; DB latency 102–264 ms.
+  - 100 concurrent: 100/100; DB latency 92–315 ms.
+  - 300 attempted: 158/158 requests that reached the app passed; DB latency 99–280 ms. Other connections were rejected/timed out at the Work proxy before Vercel.
+- Vercel observed no 5xx or 429 during the load window.
 
 ## TRANSFER CHECKPOINT
 
-1. **ĐÃ HOÀN THÀNH:** System B security closeout and Commerce PR #45 merge/post-merge smoke; worklog initialized.
-2. **ĐANG LÀM DỞ:** Fresh audit A1.
-3. **VIỆC TIẾP THEO:** Fresh-check all three repositories.
+1. **ĐÃ HOÀN THÀNH:** A1–A4 and B1; read-only load passed through 100 concurrent and 158 reached-app requests in the 300 batch.
+2. **ĐANG LÀM DỞ:** C1 runtime/E2E boundary verification and triage of non-blocking debug logs.
+3. **VIỆC TIẾP THEO:** Finish safe runtime negative tests, decide whether a code PR is warranted, then cleanup/final handoff.
 4. **BRANCH / PR / HEAD SHA:** LMS `audit/system-b-final-handover-20260904`; no PR yet.
-5. **CI / PREVIEW / PRODUCTION:** Previous closeout gates PASS; this audit has not started new gates.
+5. **CI / PREVIEW / PRODUCTION:** Main statuses success; LMS production READY; regression PASS; worklog Preview READY.
 6. **TEST DATA CHƯA CLEANUP:** None created by this audit.
-7. **BLOCKER:** None.
+7. **BLOCKER:** Work network cannot complete a true 300-concurrent batch or load the custom domain/browser reliably; authenticated multi-user playback load lacks 300 test identities.
 8. **CẢNH BÁO KHÔNG ĐƯỢC LÀM:** Do not touch System A; do not use real data destructively; do not bypass auth; do not commit main directly.
 9. **SYSTEM A UNTOUCHED:** YES.
