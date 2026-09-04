@@ -1461,9 +1461,7 @@
       const oldContainers = section.querySelectorAll("[data-bunny-media-container]");
       oldContainers.forEach(c => clearWatermarkFrom(c));
 
-      console.log("MEDIA_URLS_RAW", lesson?.mediaUrls);
       const parsedItems = parseMediaUrls(lesson?.mediaUrls);
-      console.log("MEDIA_ITEMS", parsedItems);
 
       if (parsedItems.length === 0) {
         section.classList.add("hidden");
