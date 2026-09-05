@@ -8,6 +8,7 @@ import {
 } from "../lms.js";
 import { verifyLmsVerifiedSessionAccess } from "../lms-session-guard.js";
 import { isEnrollmentExpired, isEnrollmentUsable } from "../lms-enrollment-status.js";
+import { applySameOriginCors } from "../lms-request-origin.js";
 
 const SESSION_COOKIE = "course_session_token";
 function norm(value){return String(value||"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d")}
@@ -18,7 +19,8 @@ function getLmsSessionHeaders(req){return{lmsSessionId:String(req.headers["x-lms
 async function resolveEmail(req){const{credential,accessToken,sessionToken}=req.body||{};const cookies=parseCookies(req);const token=String(sessionToken||cookies[SESSION_COOKIE]||"").trim();const lmsHeaders=getLmsSessionHeaders(req);if(credential){const email=String(await verifyGoogleIdToken(credential)||"").trim().toLowerCase();if(email)return email}if(accessToken){const email=await verifyGoogleAccessToken(accessToken);if(email)return email}if(lmsHeaders.lmsSessionId&&lmsHeaders.lmsDeviceId){const access=await verifyLmsVerifiedSessionAccess(supabase,{...lmsHeaders,courseSlug:null});if(access?.ok&&access.email)return String(access.email).trim().toLowerCase()}if(token){const decoded=verifyStudentSession(token);if(decoded?.email)return String(decoded.email).trim().toLowerCase()}return""}
 
 export default async function handler(req,res){
-  res.setHeader("Access-Control-Allow-Origin","*");res.setHeader("Access-Control-Allow-Methods","POST, OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type, X-LMS-Session-Id, X-LMS-Device-Id");res.setHeader("Cache-Control","no-store");
+  const originAllowed=applySameOriginCors(req,res,{methods:"POST, OPTIONS",headers:"Content-Type, X-LMS-Session-Id, X-LMS-Device-Id"});res.setHeader("Cache-Control","no-store");
+  if(!originAllowed)return res.status(403).json({success:false,authError:"origin_not_allowed",error:"Origin not allowed"});
   if(req.method==="OPTIONS")return res.status(200).end();if(req.method!=="POST")return res.status(405).json({success:false,error:"Method not allowed"});
   try{
     const email=await resolveEmail(req);if(!email)return res.status(401).json({success:false,authError:"missing_login_session",error:"Missing or expired login session"});
