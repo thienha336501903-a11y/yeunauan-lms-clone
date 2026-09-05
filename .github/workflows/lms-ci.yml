@@ -53,3 +53,6 @@ jobs:
           node --check utils/v5-playback-lease.js
           node --check v5/media-sw.js
           node --check cloudflare/v5-media-worker/src/index.js
+      - name: System B 300-student capacity smoke (QA branch only)
+        if: github.event_name == 'pull_request' && github.head_ref == 'qa/300-student-capacity-20260905'
+        run: node scripts/system-b-capacity-smoke.js
