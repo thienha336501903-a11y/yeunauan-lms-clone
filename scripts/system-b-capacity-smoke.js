@@ -1,8 +1,12 @@
+import { cloneConfig } from '../utils/clone-config.js';
+
+const config = cloneConfig({});
+
 const TARGETS = [
-  { name: 'lms-static', url: 'https://hoc.yeubep.shop/my-courses.html', expect: [200] },
-  { name: 'lms-public-config', url: 'https://hoc.yeubep.shop/api/lms/portal?endpoint=public-config', expect: [200] },
-  { name: 'lms-db-health', url: 'https://hoc.yeubep.shop/api/lms/portal?endpoint=health', expect: [200] },
-  { name: 'cloner-db-health', url: 'https://reader.yeubep.shop/api/health', expect: [200] },
+  { name: 'lms-static', url: `${config.lmsPublicUrl}/my-courses.html`, expect: [200] },
+  { name: 'lms-public-config', url: `${config.lmsPublicUrl}/api/lms/portal?endpoint=public-config`, expect: [200] },
+  { name: 'lms-db-health', url: `${config.lmsPublicUrl}/api/lms/portal?endpoint=health`, expect: [200] },
+  { name: 'cloner-db-health', url: config.telegramClonerHealthUrl, expect: [200] },
   { name: 'v5-worker-health', url: 'https://yeubep-v5-media.daubepnho116.workers.dev/health', expect: [200] }
 ];
 
