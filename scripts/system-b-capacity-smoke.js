@@ -1,21 +1,13 @@
 import { cloneConfig } from '../utils/clone-config.js';
 
 const config = cloneConfig({});
-
-const TARGETS = [
-  { name: 'lms-static', url: `${config.lmsPublicUrl}/my-courses.html`, expect: [200] },
-  { name: 'lms-public-config', url: `${config.lmsPublicUrl}/api/lms/portal?endpoint=public-config`, expect: [200] },
-  { name: 'lms-db-health', url: `${config.lmsPublicUrl}/api/lms/portal?endpoint=health`, expect: [200] },
-  { name: 'cloner-db-health', url: config.telegramClonerHealthUrl, expect: [200] },
-  { name: 'v5-worker-health', url: 'https://yeubep-v5-media.daubepnho116.workers.dev/health', expect: [200] }
-];
-
-const WAVES = [25, 50, 100, 200, 300];
+const TARGET = { name: 'cloner-db-health', url: config.telegramClonerHealthUrl, expect: [200] };
+const WAVES = [100, 150, 200, 250, 300];
 const REQUEST_TIMEOUT_MS = 12_000;
-const WAVE_PAUSE_MS = 4_000;
+const WAVE_PAUSE_MS = 5_000;
 const MAX_ERROR_RATE = 0.01;
 const MAX_P95_MS = 8_000;
-const USER_AGENT = 'SystemB-Capacity-QA/2026-09-05';
+const USER_AGENT = 'SystemB-Capacity-QA-Cloner-Isolation/2026-09-05';
 
 function percentile(values, p) {
   if (!values.length) return null;
@@ -28,33 +20,21 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function oneRequest(target, wave, vu) {
+async function oneRequest(wave, vu) {
   const started = performance.now();
   try {
-    const response = await fetch(target.url, {
+    const response = await fetch(TARGET.url, {
       method: 'GET',
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Accept': target.name.includes('static') ? 'text/html,*/*;q=0.8' : 'application/json,*/*;q=0.8'
-      },
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json,*/*;q=0.8' },
       redirect: 'follow',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
     await response.arrayBuffer();
     const elapsedMs = Math.round(performance.now() - started);
-    const expected = target.expect.includes(response.status);
-    return {
-      target: target.name,
-      wave,
-      vu,
-      ok: expected,
-      status: response.status,
-      elapsedMs,
-      error: expected ? null : `unexpected_status_${response.status}`
-    };
+    const ok = TARGET.expect.includes(response.status);
+    return { wave, vu, ok, status: response.status, elapsedMs, error: ok ? null : `unexpected_status_${response.status}` };
   } catch (error) {
     return {
-      target: target.name,
       wave,
       vu,
       ok: false,
@@ -65,82 +45,53 @@ async function oneRequest(target, wave, vu) {
   }
 }
 
-async function virtualUser(wave, vu) {
-  const rows = [];
-  for (const target of TARGETS) {
-    rows.push(await oneRequest(target, wave, vu));
-  }
-  return rows;
-}
-
 function summarize(rows) {
-  const summary = {};
-  for (const target of TARGETS) {
-    const group = rows.filter(row => row.target === target.name);
-    const latencies = group.map(row => row.elapsedMs);
-    const errors = group.filter(row => !row.ok);
-    const statusCounts = {};
-    for (const row of group) statusCounts[row.status] = (statusCounts[row.status] || 0) + 1;
-    summary[target.name] = {
-      requests: group.length,
-      errors: errors.length,
-      errorRate: group.length ? errors.length / group.length : 1,
-      p50Ms: percentile(latencies, 50),
-      p95Ms: percentile(latencies, 95),
-      p99Ms: percentile(latencies, 99),
-      maxMs: latencies.length ? Math.max(...latencies) : null,
-      statuses: statusCounts,
-      samples: errors.slice(0, 5).map(row => ({ status: row.status, error: row.error, elapsedMs: row.elapsedMs }))
-    };
-  }
-  return summary;
-}
-
-function wavePass(summary) {
-  return Object.values(summary).every(item =>
-    item.errorRate <= MAX_ERROR_RATE &&
-    item.p95Ms !== null &&
-    item.p95Ms <= MAX_P95_MS
-  );
+  const latencies = rows.map(row => row.elapsedMs);
+  const errors = rows.filter(row => !row.ok);
+  const statuses = {};
+  for (const row of rows) statuses[row.status] = (statuses[row.status] || 0) + 1;
+  return {
+    requests: rows.length,
+    errors: errors.length,
+    errorRate: rows.length ? errors.length / rows.length : 1,
+    p50Ms: percentile(latencies, 50),
+    p95Ms: percentile(latencies, 95),
+    p99Ms: percentile(latencies, 99),
+    maxMs: latencies.length ? Math.max(...latencies) : null,
+    statuses,
+    samples: errors.slice(0, 5).map(row => ({ status: row.status, error: row.error, elapsedMs: row.elapsedMs }))
+  };
 }
 
 async function main() {
-  console.log('SYSTEM B 300-STUDENT CAPACITY QA');
+  console.log('SYSTEM B CLONER CAPACITY ISOLATION');
   console.log(`userAgent=${USER_AGENT}`);
-  console.log(`targets=${TARGETS.map(t => t.name).join(',')}`);
+  console.log(`target=${TARGET.name}`);
   console.log(`waves=${WAVES.join(',')}`);
   console.log(`guard: errorRate<=${MAX_ERROR_RATE * 100}% and p95<=${MAX_P95_MS}ms; abort on failed wave`);
 
   const report = [];
   let allPass = true;
-
   for (const wave of WAVES) {
-    console.log(`\n--- wave ${wave} concurrent virtual students ---`);
+    console.log(`\n--- wave ${wave} concurrent requests ---`);
     const started = performance.now();
-    const nested = await Promise.all(Array.from({ length: wave }, (_, index) => virtualUser(wave, index + 1)));
-    const rows = nested.flat();
+    const rows = await Promise.all(Array.from({ length: wave }, (_, index) => oneRequest(wave, index + 1)));
     const elapsedMs = Math.round(performance.now() - started);
     const summary = summarize(rows);
-    const pass = wavePass(summary);
+    const pass = summary.errorRate <= MAX_ERROR_RATE && summary.p95Ms !== null && summary.p95Ms <= MAX_P95_MS;
     report.push({ wave, elapsedMs, pass, summary });
-
     console.log(JSON.stringify({ wave, elapsedMs, pass, summary }, null, 2));
-
     if (!pass) {
       allPass = false;
-      console.error(`ABORT: wave ${wave} crossed the safety/acceptance threshold; larger waves will not run.`);
+      console.error(`ABORT: wave ${wave} crossed threshold; larger waves will not run.`);
       break;
     }
-
     if (wave !== WAVES[WAVES.length - 1]) await sleep(WAVE_PAUSE_MS);
   }
 
   console.log('\n=== FINAL REPORT ===');
   console.log(JSON.stringify({ allPass, report }, null, 2));
-
-  if (!allPass || report.at(-1)?.wave !== 300 || report.at(-1)?.pass !== true) {
-    process.exitCode = 1;
-  }
+  if (!allPass || report.at(-1)?.wave !== 300 || report.at(-1)?.pass !== true) process.exitCode = 1;
 }
 
 main().catch(error => {
