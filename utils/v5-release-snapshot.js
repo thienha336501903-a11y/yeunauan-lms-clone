@@ -24,6 +24,24 @@ export function v5ReleaseContent(snapshot) {
   };
 }
 
+export function v5LearnerReleaseContent(snapshot) {
+  const content = v5ReleaseContent(snapshot);
+  if (!content) return null;
+  return {
+    config: { source_mode: content.config?.source_mode || "" },
+    lessons: content.lessons.map(({ id, title, position }) => ({ id, title, position })),
+    posts: content.posts.map(({ id, lesson_id, position, text_content, caption }) => ({
+      id,
+      lesson_id: lesson_id || null,
+      position,
+      text_content: text_content || null,
+      caption: caption || null
+    })),
+    links: content.links.map(({ post_id, asset_id, position }) => ({ post_id, asset_id, position })),
+    assetIds: content.assetIds
+  };
+}
+
 export function v5ReleaseHasAsset(snapshot, assetId) {
   const target = String(assetId || '').trim();
   if (!target) return false;

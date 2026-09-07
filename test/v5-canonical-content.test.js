@@ -28,7 +28,7 @@ test('V5 student feed keeps enrollment gate and selected Published release gate'
   assert.match(feed, /requireV4CourseAccess/);
   assert.match(feed, /config\.status !== "published"/);
   assert.match(feed, /\.eq\("id", config\.published_release_id\)[\s\S]*\.eq\("course_id", course\.id\)[\s\S]*\.eq\("status", "published"\)/);
-  assert.match(feed, /v5ReleaseContent\(release\.snapshot\)/);
+  assert.match(feed, /v5LearnerReleaseContent\(release\.snapshot\)/);
   assert.match(feed, /\.eq\("status", "ready"\)/);
 });
 

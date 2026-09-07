@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { v5ReleaseContent, v5ReleaseHasAsset } from '../utils/v5-release-snapshot.js';
+import { v5LearnerReleaseContent, v5ReleaseContent, v5ReleaseHasAsset } from '../utils/v5-release-snapshot.js';
 
 const read = path => fs.readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 
@@ -28,6 +28,24 @@ test('release snapshot content remains isolated from later draft mutations', () 
   assert.equal(v5ReleaseHasAsset(snapshot, 'asset-2'), false);
 });
 
+test('learner release payload excludes authoring metadata while preserving render fields', () => {
+  const snapshot = {
+    schema: 'v5-release-v1',
+    config: { source_mode: 'telegram', settings: { internal: true } },
+    lessons: [{ id: 'lesson-1', title: 'Lesson', position: 1, metadata: { internal: true } }],
+    posts: [{ id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption', origin_ref: { secret: true }, metadata: { internal: true } }],
+    links: [{ post_id: 'post-1', asset_id: 'asset-1', position: 1, role: 'attachment', metadata: { internal: true } }],
+    asset_ids: ['asset-1']
+  };
+  const content = v5LearnerReleaseContent(snapshot);
+  assert.deepEqual(content.config, { source_mode: 'telegram' });
+  assert.deepEqual(content.lessons, [{ id: 'lesson-1', title: 'Lesson', position: 1 }]);
+  assert.deepEqual(content.posts, [{ id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption' }]);
+  assert.deepEqual(content.links, [{ post_id: 'post-1', asset_id: 'asset-1', position: 1 }]);
+  assert.deepEqual(content.assetIds, ['asset-1']);
+  assert.doesNotMatch(JSON.stringify(content), /internal|origin_ref|metadata|role/);
+});
+
 test('student feed and playback do not read mutable authoring membership tables', () => {
   const feed = read('utils/lms-handlers/v5-feed.js');
   const play = read('utils/lms-handlers/v5-play.js');
@@ -38,6 +56,8 @@ test('student feed and playback do not read mutable authoring membership tables'
   assert.doesNotMatch(play, /\.from\("v5_post_assets"\)/);
   assert.match(feed, /\.from\("v5_releases"\)/);
   assert.match(play, /\.from\("v5_releases"\)/);
+  assert.doesNotMatch(feed, /\.from\("courses"\)/);
+  assert.doesNotMatch(play, /\.from\("courses"\)/);
 });
 
 test('atomic switch migration is service-role only and pins search_path', () => {

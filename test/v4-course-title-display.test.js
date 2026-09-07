@@ -7,7 +7,7 @@ const feed = readFileSync(new URL("../utils/lms-handlers/v4-telegram-feed.js", i
 const page = readFileSync(new URL("../v4.html", import.meta.url), "utf8");
 
 test("V4 access resolves the student-facing course title from the course record", () => {
-  assert.match(access, /select\("title,raw_data,is_published"\)/);
+  assert.match(access, /select\("id,slug,title,subtitle,image_url,raw_data,is_published,delivery_mode"\)/);
   assert.match(access, /rawData\.studentDisplayTitle \|\| course\.title \|\| slug/);
   assert.match(access, /courseTitle/);
 });

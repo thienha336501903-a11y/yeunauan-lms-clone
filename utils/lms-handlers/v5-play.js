@@ -19,12 +19,7 @@ export default async function v5PlayHandler(req, res) {
     const access = await requireV4CourseAccess(req, courseSlug);
     if (!access.ok) return res.status(access.status).json({ success: false, code: access.code, error: access.error });
 
-    const { data: course, error: courseError } = await supabase
-      .from("courses")
-      .select("id,slug,delivery_mode")
-      .eq("slug", courseSlug)
-      .maybeSingle();
-    if (courseError) throw courseError;
+    const course = access.course;
     if (!course || clean(course.delivery_mode).toLowerCase() !== "v5") {
       return res.status(404).json({ success: false, code: "v5_course_not_found", error: "Không tìm thấy khóa V5." });
     }
