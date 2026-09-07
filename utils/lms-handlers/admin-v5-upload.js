@@ -13,6 +13,7 @@ import {
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_PART_SIZE = 16 * 1024 * 1024;
 const MIN_PART_SIZE = 5 * 1024 * 1024;
+const MAX_PART_URL_BATCH = 32;
 const MAX_FILE_BYTES = Number(process.env.V5_MAX_UPLOAD_BYTES || 8 * 1024 * 1024 * 1024);
 const ALLOWED_TYPES = new Set(["image", "video", "document", "other"]);
 
@@ -229,14 +230,35 @@ async function initUpload(course, admin, body) {
   };
 }
 
-async function partUrl(course, body) {
+function requestedPartNumbers(session, body) {
+  const requested = Array.isArray(body?.partNumbers) ? body.partNumbers : [body?.partNumber];
+  if (!requested.length || requested.length > MAX_PART_URL_BATCH) {
+    throw new Error(`Mỗi batch chỉ được cấp tối đa ${MAX_PART_URL_BATCH} part URLs.`);
+  }
+  const partNumbers = requested.map(Number);
+  const uniqueParts = new Set(partNumbers);
+  const totalParts = Math.ceil(Number(session.expected_bytes || 0) / Number(session.part_size || DEFAULT_PART_SIZE));
+  if (uniqueParts.size !== partNumbers.length) throw new Error("Danh sách partNumber bị trùng.");
+  if (partNumbers.some(partNumber => !Number.isInteger(partNumber) || partNumber < 1 || partNumber > totalParts || partNumber > 10000)) {
+    throw new Error("partNumber không hợp lệ.");
+  }
+  return partNumbers;
+}
+
+async function partUrls(course, body) {
   const session = await loadSession(body?.sessionId, course.id);
   if (session.status !== "uploading") throw new Error("Upload session không còn ở trạng thái uploading.");
-  const partNumber = Number(body?.partNumber);
-  const totalParts = Math.ceil(Number(session.expected_bytes || 0) / Number(session.part_size || DEFAULT_PART_SIZE));
-  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > totalParts || partNumber > 10000) throw new Error("partNumber không hợp lệ.");
-  const url = presignUploadPart({ key: session.object_key, uploadId: session.provider_upload_id, partNumber, expiresSeconds: 900 });
-  return { sessionId: session.id, partNumber, url, expiresIn: 900 };
+  const partNumbers = requestedPartNumbers(session, body);
+  const parts = partNumbers.map(partNumber => ({
+    partNumber,
+    url: presignUploadPart({ key: session.object_key, uploadId: session.provider_upload_id, partNumber, expiresSeconds: 900 })
+  }));
+  return { sessionId: session.id, parts, expiresIn: 900 };
+}
+
+async function partUrl(course, body) {
+  const result = await partUrls(course, { ...body, partNumbers: [body?.partNumber] });
+  return { sessionId: result.sessionId, ...result.parts[0], expiresIn: result.expiresIn };
 }
 
 async function complete(course, body) {
@@ -309,6 +331,7 @@ export default async function adminV5UploadHandler(req, res) {
     let result;
     if (action === "init") result = await initUpload(course, admin, req.body || {});
     else if (action === "partUrl") result = await partUrl(course, req.body || {});
+    else if (action === "partUrls") result = await partUrls(course, req.body || {});
     else if (action === "complete") result = await complete(course, req.body || {});
     else if (action === "abort") result = await abort(course, req.body || {});
     else return res.status(400).json({ success: false, error: "V5 upload action không hợp lệ." });
