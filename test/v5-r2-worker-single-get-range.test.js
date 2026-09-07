@@ -284,6 +284,25 @@ test('V5 media rejects a bad ECDSA signature before any R2 operation', async () 
   assert.equal(r2.calls.head.length, 0);
 });
 
+test('V5 media accepts a Preview rotation key without replacing the legacy live key', async () => {
+  const preview = await fixture();
+  const legacy = await fixture();
+  const r2 = fakeR2();
+  const limiter = fakeRateLimiter();
+  const response = await worker.fetch(new Request(`https://media.example/v1/media?t=${encodeURIComponent(preview.token)}`, {
+    headers: { 'user-agent': userAgent }
+  }), {
+    V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(legacy.publicJwk),
+    V5_PLAYBACK_PUBLIC_JWK_PREVIEW: JSON.stringify(preview.publicJwk),
+    V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA_RATE_LIMITER: limiter.binding,
+    V5_MEDIA: r2.bucket
+  });
+  assert.equal(response.status, 200);
+  assert.equal(r2.calls.get.length, 1);
+  assert.equal(limiter.calls.length, 1);
+});
+
 test('V5 media rejects an exceeded authenticated identity before any R2 operation', async () => {
   const limiter = fakeRateLimiter({ success: false });
   const { response, calls, limiterCalls } = await signedRequest('bytes=0-99', 'GET', { limiter, origin: 'https://hoc.yeubep.shop' });

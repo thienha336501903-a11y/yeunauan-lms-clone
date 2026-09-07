@@ -28,3 +28,6 @@ V5_MEDIA_RATE_LIMIT_RETRY_AFTER_SECONDS = "60"
 
 # Secret required at runtime (set with `wrangler secret put`, not here):
 # V5_PLAYBACK_PUBLIC_JWK={...public EC P-256 JWK...}
+# Optional second key for zero-downtime Preview rotation. Keep the legacy key
+# until every existing lease issuer has moved to the replacement key.
+# V5_PLAYBACK_PUBLIC_JWK_PREVIEW={...public EC P-256 JWK...}
