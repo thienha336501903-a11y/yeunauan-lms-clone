@@ -59,8 +59,10 @@ export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType,
     eh: sha256base64url(clean(email).toLowerCase()),
     n: crypto.randomBytes(12).toString("base64url")
   };
-  const objectBytes = Number(bytes);
-  if (Number.isSafeInteger(objectBytes) && objectBytes >= 0) payload.sz = objectBytes;
+  if (bytes !== undefined && bytes !== null && bytes !== "") {
+    const objectBytes = Number(bytes);
+    if (Number.isSafeInteger(objectBytes) && objectBytes >= 0) payload.sz = objectBytes;
+  }
   if (!payload.aid || !payload.c || !payload.k) throw new Error("Thiếu dữ liệu để cấp playback lease.");
   const encoded = base64urlJson(payload);
   const signature = crypto.sign("sha256", Buffer.from(encoded, "utf8"), { key: privateKey(), dsaEncoding: "ieee-p1363" }).toString("base64url");
