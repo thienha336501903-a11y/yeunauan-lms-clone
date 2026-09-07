@@ -8,6 +8,7 @@ import { issueV5PlaybackLease } from '../utils/v5-playback-lease.js';
 const encoder = new TextEncoder();
 const userAgent = 'System-B-V5-range-test';
 const objectSize = 1000;
+const studentEmailHash = 'student-email-hash-1';
 
 function base64url(bytes) {
   return Buffer.from(bytes).toString('base64url');
@@ -29,6 +30,8 @@ async function fixture(overrides = {}, options = {}) {
     iat: now,
     exp: now + 60_000,
     uah: await sha256base64url(userAgent),
+    eh: studentEmailHash,
+    n: 'nonce-1',
     ct: 'video/mp4',
     fn: 'test.mp4',
     ...overrides
@@ -71,17 +74,34 @@ function fakeR2({ size = objectSize, throwInvalidRange = false } = {}) {
   };
 }
 
+function fakeRateLimiter({ success = true, error = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    binding: {
+      async limit(options) {
+        calls.push(options);
+        if (error) throw error;
+        return { success };
+      }
+    }
+  };
+}
+
 async function signedRequest(range, method = 'GET', options = {}) {
   const { token, publicJwk } = await fixture(options.payload || {}, { omitSize: options.omitSize });
   const r2 = fakeR2(options.r2 || {});
+  const limiter = options.limiter || fakeRateLimiter();
   const headers = new Headers({ 'user-agent': userAgent });
   if (range) headers.set('range', range);
+  if (options.origin) headers.set('origin', options.origin);
   const response = await worker.fetch(new Request(`https://media.example/v1/media?t=${encodeURIComponent(token)}`, { method, headers }), {
     V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
-    V5_ALLOWED_ORIGINS: '',
+    V5_ALLOWED_ORIGINS: options.origin || '',
+    V5_MEDIA_RATE_LIMITER: limiter.binding,
     V5_MEDIA: r2.bucket
   });
-  return { response, calls: r2.calls };
+  return { response, calls: r2.calls, limiterCalls: limiter.calls };
 }
 
 const rangeCases = [
@@ -129,12 +149,13 @@ test('V5 playback issuer signs verified media size while preserving identity cla
 });
 
 test('V5 media full GET performs one R2 get and no head', async () => {
-  const { response, calls } = await signedRequest(null);
+  const { response, calls, limiterCalls } = await signedRequest(null);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-length'), '1000');
   assert.equal(calls.get.length, 1);
   assert.equal(calls.head.length, 0);
   assert.equal(calls.get[0].options, undefined);
+  assert.deepEqual(limiterCalls, [{ key: `${studentEmailHash}:asset-1` }]);
 });
 
 for (const [name, rangeHeader, expectedR2Range, expectedContentRange, expectedLength] of rangeCases) {
@@ -191,15 +212,18 @@ test('V5 media HEAD keeps metadata-only head and never performs an R2 get', asyn
 
 test('V5 media rejects malformed lease before any R2 operation', async () => {
   const r2 = fakeR2();
+  const limiter = fakeRateLimiter();
   const response = await worker.fetch(new Request('https://media.example/v1/media?t=*.sig', {
     headers: { 'user-agent': userAgent }
   }), {
     V5_PLAYBACK_PUBLIC_JWK: '{}',
     V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA_RATE_LIMITER: limiter.binding,
     V5_MEDIA: r2.bucket
   });
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error, 'invalid_payload');
+  assert.equal(limiter.calls.length, 0);
   assert.equal(r2.calls.get.length, 0);
   assert.equal(r2.calls.head.length, 0);
 });
@@ -212,6 +236,7 @@ test('V5 media rejects UA mismatch before any R2 operation', async () => {
   }), {
     V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
     V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA_RATE_LIMITER: fakeRateLimiter().binding,
     V5_MEDIA: r2.bucket
   });
   assert.equal(response.status, 403);
@@ -229,6 +254,7 @@ test('V5 media rejects an expired lease before any R2 operation', async () => {
   }), {
     V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
     V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA_RATE_LIMITER: fakeRateLimiter().binding,
     V5_MEDIA: r2.bucket
   });
   assert.equal(response.status, 403);
@@ -249,10 +275,66 @@ test('V5 media rejects a bad ECDSA signature before any R2 operation', async () 
   }), {
     V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
     V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA_RATE_LIMITER: fakeRateLimiter().binding,
     V5_MEDIA: r2.bucket
   });
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error, 'invalid_signature');
   assert.equal(r2.calls.get.length, 0);
   assert.equal(r2.calls.head.length, 0);
+});
+
+test('V5 media rejects an exceeded authenticated identity before any R2 operation', async () => {
+  const limiter = fakeRateLimiter({ success: false });
+  const { response, calls, limiterCalls } = await signedRequest('bytes=0-99', 'GET', { limiter, origin: 'https://hoc.yeubep.shop' });
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('retry-after'), '60');
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.match(response.headers.get('access-control-expose-headers') || '', /Retry-After/);
+  assert.equal((await response.json()).error, 'rate_limit_exceeded');
+  assert.deepEqual(limiterCalls, [{ key: `${studentEmailHash}:asset-1` }]);
+  assert.equal(calls.get.length, 0);
+  assert.equal(calls.head.length, 0);
+});
+
+test('V5 media rate limit keys isolate students and assets without using IP', async () => {
+  const first = await signedRequest(null, 'GET', { payload: { eh: 'student-hash-a', aid: 'asset-a' } });
+  const second = await signedRequest(null, 'GET', { payload: { eh: 'student-hash-b', aid: 'asset-a' } });
+  const third = await signedRequest(null, 'GET', { payload: { eh: 'student-hash-a', aid: 'asset-b' } });
+  assert.deepEqual(first.limiterCalls, [{ key: 'student-hash-a:asset-a' }]);
+  assert.deepEqual(second.limiterCalls, [{ key: 'student-hash-b:asset-a' }]);
+  assert.deepEqual(third.limiterCalls, [{ key: 'student-hash-a:asset-b' }]);
+});
+
+test('V5 media fails closed when the limiter binding is unavailable', async () => {
+  const { token, publicJwk } = await fixture();
+  const r2 = fakeR2();
+  const response = await worker.fetch(new Request(`https://media.example/v1/media?t=${encodeURIComponent(token)}`, {
+    headers: { 'user-agent': userAgent }
+  }), {
+    V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
+    V5_ALLOWED_ORIGINS: '',
+    V5_MEDIA: r2.bucket
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, 'rate_limiter_unavailable');
+  assert.equal(r2.calls.get.length, 0);
+  assert.equal(r2.calls.head.length, 0);
+});
+
+test('V5 health and OPTIONS bypass the media rate limiter', async () => {
+  const limiter = fakeRateLimiter({ success: false });
+  const env = { V5_ALLOWED_ORIGINS: '', V5_MEDIA_RATE_LIMITER: limiter.binding };
+  const health = await worker.fetch(new Request('https://media.example/health'), env);
+  const options = await worker.fetch(new Request('https://media.example/v1/media', { method: 'OPTIONS' }), env);
+  assert.equal(health.status, 200);
+  assert.equal(options.status, 204);
+  assert.equal(limiter.calls.length, 0);
+});
+
+test('V5 Worker rate limit threshold remains deployment-configurable at 600 requests/minute', () => {
+  const config = fs.readFileSync(new URL('../cloudflare/v5-media-worker/wrangler.toml.example', import.meta.url), 'utf8');
+  assert.match(config, /name = "V5_MEDIA_RATE_LIMITER"/);
+  assert.match(config, /limit = 600/);
+  assert.match(config, /period = 60/);
 });
