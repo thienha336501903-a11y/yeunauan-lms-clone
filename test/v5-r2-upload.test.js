@@ -14,6 +14,19 @@ test('V5 multipart uses direct browser-to-R2 presigned part URLs', () => {
   assert.doesNotMatch(upload, /req\.body\?.*(?:buffer|base64|fileData)/i);
 });
 
+test('V5 multipart batches bounded presigned URLs and uploads R2 parts with limited concurrency', () => {
+  const upload = read('utils/lms-handlers/admin-v5-upload.js');
+  const admin = read('v5-admin.html');
+  assert.match(upload, /MAX_PART_URL_BATCH = 32/);
+  assert.match(upload, /action === "partUrls"/);
+  assert.match(upload, /requested\.length > MAX_PART_URL_BATCH/);
+  assert.match(upload, /uniqueParts\.size !== partNumbers\.length/);
+  assert.match(admin, /V5_PART_URL_BATCH_SIZE=8,V5_PART_UPLOAD_CONCURRENCY=3/);
+  assert.match(admin, /action:'partUrls'/);
+  assert.match(admin, /Promise\.all\(Array\.from\(\{length:Math\.min\(V5_PART_UPLOAD_CONCURRENCY,queue\.length\)\}/);
+  assert.doesNotMatch(admin, /action:'partUrl'/);
+});
+
 test('V5 multipart persists resumable sessions and verifies final object size', () => {
   const upload = read('utils/lms-handlers/admin-v5-upload.js');
   assert.match(upload, /v5_upload_sessions/);
