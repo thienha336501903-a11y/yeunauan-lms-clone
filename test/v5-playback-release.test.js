@@ -27,7 +27,7 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
 
   assert.match(feed, /playback_ready/);
   assert.match(feed, /published_release_id/);
-  assert.match(feed, /v5ReleaseContent/);
+  assert.match(feed, /v5LearnerReleaseContent/);
   assert.doesNotMatch(feed, /issueV5PlaybackLease/);
   assert.doesNotMatch(feed, /playback_url/);
   assert.doesNotMatch(feed, /r2_object_key\s*:/);
