@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { isDashboardCourseReady } from '../utils/lms-enrollment-status.js';
 
 const handler = fs.readFileSync(new URL('../utils/lms-handlers/student-dashboard.js', import.meta.url), 'utf8');
 const portal = fs.readFileSync(new URL('../api/lms/portal.js', import.meta.url), 'utf8');
@@ -12,6 +13,7 @@ assert.match(handler, /state\s*=\s*"ready"/);
 assert.match(handler, /state\s*=\s*"approved_waiting_content"/);
 assert.match(handler, /state\s*=\s*"pending_approval"/);
 assert.match(handler, /description,active,is_published/);
+assert.match(handler, /isDashboardCourseReady\(course,enrollmentActive\)/);
 assert.match(handler, /studentDisplayDescription\|\|course\.description/);
 assert.match(handler, /createdAt:course\.created_at/);
 assert.match(portal, /endpoint === "student-dashboard"/);
@@ -25,5 +27,13 @@ assert.match(page, /:`\/legacy-post\.html\?course=/);
 assert.doesNotMatch(page, /mode==='v4'\?`\/learning\?course=/);
 assert.match(page, /data-mode=/);
 assert.match(page, /endpoint=public-config/);
+
+// V5 active=false means sale-disabled authoring shell, not learner entitlement disabled.
+assert.equal(isDashboardCourseReady({ delivery_mode: 'v5', is_published: true, active: false }, true), true);
+assert.equal(isDashboardCourseReady({ delivery_mode: 'v5', is_published: false, active: false }, true), false);
+assert.equal(isDashboardCourseReady({ delivery_mode: 'v5', is_published: true, active: false }, false), false);
+// Preserve existing LMS/V4 active gate semantics.
+assert.equal(isDashboardCourseReady({ delivery_mode: 'v4', is_published: true, active: false }, true), false);
+assert.equal(isDashboardCourseReady({ delivery_mode: 'lms', is_published: true, active: true }, true), true);
 
 console.log('student dashboard LMS/V4/V5 regression checks passed');
