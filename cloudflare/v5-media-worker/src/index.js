@@ -74,6 +74,12 @@ function contentDisposition(filename, inline = true) {
   return `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(safe)}`;
 }
 
+function trustedObjectSize(payload) {
+  if (payload?.sz === undefined || payload?.sz === null || payload?.sz === "") return null;
+  const size = Number(payload.sz);
+  return Number.isSafeInteger(size) && size >= 0 ? size : null;
+}
+
 function parseRangeRequest(header) {
   const text = clean(header);
   if (!text) return null;
@@ -127,8 +133,22 @@ function mediaHeaders(source, payload, corsHeaders) {
   headers.set("Cache-Control", "private, no-store");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Content-Disposition", contentDisposition(payload.fn, payload.ct?.startsWith("video/") || payload.ct?.startsWith("image/") || payload.ct === "application/pdf"));
-  if (source.etag) headers.set("ETag", source.etag);
+  if (source.httpEtag) headers.set("ETag", source.httpEtag);
+  else if (source.etag) headers.set("ETag", source.etag);
   return headers;
+}
+
+function isInvalidRangeError(error) {
+  const message = String(error?.message || error || "");
+  return Number(error?.code) === 10039 || /(?:InvalidRange|\(10039\))/.test(message);
+}
+
+function r2RangeFor(requested, resolved, trustedSize) {
+  if (!requested || requested.invalid) return undefined;
+  if (trustedSize !== null && resolved && !resolved.invalid) {
+    return { offset: resolved.start, length: resolved.length };
+  }
+  return requested.r2;
 }
 
 async function media(request, env, corsHeaders) {
@@ -137,11 +157,14 @@ async function media(request, env, corsHeaders) {
   if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
   const { payload } = access;
   const requestedRange = parseRangeRequest(request.headers.get("range"));
+  const trustedSize = trustedObjectSize(payload);
 
   if (request.method === "HEAD") {
+    if (requestedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
     const head = await env.V5_MEDIA.head(payload.k);
     if (!head) return json(404, { ok: false, error: "media_not_found" }, corsHeaders);
     const size = Number(head.size || 0);
+    if (trustedSize !== null && size !== trustedSize) return json(502, { ok: false, error: "media_size_mismatch" }, { ...corsHeaders, "Cache-Control": "private, no-store" });
     const range = resolveRange(requestedRange, size);
     if (range?.invalid) return rangeNotSatisfiable(size, corsHeaders);
     const headers = mediaHeaders(head, payload, corsHeaders);
@@ -150,13 +173,22 @@ async function media(request, env, corsHeaders) {
     return new Response(null, { status: range ? 206 : 200, headers });
   }
 
-  const object = await env.V5_MEDIA.get(
-    payload.k,
-    requestedRange && !requestedRange.invalid ? { range: requestedRange.r2 } : undefined
-  );
+  if (requestedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
+  const trustedRange = trustedSize !== null ? resolveRange(requestedRange, trustedSize) : null;
+  if (trustedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
+
+  let object;
+  try {
+    const r2Range = r2RangeFor(requestedRange, trustedRange, trustedSize);
+    object = await env.V5_MEDIA.get(payload.k, r2Range ? { range: r2Range } : undefined);
+  } catch (error) {
+    if (isInvalidRangeError(error)) return rangeNotSatisfiable(trustedSize, corsHeaders);
+    throw error;
+  }
   if (!object?.body) return json(404, { ok: false, error: "media_not_found" }, corsHeaders);
   const size = Number(object.size || 0);
-  const range = resolveRange(requestedRange, size);
+  if (trustedSize !== null && size !== trustedSize) return json(502, { ok: false, error: "media_size_mismatch" }, { ...corsHeaders, "Cache-Control": "private, no-store" });
+  const range = trustedRange || resolveRange(requestedRange, size);
   if (range?.invalid) return rangeNotSatisfiable(size, corsHeaders);
   const headers = mediaHeaders(object, payload, corsHeaders);
   headers.set("Content-Length", String(range ? range.length : size));
