@@ -48,7 +48,7 @@ export default async function v5FeedHandler(req, res) {
     if (content.assetIds.length) {
       const { data: assetRows, error: assetError } = await supabase
         .from("v5_media_assets")
-        .select("id,type,provider,r2_object_key,original_filename,bytes,status")
+        .select("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height")
         .in("id", content.assetIds)
         .eq("status", "ready");
       if (assetError) throw assetError;
@@ -57,6 +57,10 @@ export default async function v5FeedHandler(req, res) {
         type: asset.type,
         original_filename: asset.original_filename,
         bytes: asset.bytes,
+        mime_type: asset.mime_type || "",
+        duration_ms: Number(asset.duration_ms || 0),
+        width: Number(asset.width || 0),
+        height: Number(asset.height || 0),
         playback_ready: Boolean(playbackConfigured && asset.provider === "r2" && asset.r2_object_key)
       }));
     }

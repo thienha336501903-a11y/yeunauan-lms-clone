@@ -20,8 +20,9 @@ test('verified V5 access reuses the enrollment and course already loaded by the 
 
 test('V5 learner feed selects and returns only renderer-required asset fields', () => {
   const feed = read('utils/lms-handlers/v5-feed.js');
-  assert.match(feed, /select\("id,type,provider,r2_object_key,original_filename,bytes,status"\)/);
-  for (const field of ['origin:', 'mime_type:', 'width:', 'height:', 'duration_ms:', 'thumbnail_asset_id:', 'metadata:']) {
+  assert.match(feed, /select\("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height"\)/);
+  for (const field of ['origin:', 'thumbnail_asset_id:', 'metadata:']) {
     assert.doesNotMatch(feed, new RegExp(field));
   }
+  assert.doesNotMatch(feed, /telegram_source_id|telegram_message_row_id|checksum_sha256/);
 });

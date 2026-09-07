@@ -114,6 +114,15 @@ function unitText(unit) {
   return "";
 }
 
+function unitSourceDate(unit) {
+  for (const row of unit.rows) {
+    if (!row.source_date) continue;
+    const date = new Date(row.source_date);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+  return null;
+}
+
 async function nextPosition(table, courseId) {
   const { data, error } = await supabase.from(table).select("position").eq("course_id", courseId).order("position", { ascending: false }).limit(1);
   if (error) throw error;
@@ -195,11 +204,17 @@ async function importSource(course, sourceIdInput) {
       course_id: course.id,
       lesson_id: currentLesson.id,
       position,
-      text_content: text || null,
+      text_content: hasMedia ? null : (text || null),
+      caption: hasMedia ? (text || null) : null,
       origin: "telegram",
       origin_ref: { source_id: sourceId, message_row_ids: unit.rows.map(row => row.id), source_message_ids: unit.rows.map(row => row.source_message_id), media_group_id: unit.group || null },
       status: hasMedia ? "processing" : "ready",
-      metadata: { imported_from: "telegram", source_title: source.title || source.username || "Telegram" }
+      metadata: {
+        imported_from: "telegram",
+        source_title: source.title || source.username || "Telegram",
+        sender_label: source.title || source.username || "Telegram",
+        source_date: unitSourceDate(unit)
+      }
     }).select("*").single();
     if (postError) throw postError;
     importedPosts += 1;
