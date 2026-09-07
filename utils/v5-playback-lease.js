@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
+let cachedPrivateJwkRaw = "";
+let cachedPrivateKey = null;
 
 function clean(value) {
   return String(value || "").trim();
@@ -21,10 +23,14 @@ function privateKey() {
     error.code = "v5_playback_not_configured";
     throw error;
   }
+  if (cachedPrivateKey && cachedPrivateJwkRaw === raw) return cachedPrivateKey;
   let jwk;
   try { jwk = JSON.parse(raw); } catch { throw new Error("V5_PLAYBACK_PRIVATE_JWK không phải JSON hợp lệ."); }
   if (jwk?.kty !== "EC" || jwk?.crv !== "P-256" || !jwk?.d || !jwk?.x || !jwk?.y) throw new Error("V5 playback private JWK phải là EC P-256.");
-  return crypto.createPrivateKey({ key: jwk, format: "jwk" });
+  const key = crypto.createPrivateKey({ key: jwk, format: "jwk" });
+  cachedPrivateJwkRaw = raw;
+  cachedPrivateKey = key;
+  return key;
 }
 
 export function isV5PlaybackConfigured() {
