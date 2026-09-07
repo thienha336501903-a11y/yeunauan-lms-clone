@@ -49,7 +49,8 @@ function copyHeaders(upstream) {
     "content-range",
     "accept-ranges",
     "content-disposition",
-    "etag"
+    "etag",
+    "retry-after"
   ]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
