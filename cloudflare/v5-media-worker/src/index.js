@@ -1,3 +1,8 @@
+let cachedPublicJwkRaw = "";
+let cachedPublicKeyPromise = null;
+let cachedAllowedOriginsRaw = "";
+let cachedAllowedOrigins = new Set();
+
 function json(status, data, headers = {}) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json; charset=utf-8", ...headers } });
 }
@@ -28,10 +33,25 @@ async function sha256base64url(value) {
 }
 
 async function publicKey(env) {
+  const raw = clean(env.V5_PLAYBACK_PUBLIC_JWK);
+  if (cachedPublicKeyPromise && cachedPublicJwkRaw === raw) return cachedPublicKeyPromise;
+
   let jwk;
-  try { jwk = JSON.parse(clean(env.V5_PLAYBACK_PUBLIC_JWK)); } catch { throw new Error("invalid_public_jwk"); }
+  try { jwk = JSON.parse(raw); } catch { throw new Error("invalid_public_jwk"); }
   if (jwk?.kty !== "EC" || jwk?.crv !== "P-256" || !jwk?.x || !jwk?.y) throw new Error("invalid_public_jwk");
-  return crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+
+  const promise = crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  cachedPublicJwkRaw = raw;
+  cachedPublicKeyPromise = promise;
+  try {
+    return await promise;
+  } catch (error) {
+    if (cachedPublicKeyPromise === promise) {
+      cachedPublicJwkRaw = "";
+      cachedPublicKeyPromise = null;
+    }
+    throw error;
+  }
 }
 
 async function verifyLease(token, request, env) {
@@ -93,11 +113,19 @@ async function enforceMediaRateLimit(payload, env, corsHeaders) {
   });
 }
 
+function allowedOrigins(env) {
+  const raw = clean(env.V5_ALLOWED_ORIGINS);
+  if (raw !== cachedAllowedOriginsRaw) {
+    cachedAllowedOriginsRaw = raw;
+    cachedAllowedOrigins = new Set(raw.split(",").map(x => x.trim()).filter(Boolean));
+  }
+  return cachedAllowedOrigins;
+}
+
 function cors(request, env) {
   const origin = clean(request.headers.get("origin"));
-  const allowed = clean(env.V5_ALLOWED_ORIGINS).split(",").map(x => x.trim()).filter(Boolean);
   if (!origin) return {};
-  if (!allowed.includes(origin)) return null;
+  if (!allowedOrigins(env).has(origin)) return null;
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
