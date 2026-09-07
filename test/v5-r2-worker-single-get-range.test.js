@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import cryptoModule from 'node:crypto';
+import fs from 'node:fs';
 import test from 'node:test';
 import worker from '../cloudflare/v5-media-worker/src/index.js';
+import { issueV5PlaybackLease } from '../utils/v5-playback-lease.js';
 
 const encoder = new TextEncoder();
 const userAgent = 'System-B-V5-range-test';
@@ -14,7 +17,7 @@ async function sha256base64url(value) {
   return base64url(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
 }
 
-async function fixture(overrides = {}) {
+async function fixture(overrides = {}, options = {}) {
   const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   const publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
   const now = Date.now();
@@ -30,30 +33,37 @@ async function fixture(overrides = {}) {
     fn: 'test.mp4',
     ...overrides
   };
+  if (!options.omitSize) payload.sz = objectSize;
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, encoder.encode(encoded));
   return { token: `${encoded}.${base64url(signature)}`, publicJwk };
 }
 
-function fakeR2() {
+function fakeR2({ size = objectSize, throwInvalidRange = false } = {}) {
   const calls = { get: [], head: [] };
   return {
     calls,
     bucket: {
       async get(key, options) {
         calls.get.push({ key, options });
+        if (throwInvalidRange) {
+          const error = new Error('get: The requested range is not satisfiable. (10039)');
+          throw error;
+        }
         return {
           body: 'x',
-          size: objectSize,
+          size,
           etag: 'etag-1',
+          httpEtag: '"etag-1"',
           httpMetadata: { contentType: 'video/mp4' }
         };
       },
       async head(key) {
         calls.head.push({ key });
         return {
-          size: objectSize,
+          size,
           etag: 'etag-1',
+          httpEtag: '"etag-1"',
           httpMetadata: { contentType: 'video/mp4' }
         };
       }
@@ -61,9 +71,9 @@ function fakeR2() {
   };
 }
 
-async function request(range, method = 'GET') {
-  const { token, publicJwk } = await fixture();
-  const r2 = fakeR2();
+async function signedRequest(range, method = 'GET', options = {}) {
+  const { token, publicJwk } = await fixture(options.payload || {}, { omitSize: options.omitSize });
+  const r2 = fakeR2(options.r2 || {});
   const headers = new Headers({ 'user-agent': userAgent });
   if (range) headers.set('range', range);
   const response = await worker.fetch(new Request(`https://media.example/v1/media?t=${encodeURIComponent(token)}`, { method, headers }), {
@@ -77,12 +87,49 @@ async function request(range, method = 'GET') {
 const rangeCases = [
   ['first bytes', 'bytes=0-99', { offset: 0, length: 100 }, 'bytes 0-99/1000', '100'],
   ['last explicit bytes', 'bytes=900-999', { offset: 900, length: 100 }, 'bytes 900-999/1000', '100'],
-  ['suffix bytes', 'bytes=-100', { suffix: 100 }, 'bytes 900-999/1000', '100'],
-  ['open-ended bytes', 'bytes=900-', { offset: 900 }, 'bytes 900-999/1000', '100']
+  ['suffix bytes', 'bytes=-100', { offset: 900, length: 100 }, 'bytes 900-999/1000', '100'],
+  ['open-ended bytes', 'bytes=900-', { offset: 900, length: 100 }, 'bytes 900-999/1000', '100'],
+  ['explicit end beyond object', 'bytes=900-1500', { offset: 900, length: 100 }, 'bytes 900-999/1000', '100'],
+  ['suffix larger than object', 'bytes=-1500', { offset: 0, length: 1000 }, 'bytes 0-999/1000', '1000']
 ];
 
+test('V5 playback issuer signs verified media size while preserving identity claims', () => {
+  const previousPrivate = process.env.V5_PLAYBACK_PRIVATE_JWK;
+  const previousUrl = process.env.V5_MEDIA_PUBLIC_URL;
+  const { privateKey } = cryptoModule.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  try {
+    process.env.V5_PLAYBACK_PRIVATE_JWK = JSON.stringify(privateKey.export({ format: 'jwk' }));
+    process.env.V5_MEDIA_PUBLIC_URL = 'https://media.example';
+    const lease = issueV5PlaybackLease({
+      assetId: 'asset-1',
+      courseSlug: 'course-1',
+      objectKey: 'v5/test.mp4',
+      mimeType: 'video/mp4',
+      filename: 'test.mp4',
+      bytes: objectSize,
+      userAgent,
+      email: 'student@example.com'
+    });
+    const payload = JSON.parse(Buffer.from(lease.token.split('.')[0], 'base64url').toString('utf8'));
+    assert.equal(payload.sz, objectSize);
+    assert.equal(payload.aid, 'asset-1');
+    assert.equal(payload.c, 'course-1');
+    assert.ok(payload.uah);
+    assert.ok(payload.eh);
+    assert.ok(payload.n);
+    const play = fs.readFileSync(new URL('../utils/lms-handlers/v5-play.js', import.meta.url), 'utf8');
+    assert.match(play, /original_filename,bytes,status/);
+    assert.match(play, /bytes: asset\.bytes/);
+  } finally {
+    if (previousPrivate === undefined) delete process.env.V5_PLAYBACK_PRIVATE_JWK;
+    else process.env.V5_PLAYBACK_PRIVATE_JWK = previousPrivate;
+    if (previousUrl === undefined) delete process.env.V5_MEDIA_PUBLIC_URL;
+    else process.env.V5_MEDIA_PUBLIC_URL = previousUrl;
+  }
+});
+
 test('V5 media full GET performs one R2 get and no head', async () => {
-  const { response, calls } = await request(null);
+  const { response, calls } = await signedRequest(null);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-length'), '1000');
   assert.equal(calls.get.length, 1);
@@ -91,8 +138,8 @@ test('V5 media full GET performs one R2 get and no head', async () => {
 });
 
 for (const [name, rangeHeader, expectedR2Range, expectedContentRange, expectedLength] of rangeCases) {
-  test(`V5 media ${name} uses one ranged R2 get`, async () => {
-    const { response, calls } = await request(rangeHeader);
+  test(`V5 media ${name} uses one normalized ranged R2 get`, async () => {
+    const { response, calls } = await signedRequest(rangeHeader);
     assert.equal(response.status, 206);
     assert.equal(response.headers.get('content-range'), expectedContentRange);
     assert.equal(response.headers.get('content-length'), expectedLength);
@@ -102,8 +149,40 @@ for (const [name, rangeHeader, expectedR2Range, expectedContentRange, expectedLe
   });
 }
 
+test('V5 media rejects an out-of-bounds signed range before any R2 operation', async () => {
+  const { response, calls } = await signedRequest('bytes=1000-');
+  assert.equal(response.status, 416);
+  assert.equal(response.headers.get('content-range'), 'bytes */1000');
+  assert.equal(calls.get.length, 0);
+  assert.equal(calls.head.length, 0);
+});
+
+test('V5 media rejects malformed range syntax before any R2 operation', async () => {
+  const { response, calls } = await signedRequest('bytes=200-100');
+  assert.equal(response.status, 416);
+  assert.equal(response.headers.get('content-range'), 'bytes */1000');
+  assert.equal(calls.get.length, 0);
+  assert.equal(calls.head.length, 0);
+});
+
+test('V5 media converts legacy-lease R2 InvalidRange into 416 without an extra head', async () => {
+  const { response, calls } = await signedRequest('bytes=1000-', 'GET', { omitSize: true, r2: { throwInvalidRange: true } });
+  assert.equal(response.status, 416);
+  assert.equal(response.headers.get('content-range'), 'bytes */*');
+  assert.equal(calls.get.length, 1);
+  assert.equal(calls.head.length, 0);
+});
+
+test('V5 media fails closed if signed size no longer matches the R2 object', async () => {
+  const { response, calls } = await signedRequest('bytes=0-99', 'GET', { r2: { size: objectSize + 1 } });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error, 'media_size_mismatch');
+  assert.equal(calls.get.length, 1);
+  assert.equal(calls.head.length, 0);
+});
+
 test('V5 media HEAD keeps metadata-only head and never performs an R2 get', async () => {
-  const { response, calls } = await request('bytes=0-99', 'HEAD');
+  const { response, calls } = await signedRequest('bytes=0-99', 'HEAD');
   assert.equal(response.status, 206);
   assert.equal(response.headers.get('content-range'), 'bytes 0-99/1000');
   assert.equal(calls.get.length, 0);
