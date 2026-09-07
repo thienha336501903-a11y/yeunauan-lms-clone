@@ -1,0 +1,37 @@
+name: System B encrypted database backup
+
+on:
+  schedule:
+    - cron: '17 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-b-encrypted-database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone' && (github.event_name == 'workflow_dispatch' || vars.SYSTEM_B_BACKUP_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SYSTEM_ID: system-b
+      SYSTEM_B_BACKUP_DATABASE_URL: ${{ secrets.SYSTEM_B_BACKUP_DATABASE_URL }}
+      SYSTEM_B_BACKUP_GPG_PUBLIC_KEY_B64: ${{ secrets.SYSTEM_B_BACKUP_GPG_PUBLIC_KEY_B64 }}
+      R2_BACKUP_ACCOUNT_ID: ${{ secrets.R2_BACKUP_ACCOUNT_ID }}
+      R2_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+      R2_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+      R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL, GnuPG, AWS CLI and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client gnupg awscli jq
+      - name: Create encrypted backup and enforce retention
+        run: bash scripts/system-b-backup.sh
