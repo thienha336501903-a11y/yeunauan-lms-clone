@@ -39,7 +39,7 @@ async function verifyLease(token, request, env) {
   if (parts.length !== 2) return { ok: false, status: 401, error: "invalid_token" };
   const [encoded, signatureText] = parts;
   let payload;
-  try { payload = decodePayload(encoded); } catch { return { ok: false, status: 401, error: "invalid_payload" };
+  try { payload = decodePayload(encoded); } catch { return { ok: false, status: 401, error: "invalid_payload" }; }
   if (payload?.v !== 1 || !payload?.aid || !payload?.c || !payload?.k || !payload?.exp) return { ok: false, status: 401, error: "invalid_claims" };
   if (Number(payload.exp) <= Date.now()) return { ok: false, status: 403, error: "lease_expired" };
   if (Number(payload.exp) - Number(payload.iat || 0) > 30 * 60 * 1000 + 5000) return { ok: false, status: 403, error: "lease_ttl_invalid" };
