@@ -53,7 +53,7 @@ export default async function v5PlayHandler(req, res) {
 
     const { data: asset, error: assetError } = await supabase
       .from("v5_media_assets")
-      .select("id,type,provider,r2_object_key,mime_type,original_filename,status")
+      .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
       .eq("id", assetId)
       .maybeSingle();
     if (assetError) throw assetError;
@@ -67,6 +67,7 @@ export default async function v5PlayHandler(req, res) {
       objectKey: asset.r2_object_key,
       mimeType: asset.mime_type,
       filename: asset.original_filename,
+      bytes: asset.bytes,
       userAgent: req.headers["user-agent"] || "",
       email: access.email
     });

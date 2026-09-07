@@ -74,24 +74,81 @@ function contentDisposition(filename, inline = true) {
   return `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(safe)}`;
 }
 
-function parseRange(header, size) {
+function trustedObjectSize(payload) {
+  if (payload?.sz === undefined || payload?.sz === null || payload?.sz === "") return null;
+  const size = Number(payload.sz);
+  return Number.isSafeInteger(size) && size >= 0 ? size : null;
+}
+
+function parseRangeRequest(header) {
   const text = clean(header);
   if (!text) return null;
   const match = text.match(/^bytes=(\d*)-(\d*)$/i);
-  if (!match) return { invalid: true };
-  let start = match[1] ? Number(match[1]) : null;
-  let end = match[2] ? Number(match[2]) : null;
-  if (start === null && end !== null) {
-    const suffix = Math.max(0, end);
-    start = Math.max(0, size - suffix);
-    end = size - 1;
-  } else {
-    start = start ?? 0;
-    end = end ?? size - 1;
+  if (!match || (!match[1] && !match[2])) return { invalid: true };
+  if (match[1]) {
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : null;
+    if (!Number.isSafeInteger(start) || start < 0 || (end !== null && (!Number.isSafeInteger(end) || end < start))) return { invalid: true };
+    return {
+      start,
+      end,
+      r2: end === null ? { offset: start } : { offset: start, length: end - start + 1 }
+    };
   }
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) return { invalid: true };
-  end = Math.min(end, size - 1);
-  return { start, end, length: end - start + 1 };
+  const suffix = Number(match[2]);
+  if (!Number.isSafeInteger(suffix) || suffix <= 0) return { invalid: true };
+  return { suffix, r2: { suffix } };
+}
+
+function resolveRange(requested, size) {
+  if (!requested) return null;
+  if (requested.invalid || !Number.isSafeInteger(size) || size < 0) return { invalid: true };
+  if (requested.suffix !== undefined) {
+    const length = Math.min(requested.suffix, size);
+    if (length <= 0) return { invalid: true };
+    const start = size - length;
+    return { start, end: size - 1, length };
+  }
+  if (requested.start >= size) return { invalid: true };
+  const end = requested.end === null ? size - 1 : Math.min(requested.end, size - 1);
+  return { start: requested.start, end, length: end - requested.start + 1 };
+}
+
+function rangeNotSatisfiable(size, corsHeaders) {
+  return new Response(null, {
+    status: 416,
+    headers: {
+      ...corsHeaders,
+      "Content-Range": Number.isSafeInteger(size) && size >= 0 ? `bytes */${size}` : "bytes */*",
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-store"
+    }
+  });
+}
+
+function mediaHeaders(source, payload, corsHeaders) {
+  const headers = new Headers(corsHeaders);
+  headers.set("Content-Type", clean(payload.ct) || source.httpMetadata?.contentType || "application/octet-stream");
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Content-Disposition", contentDisposition(payload.fn, payload.ct?.startsWith("video/") || payload.ct?.startsWith("image/") || payload.ct === "application/pdf"));
+  if (source.httpEtag) headers.set("ETag", source.httpEtag);
+  else if (source.etag) headers.set("ETag", source.etag);
+  return headers;
+}
+
+function isInvalidRangeError(error) {
+  const message = String(error?.message || error || "");
+  return Number(error?.code) === 10039 || /(?:InvalidRange|\(10039\))/.test(message);
+}
+
+function r2RangeFor(requested, resolved, trustedSize) {
+  if (!requested || requested.invalid) return undefined;
+  if (trustedSize !== null && resolved && !resolved.invalid) {
+    return { offset: resolved.start, length: resolved.length };
+  }
+  return requested.r2;
 }
 
 async function media(request, env, corsHeaders) {
@@ -99,27 +156,41 @@ async function media(request, env, corsHeaders) {
   const access = await verifyLease(url.searchParams.get("t"), request, env);
   if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
   const { payload } = access;
-  const head = await env.V5_MEDIA.head(payload.k);
-  if (!head) return json(404, { ok: false, error: "media_not_found" }, corsHeaders);
-  const size = Number(head.size || 0);
-  const range = parseRange(request.headers.get("range"), size);
-  if (range?.invalid) return new Response(null, { status: 416, headers: { ...corsHeaders, "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });
-  const headers = new Headers(corsHeaders);
-  headers.set("Content-Type", clean(payload.ct) || head.httpMetadata?.contentType || "application/octet-stream");
-  headers.set("Accept-Ranges", "bytes");
-  headers.set("Cache-Control", "private, no-store");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Content-Disposition", contentDisposition(payload.fn, payload.ct?.startsWith("video/") || payload.ct?.startsWith("image/") || payload.ct === "application/pdf"));
-  if (head.etag) headers.set("ETag", head.etag);
+  const requestedRange = parseRangeRequest(request.headers.get("range"));
+  const trustedSize = trustedObjectSize(payload);
+
   if (request.method === "HEAD") {
+    if (requestedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
+    const head = await env.V5_MEDIA.head(payload.k);
+    if (!head) return json(404, { ok: false, error: "media_not_found" }, corsHeaders);
+    const size = Number(head.size || 0);
+    if (trustedSize !== null && size !== trustedSize) return json(502, { ok: false, error: "media_size_mismatch" }, { ...corsHeaders, "Cache-Control": "private, no-store" });
+    const range = resolveRange(requestedRange, size);
+    if (range?.invalid) return rangeNotSatisfiable(size, corsHeaders);
+    const headers = mediaHeaders(head, payload, corsHeaders);
     headers.set("Content-Length", String(range ? range.length : size));
     if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
     return new Response(null, { status: range ? 206 : 200, headers });
   }
-  const object = range
-    ? await env.V5_MEDIA.get(payload.k, { range: { offset: range.start, length: range.length } })
-    : await env.V5_MEDIA.get(payload.k);
+
+  if (requestedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
+  const trustedRange = trustedSize !== null ? resolveRange(requestedRange, trustedSize) : null;
+  if (trustedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
+
+  let object;
+  try {
+    const r2Range = r2RangeFor(requestedRange, trustedRange, trustedSize);
+    object = await env.V5_MEDIA.get(payload.k, r2Range ? { range: r2Range } : undefined);
+  } catch (error) {
+    if (isInvalidRangeError(error)) return rangeNotSatisfiable(trustedSize, corsHeaders);
+    throw error;
+  }
   if (!object?.body) return json(404, { ok: false, error: "media_not_found" }, corsHeaders);
+  const size = Number(object.size || 0);
+  if (trustedSize !== null && size !== trustedSize) return json(502, { ok: false, error: "media_size_mismatch" }, { ...corsHeaders, "Cache-Control": "private, no-store" });
+  const range = trustedRange || resolveRange(requestedRange, size);
+  if (range?.invalid) return rangeNotSatisfiable(size, corsHeaders);
+  const headers = mediaHeaders(object, payload, corsHeaders);
   headers.set("Content-Length", String(range ? range.length : size));
   if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
   return new Response(object.body, { status: range ? 206 : 200, headers });

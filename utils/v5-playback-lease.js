@@ -36,7 +36,7 @@ export function publicJwkFromPrivateEnv() {
   return crypto.createPublicKey(key).export({ format: "jwk" });
 }
 
-export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType, filename, userAgent, email, ttlMs }) {
+export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType, filename, bytes, userAgent, email, ttlMs }) {
   const baseUrl = clean(process.env.V5_MEDIA_PUBLIC_URL).replace(/\/$/, "");
   if (!baseUrl) {
     const error = new Error("V5_MEDIA_PUBLIC_URL chưa được cấu hình.");
@@ -59,6 +59,10 @@ export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType,
     eh: sha256base64url(clean(email).toLowerCase()),
     n: crypto.randomBytes(12).toString("base64url")
   };
+  if (bytes !== undefined && bytes !== null && bytes !== "") {
+    const objectBytes = Number(bytes);
+    if (Number.isSafeInteger(objectBytes) && objectBytes >= 0) payload.sz = objectBytes;
+  }
   if (!payload.aid || !payload.c || !payload.k) throw new Error("Thiếu dữ liệu để cấp playback lease.");
   const encoded = base64urlJson(payload);
   const signature = crypto.sign("sha256", Buffer.from(encoded, "utf8"), { key: privateKey(), dsaEncoding: "ieee-p1363" }).toString("base64url");
