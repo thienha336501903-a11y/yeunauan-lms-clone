@@ -17,13 +17,17 @@ export async function requireV4CourseAccess(req, courseSlug) {
   if (!slug) return { ok: false, status: 400, code: "missing_course", error: "Thiếu khóa học" };
 
   let email = "";
+  let verifiedEnrollment = null;
   const lmsHeaders = getLmsSessionHeaders(req);
   if (lmsHeaders.lmsSessionId && lmsHeaders.lmsDeviceId) {
     const access = await verifyLmsVerifiedSessionAccess(supabase, {
       ...lmsHeaders,
       courseSlug: slug
     });
-    if (access?.ok && access.email) email = String(access.email).trim().toLowerCase();
+    if (access?.ok && access.email) {
+      email = String(access.email).trim().toLowerCase();
+      verifiedEnrollment = access.enrollment || null;
+    }
   }
 
   if (!email) {
@@ -44,14 +48,17 @@ export async function requireV4CourseAccess(req, courseSlug) {
     };
   }
 
-  const { data: enrollment, error: enrollmentError } = await supabase
-    .from("student_enrollments")
-    .select("status,expired_at")
-    .eq("email", email)
-    .eq("course_slug", slug)
-    .maybeSingle();
-
-  if (enrollmentError) throw enrollmentError;
+  let enrollment = verifiedEnrollment;
+  if (!enrollment) {
+    const { data, error } = await supabase
+      .from("student_enrollments")
+      .select("status,expired_at")
+      .eq("email", email)
+      .eq("course_slug", slug)
+      .maybeSingle();
+    if (error) throw error;
+    enrollment = data;
+  }
   if (!enrollment || !isActiveEnrollmentStatus(enrollment.status)) {
     return {
       ok: false,
@@ -73,7 +80,7 @@ export async function requireV4CourseAccess(req, courseSlug) {
   // approving an enrollment is not enough; course content must also be marked ready.
   const { data: course, error: courseError } = await supabase
     .from("courses")
-    .select("title,raw_data,is_published")
+    .select("id,slug,title,subtitle,image_url,raw_data,is_published,delivery_mode")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -89,5 +96,5 @@ export async function requireV4CourseAccess(req, courseSlug) {
 
   const rawData = course.raw_data && typeof course.raw_data === "object" ? course.raw_data : {};
   const courseTitle = String(rawData.studentDisplayTitle || course.title || slug).trim() || slug;
-  return { ok: true, email, courseSlug: slug, courseTitle };
+  return { ok: true, email, courseSlug: slug, courseTitle, course };
 }
