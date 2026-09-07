@@ -9,11 +9,22 @@ compatibility_date = "2026-08-01"
 binding = "V5_MEDIA"
 bucket_name = "yeubep-v5-media-prod"
 
+# Per authenticated student/video, per Cloudflare location. The Worker calls
+# this binding only after a playback lease passes signature, TTL and UA checks.
+[[ratelimits]]
+name = "V5_MEDIA_RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 600
+  period = 60
+
 [vars]
 # Comma-separated exact origins.
 # Keep the canonical V5 Preview branch alias only while V5 is being tested;
 # remove it after V5 Production is stable.
 V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop,https://yeunauan-lms-v4-test-git-bb43d1-thienha336501903-a11ys-projects.vercel.app"
+V5_MEDIA_RATE_LIMIT_RETRY_AFTER_SECONDS = "60"
 
 # Secret required at runtime (set with `wrangler secret put`, not here):
 # V5_PLAYBACK_PUBLIC_JWK={...public EC P-256 JWK...}

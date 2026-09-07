@@ -55,6 +55,44 @@ async function verifyLease(token, request, env) {
   return { ok: true, payload };
 }
 
+function rateLimitRetryAfter(env) {
+  const seconds = Number(env.V5_MEDIA_RATE_LIMIT_RETRY_AFTER_SECONDS || 60);
+  return Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 3600 ? seconds : 60;
+}
+
+async function enforceMediaRateLimit(payload, env, corsHeaders) {
+  const emailHash = clean(payload?.eh);
+  const assetId = clean(payload?.aid);
+  if (!emailHash || !assetId) {
+    return json(403, { ok: false, error: "rate_limit_identity_invalid" }, {
+      ...corsHeaders,
+      "Cache-Control": "private, no-store"
+    });
+  }
+  if (!env.V5_MEDIA_RATE_LIMITER || typeof env.V5_MEDIA_RATE_LIMITER.limit !== "function") {
+    return json(503, { ok: false, error: "rate_limiter_unavailable" }, {
+      ...corsHeaders,
+      "Cache-Control": "private, no-store"
+    });
+  }
+  let result;
+  try {
+    result = await env.V5_MEDIA_RATE_LIMITER.limit({ key: `${emailHash}:${assetId}` });
+  } catch {
+    return json(503, { ok: false, error: "rate_limiter_unavailable" }, {
+      ...corsHeaders,
+      "Cache-Control": "private, no-store"
+    });
+  }
+  if (result?.success) return null;
+  const retryAfter = rateLimitRetryAfter(env);
+  return json(429, { ok: false, error: "rate_limit_exceeded" }, {
+    ...corsHeaders,
+    "Cache-Control": "private, no-store",
+    "Retry-After": String(retryAfter)
+  });
+}
+
 function cors(request, env) {
   const origin = clean(request.headers.get("origin"));
   const allowed = clean(env.V5_ALLOWED_ORIGINS).split(",").map(x => x.trim()).filter(Boolean);
@@ -156,6 +194,8 @@ async function media(request, env, corsHeaders) {
   const access = await verifyLease(url.searchParams.get("t"), request, env);
   if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
   const { payload } = access;
+  const rateLimited = await enforceMediaRateLimit(payload, env, corsHeaders);
+  if (rateLimited) return rateLimited;
   const requestedRange = parseRangeRequest(request.headers.get("range"));
   const trustedSize = trustedObjectSize(payload);
 
