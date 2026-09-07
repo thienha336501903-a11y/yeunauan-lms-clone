@@ -23,6 +23,7 @@ test('V5 media service worker preserves byte-range playback on mobile browsers',
   assert.match(sw, /headers\.set\("Range", playbackRange\(request\.headers\.get\("range"\)\)\)/);
   assert.match(sw, /"content-range"/);
   assert.match(sw, /"accept-ranges"/);
+  assert.match(sw, /"retry-after"/);
   assert.match(sw, /credentials:\s*"omit"/);
   assert.match(sw, /\[401, 403, 410\]\.includes\(upstream\.status\)/);
 });
