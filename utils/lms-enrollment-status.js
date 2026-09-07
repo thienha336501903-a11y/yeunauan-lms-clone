@@ -30,3 +30,12 @@ export function isEnrollmentUsable(enrollment, now = Date.now()) {
   if (!enrollment) return false;
   return isActiveEnrollmentStatus(enrollment.status) && !isEnrollmentExpired(enrollment.expired_at, now);
 }
+
+export function isDashboardCourseReady(course, enrollmentUsable) {
+  if (!enrollmentUsable || course?.is_published !== true) return false;
+  const deliveryMode = String(course?.delivery_mode || "lms").trim().toLowerCase();
+  // V5 authoring shells remain active=false while sale-disabled. Learner access is
+  // controlled by enrollment + canonical Published release, matching v5-feed/play.
+  if (deliveryMode === "v5") return true;
+  return course?.active !== false;
+}
