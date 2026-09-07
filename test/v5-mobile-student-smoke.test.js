@@ -8,7 +8,12 @@ test('V5 student renderer keeps the mobile playback contract', () => {
   const html = read('v5/index.html');
   assert.match(html, /name="viewport"\s+content="width=device-width,initial-scale=1"/);
   assert.match(html, /@media\(max-width:640px\)/);
-  assert.match(html, /<video controls playsinline preload="metadata"/);
+  assert.match(html, /<video controls playsinline preload="none"/);
+  assert.match(html, /data-v5-video data-src=/);
+  assert.doesNotMatch(html, /<video[^>]+\ssrc=/);
+  assert.match(html, /data-v5-start/);
+  assert.match(html, /if\(!video\.getAttribute\('src'\)\)video\.setAttribute\('src',video\.dataset\.src\)/);
+  assert.match(html, /if\(activeVideo&&activeVideo!==video\)releaseVideo\(activeVideo\)/);
   assert.match(html, /navigator\.serviceWorker\.register\('\/v5\/media-sw\.js'/);
   assert.match(html, /credentials:'include'/);
 });
