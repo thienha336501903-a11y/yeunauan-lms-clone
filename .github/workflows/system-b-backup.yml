@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   backup:
-    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone'
+    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone' && (github.event_name == 'workflow_dispatch' || vars.SYSTEM_B_BACKUP_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
