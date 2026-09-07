@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <title>Tạo khóa V5 Playback System B</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef4ef;color:#173126;font-family:Arial,sans-serif}.wrap{width:min(820px,calc(100% - 24px));margin:32px auto;background:#fff;border-radius:18px;padding:24px;box-shadow:0 12px 40px #244c3520}h1{margin:0 0 8px;font-size:24px}p{line-height:1.55}.notice{padding:12px 14px;border-radius:12px;background:#fff7dc;color:#664d00}.actions{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}button{border:0;border-radius:10px;padding:11px 16px;background:#327a4b;color:#fff;font-weight:700;cursor:pointer}button.secondary{background:#e8efe9;color:#245a38}button:disabled{opacity:.5;cursor:not-allowed}.field{margin-top:18px}label{display:block;font-weight:700;margin-bottom:7px}textarea{width:100%;min-height:120px;border:1px solid #cddbd1;border-radius:10px;padding:10px;font:12px/1.45 Consolas,monospace;resize:vertical}.status{min-height:22px;color:#327a4b;font-weight:700}ol{line-height:1.6}code{background:#edf3ee;padding:2px 5px;border-radius:5px}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Tạo khóa V5 Playback — System B</h1>
+    <p class="notice"><strong>Chạy cục bộ:</strong> trang này không có kết nối mạng và không gửi khóa đi đâu. Không đưa Private JWK lên GitHub hoặc vào chat.</p>
+    <ol>
+      <li>Bấm <strong>Tạo cặp khóa mới</strong>.</li>
+      <li>Copy Public JWK vào Cloudflare secret <code>V5_PLAYBACK_PUBLIC_JWK_PREVIEW</code>.</li>
+      <li>Copy Private JWK vào Vercel Preview env <code>V5_PLAYBACK_PRIVATE_JWK</code>.</li>
+      <li>Sau khi lưu xong, bấm <strong>Xóa khỏi màn hình</strong>.</li>
+    </ol>
+    <div class="actions">
+      <button id="generate" type="button">Tạo cặp khóa mới</button>
+      <button id="clear" class="secondary" type="button">Xóa khỏi màn hình</button>
+    </div>
+    <div id="status" class="status" aria-live="polite"></div>
+    <section class="field">
+      <label for="publicKey">Public JWK — dùng cho Cloudflare</label>
+      <textarea id="publicKey" readonly spellcheck="false"></textarea>
+      <button id="copyPublic" type="button" disabled>Copy Public JWK</button>
+    </section>
+    <section class="field">
+      <label for="privateKey">Private JWK — chỉ dùng cho Vercel Preview</label>
+      <textarea id="privateKey" readonly spellcheck="false"></textarea>
+      <button id="copyPrivate" type="button" disabled>Copy Private JWK</button>
+    </section>
+  </main>
+  <script>
+    const byId = id => document.getElementById(id);
+    const publicKey = byId('publicKey');
+    const privateKey = byId('privateKey');
+    const status = byId('status');
+
+    async function copyField(field, label) {
+      try {
+        await navigator.clipboard.writeText(field.value);
+      } catch {
+        field.focus(); field.select();
+        if (!document.execCommand('copy')) throw new Error('copy_failed');
+      }
+      status.textContent = `Đã copy ${label}.`;
+    }
+
+    byId('generate').addEventListener('click', async () => {
+      status.textContent = 'Đang tạo khóa P-256…';
+      try {
+        const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+        publicKey.value = JSON.stringify(await crypto.subtle.exportKey('jwk', pair.publicKey));
+        privateKey.value = JSON.stringify(await crypto.subtle.exportKey('jwk', pair.privateKey));
+        byId('copyPublic').disabled = false;
+        byId('copyPrivate').disabled = false;
+        status.textContent = 'Đã tạo cặp khóa P-256 khớp nhau.';
+      } catch (error) {
+        status.textContent = `Không tạo được khóa: ${error.message}`;
+      }
+    });
+    byId('copyPublic').addEventListener('click', () => copyField(publicKey, 'Public JWK'));
+    byId('copyPrivate').addEventListener('click', () => copyField(privateKey, 'Private JWK'));
+    byId('clear').addEventListener('click', () => {
+      publicKey.value = ''; privateKey.value = '';
+      byId('copyPublic').disabled = true; byId('copyPrivate').disabled = true;
+      status.textContent = 'Đã xóa khóa khỏi màn hình.';
+    });
+  </script>
+</body>
+</html>
