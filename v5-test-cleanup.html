@@ -2,7 +2,7 @@
 <html lang="vi">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V5 Test Cleanup</title>
 <style>body{font-family:system-ui,sans-serif;background:#f3f6f4;color:#183124;margin:0;padding:32px}.card{max-width:760px;margin:auto;background:#fff;padding:24px;border-radius:18px;box-shadow:0 8px 30px #18312418}label{display:block;font-weight:750;margin:14px 0 6px}input,textarea{width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd8cf;border-radius:10px;font:inherit}button{margin-top:16px;padding:11px 16px;border:0;border-radius:10px;background:#b4232d;color:#fff;font-weight:800}pre{white-space:pre-wrap;background:#eef3ef;padding:12px;border-radius:10px}</style></head>
-<body><main class="card"><h1>Cleanup R2 clone factory test</h1><p>Chỉ object có đường dẫn thuộc đúng course UUID và filename bắt đầu bằng <code>__clone_factory_test</code> mới được phép xóa.</p>
+<body><main class="card"><h1>Cleanup R2 clone factory test</h1><p>Chỉ object đã đăng ký trong media của đúng khóa V5 clone-factory test và nằm dưới namespace <code>media/v5/&lt;course UUID&gt;/</code> mới được phép xóa.</p>
 <label>Course UUID</label><input id="courseId">
 <label>R2 object keys (mỗi dòng một key)</label><textarea id="keys" rows="7"></textarea>
 <button id="cleanup">Xóa và xác minh R2 test objects</button><pre id="result">Chưa chạy.</pre></main>
