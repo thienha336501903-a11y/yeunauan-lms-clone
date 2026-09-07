@@ -94,9 +94,10 @@ async function signedRequest(range, method = 'GET', options = {}) {
   const limiter = options.limiter || fakeRateLimiter();
   const headers = new Headers({ 'user-agent': userAgent });
   if (range) headers.set('range', range);
+  if (options.origin) headers.set('origin', options.origin);
   const response = await worker.fetch(new Request(`https://media.example/v1/media?t=${encodeURIComponent(token)}`, { method, headers }), {
     V5_PLAYBACK_PUBLIC_JWK: JSON.stringify(publicJwk),
-    V5_ALLOWED_ORIGINS: '',
+    V5_ALLOWED_ORIGINS: options.origin || '',
     V5_MEDIA_RATE_LIMITER: limiter.binding,
     V5_MEDIA: r2.bucket
   });
@@ -285,10 +286,11 @@ test('V5 media rejects a bad ECDSA signature before any R2 operation', async () 
 
 test('V5 media rejects an exceeded authenticated identity before any R2 operation', async () => {
   const limiter = fakeRateLimiter({ success: false });
-  const { response, calls, limiterCalls } = await signedRequest('bytes=0-99', 'GET', { limiter });
+  const { response, calls, limiterCalls } = await signedRequest('bytes=0-99', 'GET', { limiter, origin: 'https://hoc.yeubep.shop' });
   assert.equal(response.status, 429);
   assert.equal(response.headers.get('retry-after'), '60');
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.match(response.headers.get('access-control-expose-headers') || '', /Retry-After/);
   assert.equal((await response.json()).error, 'rate_limit_exceeded');
   assert.deepEqual(limiterCalls, [{ key: `${studentEmailHash}:asset-1` }]);
   assert.equal(calls.get.length, 0);
