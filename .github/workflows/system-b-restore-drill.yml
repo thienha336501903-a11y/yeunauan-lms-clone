@@ -1,0 +1,51 @@
+name: System B temporary restore drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_key:
+        description: R2 key under system-b/daily or system-b/weekly ending in .dump.gpg
+        required: true
+        type: string
+      confirmation:
+        description: Type RESTORE_TO_TEMP_ONLY
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-b-temporary-restore-drill
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    if: >-
+      github.repository == 'thienha336501903-a11y/yeunauan-lms-clone' &&
+      inputs.confirmation == 'RESTORE_TO_TEMP_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SYSTEM_B_BACKUP_KEY: ${{ inputs.backup_key }}
+      SYSTEM_B_BACKUP_DATABASE_URL: ${{ secrets.SYSTEM_B_BACKUP_DATABASE_URL }}
+      SYSTEM_B_BACKUP_GPG_PRIVATE_KEY_B64: ${{ secrets.SYSTEM_B_BACKUP_GPG_PRIVATE_KEY_B64 }}
+      SYSTEM_B_TEMP_RESTORE_DATABASE_URL: ${{ secrets.SYSTEM_B_TEMP_RESTORE_DATABASE_URL }}
+      SYSTEM_B_TEMP_RESTORE_CONFIRMATION: ${{ secrets.SYSTEM_B_TEMP_RESTORE_CONFIRMATION }}
+      R2_BACKUP_ACCOUNT_ID: ${{ secrets.R2_BACKUP_ACCOUNT_ID }}
+      R2_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+      R2_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+      R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Install PostgreSQL, GnuPG and AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client gnupg awscli
+      - name: Restore only to the guarded temporary target
+        run: bash scripts/system-b-restore-drill.sh
