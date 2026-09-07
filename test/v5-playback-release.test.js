@@ -8,7 +8,7 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   const lease = read('utils/v5-playback-lease.js');
   const play = read('utils/lms-handlers/v5-play.js');
   const feed = read('utils/lms-handlers/v5-feed.js');
-  const player = read('v5/index.html');
+  const player = read('v5/app.js');
   const sw = read('v5/media-sw.js');
 
   assert.match(lease, /V5_PLAYBACK_PRIVATE_JWK/);
@@ -32,7 +32,7 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.doesNotMatch(feed, /playback_url/);
   assert.doesNotMatch(feed, /r2_object_key\s*:/);
 
-  assert.match(player, /serviceWorker\.register\('\/v5\/media-sw\.js',\{scope:'\/v5\/'/);
+  assert.match(player, /serviceWorker\.register\('\/v5\/media-sw\.js', \{ scope: '\/v5\/'/);
   assert.match(player, /\/v5\/media\/\$\{encodeURIComponent\(assetId\)\}/);
   assert.doesNotMatch(player, /playback_url/);
 
