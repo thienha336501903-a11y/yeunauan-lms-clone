@@ -1,7 +1,6 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { issueV5PlaybackLease } from "../v5-playback-lease.js";
-import { v5ReleaseHasAsset } from "../v5-release-snapshot.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -24,41 +23,27 @@ export default async function v5PlayHandler(req, res) {
       return res.status(404).json({ success: false, code: "v5_course_not_found", error: "Không tìm thấy khóa V5." });
     }
 
-    const { data: config, error: configError } = await supabase
-      .from("v5_course_configs")
-      .select("status,published_release_id")
-      .eq("course_id", course.id)
-      .maybeSingle();
-    if (configError) throw configError;
-    if (!config || config.status !== "published" || !config.published_release_id) {
-      return res.status(403).json({ success: false, code: "v5_not_published", error: "Khóa V5 chưa được Publish." });
-    }
-
-    const { data: release, error: releaseError } = await supabase
-      .from("v5_releases")
-      .select("id,status,snapshot")
-      .eq("id", config.published_release_id)
-      .eq("course_id", course.id)
-      .eq("status", "published")
-      .maybeSingle();
-    if (releaseError) throw releaseError;
-    const { data: asset, error: assetError } = await supabase
-      .from("v5_media_assets")
-      .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
-      .eq("id", assetId)
-      .maybeSingle();
-    if (assetError) throw assetError;
-    let releasedAsset = Boolean(release && v5ReleaseHasAsset(release.snapshot, assetId));
-    if (!releasedAsset && release && asset?.type === "image") {
-      const { data: parents, error: parentError } = await supabase
+    // The published-release membership check stays inside Postgres so each lease
+    // does not pull the immutable release snapshot across Supabase egress.
+    // Asset metadata is independent, so run both reads concurrently.
+    const [authorizationResult, assetResult] = await Promise.all([
+      supabase.rpc("v5_authorize_playback_asset", {
+        p_course_id: course.id,
+        p_asset_id: assetId
+      }),
+      supabase
         .from("v5_media_assets")
-        .select("id")
-        .eq("thumbnail_asset_id", asset.id)
-        .limit(20);
-      if (parentError) throw parentError;
-      releasedAsset = (parents || []).some(parent => v5ReleaseHasAsset(release.snapshot, parent.id));
-    }
-    if (!releasedAsset) {
+        .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
+        .eq("id", assetId)
+        .maybeSingle()
+    ]);
+
+    if (authorizationResult.error) throw authorizationResult.error;
+    if (assetResult.error) throw assetResult.error;
+
+    const releaseId = clean(authorizationResult.data);
+    const asset = assetResult.data;
+    if (!releaseId) {
       return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
     }
     if (!asset || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) {
@@ -79,7 +64,7 @@ export default async function v5PlayHandler(req, res) {
     return res.status(200).json({
       success: true,
       assetId: asset.id,
-      releaseId: release.id,
+      releaseId,
       playbackUrl: lease.url,
       expiresAt: lease.expiresAt
     });
