@@ -4,11 +4,12 @@
       "https://v5.daubepnho.store",
       "https://v4.daubepnho.store",
       "https://hoc.yeubep.shop",
-      "https://yeunauan-lms-v4-test-git-f3f806-thienha336501903-a11ys-projects.vercel.app"
+      "https://yeunauan-lms-v4-test-git-f3f806-thienha336501903-a11ys-projects.vercel.app",
+      "https://yeunauan-lms-git-097b69-thienha100022653824678-stacks-projects.vercel.app"
     ],
-    "AllowedMethods": ["PUT", "HEAD"],
-    "AllowedHeaders": ["Content-Type", "Content-Length", "x-amz-*"],
-    "ExposeHeaders": ["ETag"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["Content-Type", "Content-Length", "Range", "x-amz-*"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Range", "Accept-Ranges"],
     "MaxAgeSeconds": 3600
   }
 ]
