@@ -13,8 +13,13 @@ test('V5 learner feed exposes only a safe thumbnail asset relationship', () => {
 
 test('V5 authorizes a thumbnail only through a released parent asset', () => {
   const play = read('utils/lms-handlers/v5-play.js');
-  assert.match(play, /\.eq\("thumbnail_asset_id", asset\.id\)/);
-  assert.match(play, /some\(parent => v5ReleaseHasAsset\(release\.snapshot, parent\.id\)\)/);
+  const migration = read('sql/migration_lms_v5_playback_authorization_rpc_20260908.sql');
+  assert.match(play, /v5_authorize_playback_asset/);
+  assert.match(migration, /parent_asset\.thumbnail_asset_id = p_asset_id/);
+  assert.match(migration, /parent_asset\.type = 'video'/);
+  assert.match(migration, /parent_release_link ->> 'asset_id' = parent_asset\.id::text/);
+  assert.match(migration, /vc\.status = 'published'/);
+  assert.match(migration, /vr\.status = 'published'/);
 });
 
 test('V5 renders protected video posters without preloading video bytes', () => {
