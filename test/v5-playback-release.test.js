@@ -20,14 +20,18 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(play, /requireV4CourseAccess/);
   assert.match(play, /issueV5PlaybackLease/);
   assert.match(play, /asset\.provider !== "r2"/);
-  assert.match(play, /published_release_id/);
-  assert.match(play, /v5ReleaseHasAsset/);
+  assert.match(play, /v5_authorize_playback_asset/);
+  assert.match(play, /Promise\.all/);
+  assert.doesNotMatch(play, /v5ReleaseHasAsset/);
+  assert.doesNotMatch(play, /from\("v5_releases"\)/);
   assert.match(play, /playbackUrl: lease\.url/);
   assert.match(play, /expiresAt: lease\.expiresAt/);
 
   assert.match(feed, /playback_ready/);
   assert.match(feed, /published_release_id/);
   assert.match(feed, /v5LearnerReleaseContent/);
+  assert.match(feed, /releaseCache/);
+  assert.match(feed, /MAX_RELEASE_CACHE_ENTRIES/);
   assert.doesNotMatch(feed, /issueV5PlaybackLease/);
   assert.doesNotMatch(feed, /playback_url/);
   assert.doesNotMatch(feed, /r2_object_key\s*:/);
@@ -41,6 +45,21 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(sw, /REFRESH_SKEW_MS = 45 \* 1000/);
   assert.match(sw, /\[401, 403, 410\]\.includes\(upstream\.status\)/);
   assert.match(sw, /fetchLease\(course, assetId, true\)/);
+});
+
+test('V5 playback authorization RPC keeps release membership and thumbnail checks inside Postgres', () => {
+  const migration = read('sql/migration_lms_v5_playback_authorization_rpc_20260908.sql');
+  assert.match(migration, /create or replace function public\.v5_authorize_playback_asset/);
+  assert.match(migration, /jsonb_array_elements/);
+  assert.match(migration, /release_link ->> 'asset_id' = p_asset_id::text/);
+  assert.match(migration, /parent_asset\.thumbnail_asset_id = p_asset_id/);
+  assert.match(migration, /parent_asset\.type = 'video'/);
+  assert.match(migration, /vc\.status = 'published'/);
+  assert.match(migration, /vr\.status = 'published'/);
+  assert.match(migration, /set search_path = pg_catalog, public/);
+  assert.match(migration, /revoke all[\s\S]*from anon/i);
+  assert.match(migration, /revoke all[\s\S]*from authenticated/i);
+  assert.match(migration, /grant execute[\s\S]*service_role/i);
 });
 
 test('V5 capability reporting follows JWK runtime configuration', () => {

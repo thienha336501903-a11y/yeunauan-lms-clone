@@ -52,13 +52,17 @@ test('learner release payload excludes authoring metadata while preserving rende
 test('student feed and playback do not read mutable authoring membership tables', () => {
   const feed = read('utils/lms-handlers/v5-feed.js');
   const play = read('utils/lms-handlers/v5-play.js');
+  const playbackAuth = read('sql/migration_lms_v5_playback_authorization_rpc_20260908.sql');
   assert.doesNotMatch(feed, /\.from\("v5_lessons"\)/);
   assert.doesNotMatch(feed, /\.from\("v5_posts"\)/);
   assert.doesNotMatch(feed, /\.from\("v5_post_assets"\)/);
   assert.doesNotMatch(play, /\.from\("v5_posts"\)/);
   assert.doesNotMatch(play, /\.from\("v5_post_assets"\)/);
   assert.match(feed, /\.from\("v5_releases"\)/);
-  assert.match(play, /\.from\("v5_releases"\)/);
+  assert.match(play, /v5_authorize_playback_asset/);
+  assert.doesNotMatch(play, /\.from\("v5_releases"\)/);
+  assert.doesNotMatch(playbackAuth, /v5_lessons|v5_posts|v5_post_assets/);
+  assert.match(playbackAuth, /vr\.snapshot -> 'links'/);
   assert.doesNotMatch(feed, /\.from\("courses"\)/);
   assert.doesNotMatch(play, /\.from\("courses"\)/);
 });

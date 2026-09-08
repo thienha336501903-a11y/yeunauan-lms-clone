@@ -6,6 +6,17 @@ import {
 } from "../lms.js";
 import { google } from "googleapis";
 
+function safeGoogleError(err) {
+  const status = Number(err?.status || err?.response?.status || err?.code || 0);
+  const providerCode = String(err?.response?.data?.error || "").trim();
+  return {
+    name: String(err?.name || "Error"),
+    message: String(err?.message || "Google OAuth request failed").slice(0, 300),
+    ...(Number.isFinite(status) && status > 0 ? { status } : {}),
+    ...(providerCode ? { providerCode: providerCode.slice(0, 120) } : {})
+  };
+}
+
 export async function readStoredRefreshToken(supabase) {
   const { data, error } = await supabase
     .from("site_config")
@@ -33,7 +44,7 @@ async function canRefreshAccessToken(refreshToken) {
     const tokenRes = await oauth2Client.getAccessToken();
     return Boolean(tokenRes?.token);
   } catch (err) {
-    console.warn("[admin-drive-auth] Stored refresh token is no longer valid:", err?.message);
+    console.warn("[admin-drive-auth] Stored refresh token is no longer valid:", safeGoogleError(err));
     return false;
   }
 }
@@ -89,7 +100,9 @@ export default async function handler(req, res) {
           });
         }
       } catch (err) {
-        console.error("Failed to check Google Drive client info:", err);
+        // Never log the raw Google/Gaxios error object: it can contain request
+        // bodies with OAuth refresh/access credentials.
+        console.error("Failed to check Google Drive client info:", safeGoogleError(err));
       }
 
       return res.status(200).json({ success: true, connected: false });
@@ -170,7 +183,7 @@ export default async function handler(req, res) {
 
     return res.status(405).json({ success: false, error: "Method not allowed" });
   } catch (err) {
-    console.error("[admin-drive-auth] Error:", err);
+    console.error("[admin-drive-auth] Error:", safeGoogleError(err));
     return res.status(500).json({
       success: false,
       error: "Lỗi server khi kết nối Google Drive",
