@@ -22,3 +22,16 @@ test('thumbnail attachment is admin-only, course-scoped, type-checked and never 
   assert.match(upload, /thumbnail_asset_id: thumbnail\.id/);
   assert.doesNotMatch(upload, /linkAssetToPost\(course, [^\n]*thumbnailAssetId/);
 });
+
+test('existing R2 videos can be repaired in the admin browser without proxying video bytes through Vercel', () => {
+  const admin = read('v5-admin.html');
+  const upload = read('utils/lms-handlers/admin-v5-upload.js');
+  const r2 = read('utils/v5-r2.js');
+  assert.match(admin, /data-thumbnail=/);
+  assert.match(admin, /function repairThumbnail\(assetId,button\)/);
+  assert.match(admin, /videoThumbnailFromUrl\(source\.result\.url/);
+  assert.match(upload, /async function thumbnailSource\(course, body\)/);
+  assert.match(upload, /presignDownloadObject\(\{ key: asset\.r2_object_key/);
+  assert.match(r2, /export function presignDownloadObject/);
+  assert.doesNotMatch(upload, /fetch\(.*asset\.r2_object_key/);
+});
