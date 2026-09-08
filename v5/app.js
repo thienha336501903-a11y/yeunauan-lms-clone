@@ -158,7 +158,7 @@ function assetHtml(asset, index, total) {
     const duration = formatDuration(asset.duration_ms);
     return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}"><div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
   }
-  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}"><img loading="lazy" src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
+  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
   return `<a class="doc" href="${esc(url)}" target="_blank" rel="noopener"><span class="doc-icon">📄</span><span class="doc-copy"><span class="doc-name">${esc(asset.original_filename || 'Tài liệu')}</span><span class="doc-size">${esc(formatBytes(asset.bytes))} · Mở tài liệu</span></span></a>`;
 }
 
@@ -272,6 +272,13 @@ async function ensureMediaWorker() {
   await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Không thể kích hoạt bộ phát media V5. Hãy tải lại trang.')), 5000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 }
 
+async function hydrateProtectedImages() {
+  await ensureMediaWorker();
+  document.querySelectorAll('img[data-v5-image][data-src]').forEach(image => {
+    if (!image.getAttribute('src')) image.setAttribute('src', image.dataset.src);
+  });
+}
+
 function releaseVideo(video) {
   if (!video) return;
   saveVideoProgress(video);
@@ -311,7 +318,9 @@ function openLightbox(source) { $('lightImage').src = source; $('lightbox').clas
 function closeLightbox() { $('lightbox').classList.remove('open'); $('lightbox').setAttribute('aria-hidden', 'true'); $('lightImage').removeAttribute('src'); document.body.style.overflow = ''; }
 function wireMedia() {
   document.querySelectorAll('[data-kind="video"]').forEach(cell => cell.querySelector('[data-v5-start]')?.addEventListener('click', () => startVideo(cell)));
-  document.querySelectorAll('[data-kind="image"]').forEach(cell => cell.addEventListener('click', () => openLightbox(cell.dataset.src)));
+  document.querySelectorAll('[data-kind="image"]').forEach(cell => cell.addEventListener('click', async () => {
+    try { await ensureMediaWorker(); openLightbox(cell.dataset.src); } catch {}
+  }));
 }
 
 function wireObservers() {
@@ -340,7 +349,7 @@ function render(payload) {
   const lead = lessons.find(lesson => lesson.posts.some(post => post.isPinned)) || lessons[0];
   if (lead) { $('pinTitle').textContent = lead.title; $('pinAction').onclick = () => scrollToLesson(lead.id); } else $('pinStrip').hidden = true;
   $('state').hidden = true; $('app').hidden = false;
-  ensureMediaWorker().catch(() => {});
+  hydrateProtectedImages().catch(() => {});
 }
 
 async function load() {
