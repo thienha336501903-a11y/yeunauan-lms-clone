@@ -156,7 +156,9 @@ function assetHtml(asset, index, total) {
   const more = total > 6 && index === 5 ? `<span class="more-overlay">+${total - 6}</span>` : '';
   if (asset.type === 'video') {
     const duration = formatDuration(asset.duration_ms);
-    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}"><div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
+    const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id) : '';
+    const poster = thumbnail ? `<img class="video-poster-image" loading="lazy" data-v5-image data-src="${esc(thumbnail)}" alt="">` : `<div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>`;
+    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
   }
   if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
   return `<a class="doc" href="${esc(url)}" target="_blank" rel="noopener"><span class="doc-icon">📄</span><span class="doc-copy"><span class="doc-name">${esc(asset.original_filename || 'Tài liệu')}</span><span class="doc-size">${esc(formatBytes(asset.bytes))} · Mở tài liệu</span></span></a>`;

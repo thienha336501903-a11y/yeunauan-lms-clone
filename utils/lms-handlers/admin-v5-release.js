@@ -37,9 +37,15 @@ async function canonicalState(courseId) {
     links = linkRows || [];
     const assetIds = [...new Set(links.map(x => x.asset_id).filter(Boolean))];
     if (assetIds.length) {
-      const { data: assetRows, error: assetError } = await supabase.from("v5_media_assets").select("id,type,provider,origin,status,r2_object_key,telegram_source_id,telegram_message_row_id,mime_type,original_filename,bytes,checksum_sha256,metadata").in("id", assetIds);
+      const { data: assetRows, error: assetError } = await supabase.from("v5_media_assets").select("id,type,provider,origin,status,r2_object_key,telegram_source_id,telegram_message_row_id,mime_type,original_filename,bytes,checksum_sha256,thumbnail_asset_id,metadata").in("id", assetIds);
       if (assetError) throw assetError;
       assets = assetRows || [];
+      const thumbnailIds = [...new Set(assets.map(asset => asset.thumbnail_asset_id).filter(Boolean))];
+      if (thumbnailIds.length) {
+        const { data: thumbnailRows, error: thumbnailError } = await supabase.from("v5_media_assets").select("id,type,provider,origin,status,r2_object_key,mime_type,original_filename,bytes,checksum_sha256,metadata").in("id", thumbnailIds);
+        if (thumbnailError) throw thumbnailError;
+        assets = [...assets, ...(thumbnailRows || [])];
+      }
     }
   }
   return { config, lessons: lessons || [], posts: posts || [], links, assets };
@@ -57,6 +63,8 @@ function preflightFromState(course, state) {
   const activeLinks = (state.links || []).filter(link => activePostIds.has(link.post_id));
   const linkedAssetIds = new Set(activeLinks.map(link => link.asset_id).filter(Boolean));
   const activeAssets = (state.assets || []).filter(asset => linkedAssetIds.has(asset.id));
+  const thumbnailIds = new Set(activeAssets.map(asset => asset.thumbnail_asset_id).filter(Boolean));
+  const thumbnailAssets = (state.assets || []).filter(asset => thumbnailIds.has(asset.id));
   const returnedAssetIds = new Set(activeAssets.map(asset => asset.id));
   const missingAssetCount = [...linkedAssetIds].filter(id => !returnedAssetIds.has(id)).length;
 
@@ -81,6 +89,12 @@ function preflightFromState(course, state) {
   if (nonReadyAssets.length) errors.push(`Có ${nonReadyAssets.length} media chưa READY.`);
   const nonR2Assets = activeAssets.filter(a => a.status === "ready" && (a.provider !== "r2" || !a.r2_object_key));
   if (nonR2Assets.length) errors.push(`Có ${nonR2Assets.length} media READY nhưng chưa có object R2 phát cho học viên.`);
+  const missingThumbnails = [...thumbnailIds].filter(id => !thumbnailAssets.some(asset => asset.id === id));
+  if (missingThumbnails.length) errors.push(`Có ${missingThumbnails.length} thumbnail video không còn tồn tại.`);
+  const pendingThumbnails = thumbnailAssets.filter(asset => asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key);
+  if (pendingThumbnails.length) errors.push(`Có ${pendingThumbnails.length} thumbnail video chưa READY trên R2.`);
+  const videosWithoutThumbnails = activeAssets.filter(asset => asset.type === "video" && !asset.thumbnail_asset_id);
+  if (videosWithoutThumbnails.length) warnings.push(`Có ${videosWithoutThumbnails.length} video chưa có thumbnail.`);
 
   if (!course.active) warnings.push("Khóa đang Tắt bán. Publish chỉ cập nhật nội dung; hệ thống sẽ không tự mở bán.");
   return {
@@ -94,6 +108,7 @@ function preflightFromState(course, state) {
       videos: activeAssets.filter(a => a.type === "video").length,
       images: activeAssets.filter(a => a.type === "image").length,
       documents: activeAssets.filter(a => a.type === "document").length,
+      thumbnails: thumbnailAssets.length,
       readyAssets: activeAssets.filter(a => a.status === "ready" && a.provider === "r2" && a.r2_object_key).length
     }
   };

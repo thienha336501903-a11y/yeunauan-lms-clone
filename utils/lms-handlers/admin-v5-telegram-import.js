@@ -87,6 +87,24 @@ function telegramMedia(row) {
   };
 }
 
+function telegramThumbnail(row) {
+  if (!["video", "animation", "video_note"].includes(row.message_type)) return null;
+  const raw = row.raw_message && typeof row.raw_message === "object" ? row.raw_message : {};
+  const key = row.message_type === "video_note" ? "video_note" : row.message_type;
+  const item = raw[key] && typeof raw[key] === "object" ? raw[key] : null;
+  const thumbnail = item?.thumbnail || item?.thumb || null;
+  if (!thumbnail || (!clean(thumbnail.file_id) && !thumbnail.mtproto)) return null;
+  return {
+    type: "image",
+    mimeType: "image/jpeg",
+    filename: `telegram-${row.source_message_id}-thumbnail.jpg`,
+    bytes: Number(thumbnail.file_size || 0),
+    width: Number(thumbnail.width || thumbnail.w || 0),
+    height: Number(thumbnail.height || thumbnail.h || 0),
+    telegram: { messageType: row.message_type, fileId: clean(thumbnail.file_id), mtproto: Boolean(thumbnail.mtproto || raw.from_reader), variant: "thumbnail" }
+  };
+}
+
 function groupRows(rows) {
   const units = [];
   const byGroup = new Map();
@@ -223,6 +241,28 @@ async function importSource(course, sourceIdInput) {
     for (const { row, media } of descriptors) {
       let asset = null;
       if (media) {
+        const thumbnail = telegramThumbnail(row);
+        let thumbnailAsset = null;
+        if (thumbnail) {
+          const { data: thumbnailRow, error: thumbnailError } = await supabase.from("v5_media_assets").insert({
+            type: thumbnail.type,
+            provider: "telegram",
+            origin: "telegram",
+            telegram_source_id: sourceId,
+            telegram_message_row_id: row.id,
+            mime_type: thumbnail.mimeType,
+            original_filename: thumbnail.filename,
+            bytes: thumbnail.bytes || null,
+            width: thumbnail.width || null,
+            height: thumbnail.height || null,
+            status: "processing",
+            metadata: { telegram: thumbnail.telegram, source_message_id: row.source_message_id, media_group_id: row.media_group_id || null }
+          }).select("*").single();
+          if (thumbnailError) throw thumbnailError;
+          thumbnailAsset = thumbnailRow;
+          queuedMirrorAssets.push(thumbnailAsset.id);
+          importedAssets += 1;
+        }
         const { data: assetRow, error: assetError } = await supabase.from("v5_media_assets").insert({
           type: media.type,
           provider: "telegram",
@@ -235,6 +275,7 @@ async function importSource(course, sourceIdInput) {
           width: media.width || null,
           height: media.height || null,
           duration_ms: media.durationMs,
+          thumbnail_asset_id: thumbnailAsset?.id || null,
           status: "processing",
           metadata: { telegram: media.telegram, source_message_id: row.source_message_id, media_group_id: row.media_group_id || null }
         }).select("*").single();
