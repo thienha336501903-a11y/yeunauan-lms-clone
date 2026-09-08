@@ -75,10 +75,19 @@ export function buildV5ViewModel(payload) {
   }
   const lessonViews = lessons.map(lesson => {
     const lessonPosts = postsByLesson.get(String(lesson.id)) || [];
+    const fallbackThumbnail = lessonPosts
+      .flatMap(post => post.visualAssets)
+      .find(asset => IMAGE_TYPES.has(asset.type)) || null;
+    const displayPosts = lessonPosts.map(post => ({
+      ...post,
+      visualAssets: post.visualAssets.map(asset => VIDEO_TYPES.has(asset.type) && !asset.thumbnail_asset_id && fallbackThumbnail
+        ? { ...asset, thumbnail_asset_id: fallbackThumbnail.id, thumbnail_fallback: true }
+        : asset)
+    }));
     const first = lessonPosts[0] || null;
     return {
       ...lesson,
-      posts: lessonPosts,
+      posts: displayPosts,
       date: first?.sourceDate || '',
       category: lessonPosts.some(post => post.category === 'video') ? 'video'
         : lessonPosts.some(post => post.category === 'file') ? 'file'

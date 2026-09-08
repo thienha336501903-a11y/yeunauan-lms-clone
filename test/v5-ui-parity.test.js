@@ -26,6 +26,28 @@ test('V5 maps one imported Telegram post to one ordered visual mosaic plus separ
   assert.equal(post.sourceTitle, 'Bếp An');
 });
 
+test('V5 keeps video order while decorating legacy video posters from the same lesson', () => {
+  const payload = {
+    lessons: [{ id: 'lesson-1', title: 'Bài 1', position: 1 }],
+    posts: [
+      { id: 'photo-post', lesson_id: 'lesson-1', position: 1 },
+      { id: 'video-post', lesson_id: 'lesson-1', position: 2 }
+    ],
+    links: [
+      { post_id: 'photo-post', asset_id: 'photo-1', position: 1 },
+      { post_id: 'video-post', asset_id: 'video-1', position: 1 }
+    ],
+    assets: [
+      { id: 'photo-1', type: 'image' },
+      { id: 'video-1', type: 'video' }
+    ]
+  };
+  const lesson = buildV5ViewModel(payload)[0];
+  assert.deepEqual(lesson.posts.map(post => post.id), ['photo-post', 'video-post']);
+  assert.equal(lesson.posts[1].visualAssets[0].thumbnail_asset_id, 'photo-1');
+  assert.equal(lesson.posts[1].visualAssets[0].thumbnail_fallback, true);
+});
+
 test('V5 renders text-only posts independently and tolerates old releases without display metadata', () => {
   const payload = { lessons: [{ id: 'l', title: 'Bài cũ', position: 1 }], posts: [{ id: 'p', lesson_id: 'l', position: 1, text_content: 'Nội dung cũ' }], links: [], assets: [] };
   const post = buildV5ViewModel(payload)[0].posts[0];

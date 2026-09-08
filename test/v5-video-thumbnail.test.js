@@ -24,6 +24,13 @@ test('V5 renders protected video posters without preloading video bytes', () => 
   assert.match(app, /video\.preload = 'none'/);
 });
 
+test('old releases reuse a nearby lesson image when a video has no dedicated thumbnail', () => {
+  const model = read('v5/ui-model.js');
+  assert.match(model, /const fallbackThumbnail = lessonPosts/);
+  assert.match(model, /VIDEO_TYPES\.has\(asset\.type\) && !asset\.thumbnail_asset_id && fallbackThumbnail/);
+  assert.match(model, /thumbnail_fallback: true/);
+});
+
 test('new Telegram video imports create a separate R2-mirrored thumbnail asset', () => {
   const importer = read('utils/lms-handlers/admin-v5-telegram-import.js');
   assert.match(importer, /function telegramThumbnail\(row\)/);
