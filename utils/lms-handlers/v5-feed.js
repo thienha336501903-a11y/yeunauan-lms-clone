@@ -48,15 +48,33 @@ export default async function v5FeedHandler(req, res) {
     if (content.assetIds.length) {
       const { data: assetRows, error: assetError } = await supabase
         .from("v5_media_assets")
-        .select("id,type,provider,r2_object_key,original_filename,bytes,status")
+        .select("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height,thumbnail_asset_id")
         .in("id", content.assetIds)
         .eq("status", "ready");
       if (assetError) throw assetError;
-      assets = (assetRows || []).map(asset => ({
+      const primaryAssets = assetRows || [];
+      const thumbnailIds = [...new Set(primaryAssets.map(asset => asset.thumbnail_asset_id).filter(Boolean).map(String))];
+      let thumbnailRows = [];
+      if (thumbnailIds.length) {
+        const { data: rows, error: thumbnailError } = await supabase
+          .from("v5_media_assets")
+          .select("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height")
+          .in("id", thumbnailIds)
+          .eq("status", "ready");
+        if (thumbnailError) throw thumbnailError;
+        thumbnailRows = rows || [];
+      }
+      const playableThumbnailIds = new Set(thumbnailRows.filter(asset => asset.provider === "r2" && asset.r2_object_key).map(asset => String(asset.id)));
+      assets = [...primaryAssets, ...thumbnailRows].map(asset => ({
         id: asset.id,
         type: asset.type,
+        thumbnail_asset_id: playableThumbnailIds.has(String(asset.thumbnail_asset_id || "")) ? asset.thumbnail_asset_id : null,
         original_filename: asset.original_filename,
         bytes: asset.bytes,
+        mime_type: asset.mime_type || "",
+        duration_ms: Number(asset.duration_ms || 0),
+        width: Number(asset.width || 0),
+        height: Number(asset.height || 0),
         playback_ready: Boolean(playbackConfigured && asset.provider === "r2" && asset.r2_object_key)
       }));
     }

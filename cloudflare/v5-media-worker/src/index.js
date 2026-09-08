@@ -1,5 +1,5 @@
-let cachedPublicJwkRaw = "";
-let cachedPublicKeyPromise = null;
+let cachedPublicJwksRaw = "";
+let cachedPublicKeysPromise = null;
 let cachedAllowedOriginsRaw = "";
 let cachedAllowedOrigins = new Set();
 
@@ -32,23 +32,26 @@ async function sha256base64url(value) {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-async function publicKey(env) {
-  const raw = clean(env.V5_PLAYBACK_PUBLIC_JWK);
-  if (cachedPublicKeyPromise && cachedPublicJwkRaw === raw) return cachedPublicKeyPromise;
+async function publicKeys(env) {
+  const raws = [env.V5_PLAYBACK_PUBLIC_JWK, env.V5_PLAYBACK_PUBLIC_JWK_PREVIEW].map(clean).filter(Boolean);
+  const cacheKey = raws.join("\n");
+  if (cachedPublicKeysPromise && cachedPublicJwksRaw === cacheKey) return cachedPublicKeysPromise;
+  if (!raws.length) throw new Error("invalid_public_jwk");
 
-  let jwk;
-  try { jwk = JSON.parse(raw); } catch { throw new Error("invalid_public_jwk"); }
-  if (jwk?.kty !== "EC" || jwk?.crv !== "P-256" || !jwk?.x || !jwk?.y) throw new Error("invalid_public_jwk");
-
-  const promise = crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-  cachedPublicJwkRaw = raw;
-  cachedPublicKeyPromise = promise;
+  const promise = Promise.all(raws.map(async raw => {
+    let jwk;
+    try { jwk = JSON.parse(raw); } catch { throw new Error("invalid_public_jwk"); }
+    if (jwk?.kty !== "EC" || jwk?.crv !== "P-256" || !jwk?.x || !jwk?.y) throw new Error("invalid_public_jwk");
+    return crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  }));
+  cachedPublicJwksRaw = cacheKey;
+  cachedPublicKeysPromise = promise;
   try {
     return await promise;
   } catch (error) {
-    if (cachedPublicKeyPromise === promise) {
-      cachedPublicJwkRaw = "";
-      cachedPublicKeyPromise = null;
+    if (cachedPublicKeysPromise === promise) {
+      cachedPublicJwksRaw = "";
+      cachedPublicKeysPromise = null;
     }
     throw error;
   }
@@ -66,8 +69,14 @@ async function verifyLease(token, request, env) {
   const uaHash = await sha256base64url(request.headers.get("user-agent") || "");
   if (!payload.uah || payload.uah !== uaHash) return { ok: false, status: 403, error: "lease_ua_mismatch" };
   try {
-    const key = await publicKey(env);
-    const valid = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, base64urlBytes(signatureText), new TextEncoder().encode(encoded));
+    const keys = await publicKeys(env);
+    let valid = false;
+    for (const key of keys) {
+      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, base64urlBytes(signatureText), new TextEncoder().encode(encoded))) {
+        valid = true;
+        break;
+      }
+    }
     if (!valid) return { ok: false, status: 403, error: "invalid_signature" };
   } catch {
     return { ok: false, status: 500, error: "worker_key_error" };

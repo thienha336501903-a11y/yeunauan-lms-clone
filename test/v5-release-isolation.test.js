@@ -33,17 +33,20 @@ test('learner release payload excludes authoring metadata while preserving rende
     schema: 'v5-release-v1',
     config: { source_mode: 'telegram', settings: { internal: true } },
     lessons: [{ id: 'lesson-1', title: 'Lesson', position: 1, metadata: { internal: true } }],
-    posts: [{ id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption', origin_ref: { secret: true }, metadata: { internal: true } }],
+    posts: [{ id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption', origin_ref: { secret: true }, metadata: { internal: true, source_title: 'Bếp An', sender_label: 'Cô An', source_date: '2026-09-07T08:15:00Z' } }],
     links: [{ post_id: 'post-1', asset_id: 'asset-1', position: 1, role: 'attachment', metadata: { internal: true } }],
     asset_ids: ['asset-1']
   };
   const content = v5LearnerReleaseContent(snapshot);
   assert.deepEqual(content.config, { source_mode: 'telegram' });
   assert.deepEqual(content.lessons, [{ id: 'lesson-1', title: 'Lesson', position: 1 }]);
-  assert.deepEqual(content.posts, [{ id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption' }]);
+  assert.deepEqual(content.posts, [{
+    id: 'post-1', lesson_id: 'lesson-1', position: 1, text_content: 'Text', caption: 'Caption',
+    display: { source_title: 'Bếp An', sender_label: 'Cô An', source_date: '2026-09-07T08:15:00.000Z' }
+  }]);
   assert.deepEqual(content.links, [{ post_id: 'post-1', asset_id: 'asset-1', position: 1 }]);
   assert.deepEqual(content.assetIds, ['asset-1']);
-  assert.doesNotMatch(JSON.stringify(content), /internal|origin_ref|metadata|role/);
+  assert.doesNotMatch(JSON.stringify(content), /internal|origin_ref|metadata|role|secret/);
 });
 
 test('student feed and playback do not read mutable authoring membership tables', () => {

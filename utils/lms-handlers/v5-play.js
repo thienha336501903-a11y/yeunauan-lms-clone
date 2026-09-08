@@ -42,16 +42,25 @@ export default async function v5PlayHandler(req, res) {
       .eq("status", "published")
       .maybeSingle();
     if (releaseError) throw releaseError;
-    if (!release || !v5ReleaseHasAsset(release.snapshot, assetId)) {
-      return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
-    }
-
     const { data: asset, error: assetError } = await supabase
       .from("v5_media_assets")
       .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
       .eq("id", assetId)
       .maybeSingle();
     if (assetError) throw assetError;
+    let releasedAsset = Boolean(release && v5ReleaseHasAsset(release.snapshot, assetId));
+    if (!releasedAsset && release && asset?.type === "image") {
+      const { data: parents, error: parentError } = await supabase
+        .from("v5_media_assets")
+        .select("id")
+        .eq("thumbnail_asset_id", asset.id)
+        .limit(20);
+      if (parentError) throw parentError;
+      releasedAsset = (parents || []).some(parent => v5ReleaseHasAsset(release.snapshot, parent.id));
+    }
+    if (!releasedAsset) {
+      return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
+    }
     if (!asset || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) {
       return res.status(404).json({ success: false, code: "v5_media_not_ready", error: "Media V5 chưa sẵn sàng." });
     }

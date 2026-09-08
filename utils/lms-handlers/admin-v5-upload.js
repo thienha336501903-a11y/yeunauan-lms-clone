@@ -7,6 +7,7 @@ import {
   createMultipartUpload,
   headR2Object,
   isR2Configured,
+  presignDownloadObject,
   presignUploadPart
 } from "../v5-r2.js";
 
@@ -128,6 +129,66 @@ async function linkAssetToPost(course, postId, assetId, position, role) {
   }, { onConflict: "post_id,asset_id" });
   if (error) throw error;
   await refreshPostReadiness(course.id, post.id);
+}
+
+async function attachThumbnail(course, body) {
+  const parentAssetId = clean(body?.parentAssetId);
+  const thumbnailAssetId = clean(body?.thumbnailAssetId);
+  if (!parentAssetId || !thumbnailAssetId || parentAssetId === thumbnailAssetId) {
+    throw new Error("Liên kết thumbnail không hợp lệ.");
+  }
+
+  const { data: posts, error: postError } = await supabase.from("v5_posts").select("id").eq("course_id", course.id);
+  if (postError) throw postError;
+  const postIds = (posts || []).map(post => post.id).filter(Boolean);
+  if (!postIds.length) throw new Error("Khóa học chưa có Post để nhận video.");
+  const { data: links, error: linkError } = await supabase
+    .from("v5_post_assets")
+    .select("asset_id")
+    .eq("asset_id", parentAssetId)
+    .in("post_id", postIds)
+    .limit(1);
+  if (linkError) throw linkError;
+  if (!links?.length) throw new Error("Video không thuộc khóa học này.");
+
+  const { data: assets, error: assetError } = await supabase
+    .from("v5_media_assets")
+    .select("id,type,provider,r2_object_key,status,mime_type")
+    .in("id", [parentAssetId, thumbnailAssetId]);
+  if (assetError) throw assetError;
+  const parent = (assets || []).find(asset => String(asset.id) === parentAssetId);
+  const thumbnail = (assets || []).find(asset => String(asset.id) === thumbnailAssetId);
+  if (!parent || parent.type !== "video" || parent.status !== "ready" || parent.provider !== "r2" || !parent.r2_object_key) {
+    throw new Error("Video chưa READY trên R2.");
+  }
+  if (!thumbnail || thumbnail.type !== "image" || thumbnail.status !== "ready" || thumbnail.provider !== "r2" || !thumbnail.r2_object_key || !clean(thumbnail.mime_type).toLowerCase().startsWith("image/")) {
+    throw new Error("Thumbnail chưa READY trên R2.");
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("v5_media_assets")
+    .update({ thumbnail_asset_id: thumbnail.id, updated_at: new Date().toISOString() })
+    .eq("id", parent.id)
+    .select("id,thumbnail_asset_id")
+    .single();
+  if (updateError) throw updateError;
+  return updated;
+}
+
+async function thumbnailSource(course, body) {
+  const parentAssetId = clean(body?.parentAssetId);
+  if (!parentAssetId) throw new Error("Thiếu video cần tạo thumbnail.");
+  const { data: posts, error: postError } = await supabase.from("v5_posts").select("id").eq("course_id", course.id);
+  if (postError) throw postError;
+  const postIds = (posts || []).map(post => post.id).filter(Boolean);
+  if (!postIds.length) throw new Error("Khóa học chưa có Post chứa video.");
+  const { data: links, error: linkError } = await supabase.from("v5_post_assets").select("asset_id").eq("asset_id", parentAssetId).in("post_id", postIds).limit(1);
+  if (linkError) throw linkError;
+  if (!links?.length) throw new Error("Video không thuộc khóa học này.");
+  const { data: asset, error: assetError } = await supabase.from("v5_media_assets").select("id,type,provider,r2_object_key,status,original_filename").eq("id", parentAssetId).maybeSingle();
+  if (assetError) throw assetError;
+  if (!asset || asset.type !== "video" || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) throw new Error("Video chưa READY trên R2.");
+  return { url: presignDownloadObject({ key: asset.r2_object_key, expiresSeconds: 300 }), filename: asset.original_filename || "video", expiresIn: 300 };
 }
 
 async function tryChecksumDedupe(course, body, meta) {
@@ -334,6 +395,8 @@ export default async function adminV5UploadHandler(req, res) {
     else if (action === "partUrls") result = await partUrls(course, req.body || {});
     else if (action === "complete") result = await complete(course, req.body || {});
     else if (action === "abort") result = await abort(course, req.body || {});
+    else if (action === "attachThumbnail") result = await attachThumbnail(course, req.body || {});
+    else if (action === "thumbnailSource") result = await thumbnailSource(course, req.body || {});
     else return res.status(400).json({ success: false, error: "V5 upload action không hợp lệ." });
     return res.status(200).json({ success: true, result });
   } catch (error) {

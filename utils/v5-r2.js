@@ -123,6 +123,27 @@ export function presignUploadPart({ key, uploadId, partNumber, expiresSeconds = 
   return `https://${host}${canonicalUri}?${canonicalQuery(query)}`;
 }
 
+export function presignDownloadObject({ key, expiresSeconds = 300 }) {
+  const cfg = env();
+  const host = hostFor(cfg.accountId);
+  const now = new Date();
+  const amzDate = amzTimestamp(now);
+  const dateStamp = amzDate.slice(0, 8);
+  const credentialScope = scope(dateStamp);
+  const query = new URLSearchParams();
+  query.set("X-Amz-Algorithm", ALGORITHM);
+  query.set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD");
+  query.set("X-Amz-Credential", `${cfg.accessKeyId}/${credentialScope}`);
+  query.set("X-Amz-Date", amzDate);
+  query.set("X-Amz-Expires", String(Math.min(600, Math.max(60, Number(expiresSeconds) || 300))));
+  query.set("X-Amz-SignedHeaders", "host");
+  const canonicalUri = objectPath(cfg.bucket, key);
+  const canonicalRequest = ["GET", canonicalUri, canonicalQuery(query), `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
+  const stringToSign = [ALGORITHM, amzDate, credentialScope, sha256(canonicalRequest)].join("\n");
+  query.set("X-Amz-Signature", hmac(signingKey(cfg.secretAccessKey, dateStamp), stringToSign, "hex"));
+  return `https://${host}${canonicalUri}?${canonicalQuery(query)}`;
+}
+
 function xmlValue(xml, tag) {
   const match = String(xml || "").match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
   return match?.[1]?.trim() || "";

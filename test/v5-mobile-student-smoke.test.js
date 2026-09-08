@@ -6,16 +6,17 @@ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'
 
 test('V5 student renderer keeps the mobile playback contract', () => {
   const html = read('v5/index.html');
-  assert.match(html, /name="viewport"\s+content="width=device-width,initial-scale=1"/);
-  assert.match(html, /@media\(max-width:640px\)/);
-  assert.match(html, /<video controls playsinline preload="none"/);
-  assert.match(html, /data-v5-video data-src=/);
-  assert.doesNotMatch(html, /<video[^>]+\ssrc=/);
-  assert.match(html, /data-v5-start/);
-  assert.match(html, /if\(!video\.getAttribute\('src'\)\)video\.setAttribute\('src',video\.dataset\.src\)/);
-  assert.match(html, /if\(activeVideo&&activeVideo!==video\)releaseVideo\(activeVideo\)/);
-  assert.match(html, /navigator\.serviceWorker\.register\('\/v5\/media-sw\.js'/);
-  assert.match(html, /credentials:'include'/);
+  const css = read('v5/styles.css');
+  const app = read('v5/app.js');
+  assert.match(html, /name="viewport"\s+content="width=device-width,initial-scale=1,viewport-fit=cover"/);
+  assert.match(css, /@media\(max-width:760px\)/);
+  assert.match(app, /video\.playsInline = true; video\.preload = 'none'/);
+  assert.doesNotMatch(app, /<video[^>]+\ssrc=/);
+  assert.match(app, /data-v5-start/);
+  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId\)/);
+  assert.match(app, /if \(activeVideo\) releaseVideo\(activeVideo\)/);
+  assert.match(app, /navigator\.serviceWorker\.register\('\/v5\/media-sw\.js'/);
+  assert.match(app, /credentials: 'include'/);
 });
 
 test('V5 media service worker preserves byte-range playback on mobile browsers', () => {

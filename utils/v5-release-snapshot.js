@@ -6,6 +6,27 @@ function byPosition(left, right) {
   return Number(left?.position || 0) - Number(right?.position || 0);
 }
 
+function safeText(value, maxLength = 240) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+function safeIsoDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+}
+
+function learnerPostDisplay(metadata) {
+  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  const display = {
+    source_title: safeText(source.source_title),
+    sender_label: safeText(source.sender_label),
+    source_date: safeIsoDate(source.source_date)
+  };
+  if (source.is_pinned === true) display.is_pinned = true;
+  return display;
+}
+
 export function v5ReleaseContent(snapshot) {
   if (!isV5ReleaseSnapshot(snapshot)) return null;
   const lessons = Array.isArray(snapshot.lessons) ? snapshot.lessons.map(item => ({ ...item, metadata: item?.metadata || {} })).sort(byPosition) : [];
@@ -30,12 +51,13 @@ export function v5LearnerReleaseContent(snapshot) {
   return {
     config: { source_mode: content.config?.source_mode || "" },
     lessons: content.lessons.map(({ id, title, position }) => ({ id, title, position })),
-    posts: content.posts.map(({ id, lesson_id, position, text_content, caption }) => ({
+    posts: content.posts.map(({ id, lesson_id, position, text_content, caption, metadata }) => ({
       id,
       lesson_id: lesson_id || null,
       position,
       text_content: text_content || null,
-      caption: caption || null
+      caption: caption || null,
+      display: learnerPostDisplay(metadata)
     })),
     links: content.links.map(({ post_id, asset_id, position }) => ({ post_id, asset_id, position })),
     assetIds: content.assetIds
