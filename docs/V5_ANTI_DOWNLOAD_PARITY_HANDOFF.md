@@ -13,10 +13,10 @@ Last updated: 2026-09-08 UTC
 
 ## Current checkpoint
 
-- PR: pending Draft creation.
-- Current SHA: `cc7a5d031bd77b0b59079542f256c5c166a13dfa` (initial implementation commit; see later checkpoint entries for amended/pushed head).
-- CI: local PASS (`349/349` Node tests; domain isolation; secret scan; syntax and diff checks).
-- Preview: pending.
+- PR: Draft #158 — `https://github.com/thienha336501903-a11y/yeunauan-lms-clone/pull/158`.
+- Current remote SHA: `0815b88c049ac43461e21bc9afbe2b6ee8b49f55`.
+- CI: LMS CI run #408 PASS; local PASS (`349/349` Node tests; domain isolation; secret scan; syntax and diff checks).
+- Preview: READY — deployment `dpl_CbiCbsVm9UZm2Duj2GuMw2GxickG`, URL `https://yeunauan-lms-clone-r7yjx7zra.vercel.app`.
 - PASS:
   - `origin/main` matched local `main` before branch creation.
   - GitHub confirms PR #156 and PR #157 are merged.
@@ -25,10 +25,11 @@ Last updated: 2026-09-08 UTC
   - V2 security/range suite and all existing regressions now pass; every tested security rejection asserts zero R2 `get`/`head` calls.
 - FAIL / blocked:
   - Read-only HTTP probe to `https://v4.daubepnho.store` timed out from the current runner; it was interrupted with no mutation.
+  - Authenticated V2 media E2E cannot pass until `/v2/media` and `V5_PLAYBACK_NONCES` are deployed to the Cloudflare Worker. That is a Production mutation and has not been performed.
 - Next step:
-  - Commit/push, open Draft PR, inspect remote CI and Vercel Preview.
+  - After explicit Admin authorization: deploy the dual `/v1` + `/v2` Worker with the Durable Object binding, then run signed V2 probes, browser QA and the 50 → 100 → 300 benchmark.
 - Manual action needed from Admin:
-  - None at this checkpoint.
+  - Explicitly authorize the Production mutation to Cloudflare Worker `yeubep-v5-media`. No merge authorization is requested.
 
 ## V2 design
 
