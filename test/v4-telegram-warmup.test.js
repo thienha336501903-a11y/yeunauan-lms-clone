@@ -100,8 +100,8 @@ test("V4 unauthenticated flow returns to V4 after the existing student login", (
   const entry = readFileSync(new URL("../v3-entry.html", import.meta.url), "utf8");
 
   assert.match(v4, /\/v3\?return=v4&course=/);
-  assert.match(entry, /returnToV4=qs\.get\('return'\)==='v4'/);
-  assert.match(entry, /returnToV4\?'\/v4\.html\?course='/);
+  assert.match(entry, /returnMode=String\(qs\.get\('return'\)\|\|''\)\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(entry, /if\(returnMode==='v4'\)return '\/v4\.html\?course='\+course/);
 });
 
 test("V4 feed sends large video tickets directly to MTProto streaming", () => {
