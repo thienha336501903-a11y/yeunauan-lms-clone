@@ -1,6 +1,8 @@
 const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
 const REFRESH_SKEW_MS = 45 * 1000;
+const encoder = new TextEncoder();
+let proofIdentityPromise = null;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
@@ -9,13 +11,40 @@ function clean(value) {
   return String(value || "").trim();
 }
 
+function base64url(bytes) {
+  let binary = "";
+  for (const value of new Uint8Array(bytes)) binary += String.fromCharCode(value);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64urlJson(value) {
+  return base64url(encoder.encode(JSON.stringify(value)));
+}
+
+function randomNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return base64url(bytes);
+}
+
+async function proofIdentity() {
+  if (!proofIdentityPromise) {
+    proofIdentityPromise = (async () => {
+      const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+      return { privateKey: pair.privateKey, publicJwk: await crypto.subtle.exportKey("jwk", pair.publicKey) };
+    })();
+  }
+  return proofIdentityPromise;
+}
+
 function cacheKey(course, assetId) {
   return `${course}:${assetId}`;
 }
 
-function playbackRange(rawRange) {
+function playbackRange(rawRange, mimeType) {
   const value = clean(rawRange);
-  return value || "bytes=0-";
+  if (value) return value;
+  return clean(mimeType).toLowerCase().startsWith("video/") ? "bytes=0-" : "";
 }
 
 async function fetchLease(course, assetId, force = false) {
@@ -24,19 +53,26 @@ async function fetchLease(course, assetId, force = false) {
   if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
 
   const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
+  const proof = await proofIdentity();
   const response = await fetch(`/api/lms/portal?${params}`, {
     method: "GET",
     credentials: "include",
     cache: "no-store",
-    headers: { "Accept": "application/json" }
+    headers: { "Accept": "application/json", "X-V5-Playback-Key": base64urlJson(proof.publicJwk) }
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success !== true || !data.playbackUrl || !data.expiresAt) {
+  if (!response.ok || data.success !== true || !data.playbackUrl || !data.playbackLease || !data.expiresAt) {
     const error = new Error(data.error || `lease_http_${response.status}`);
     error.status = response.status;
     throw error;
   }
-  const lease = { url: String(data.playbackUrl), expiresAt: Number(data.expiresAt) };
+  const lease = {
+    url: String(data.playbackUrl),
+    token: String(data.playbackLease),
+    mimeType: String(data.mimeType || ""),
+    key: proof.privateKey,
+    expiresAt: Number(data.expiresAt)
+  };
   leases.set(key, lease);
   return lease;
 }
@@ -61,10 +97,21 @@ function copyHeaders(upstream) {
 }
 
 async function upstreamRequest(request, lease) {
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const range = playbackRange(request.headers.get("range"), lease.mimeType);
+  const timestamp = String(Date.now());
+  const nonce = randomNonce();
+  const canonical = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, lease.key, encoder.encode(canonical));
   const headers = new Headers();
-  headers.set("Range", playbackRange(request.headers.get("range")));
+  if (range) headers.set("Range", range);
+  headers.set("Authorization", `Bearer ${lease.token}`);
+  headers.set("X-V5-Playback", "sw-v2");
+  headers.set("X-V5-Playback-Timestamp", timestamp);
+  headers.set("X-V5-Playback-Nonce", nonce);
+  headers.set("X-V5-Playback-Signature", base64url(signature));
   return fetch(lease.url, {
-    method: request.method === "HEAD" ? "HEAD" : "GET",
+    method,
     headers,
     mode: "cors",
     credentials: "omit",

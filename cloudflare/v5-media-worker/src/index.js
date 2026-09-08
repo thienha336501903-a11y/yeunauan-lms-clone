@@ -57,13 +57,13 @@ async function publicKeys(env) {
   }
 }
 
-async function verifyLease(token, request, env) {
+async function verifyLease(token, request, env, expectedVersion = 1) {
   const parts = clean(token).split(".");
   if (parts.length !== 2) return { ok: false, status: 401, error: "invalid_token" };
   const [encoded, signatureText] = parts;
   let payload;
   try { payload = decodePayload(encoded); } catch { return { ok: false, status: 401, error: "invalid_payload" }; }
-  if (payload?.v !== 1 || !payload?.aid || !payload?.c || !payload?.k || !payload?.exp) return { ok: false, status: 401, error: "invalid_claims" };
+  if (payload?.v !== expectedVersion || !payload?.aid || !payload?.c || !payload?.k || !payload?.exp) return { ok: false, status: 401, error: "invalid_claims" };
   if (Number(payload.exp) <= Date.now()) return { ok: false, status: 403, error: "lease_expired" };
   if (Number(payload.exp) - Number(payload.iat || 0) > 30 * 60 * 1000 + 5000) return { ok: false, status: 403, error: "lease_ttl_invalid" };
   const uaHash = await sha256base64url(request.headers.get("user-agent") || "");
@@ -82,6 +82,56 @@ async function verifyLease(token, request, env) {
     return { ok: false, status: 500, error: "worker_key_error" };
   }
   return { ok: true, payload };
+}
+
+function bearerToken(request) {
+  const match = clean(request.headers.get("authorization")).match(/^Bearer\s+([^\s]+)$/i);
+  return match ? match[1] : "";
+}
+
+function downloaderUserAgent(request) {
+  return /\b(?:IDM|IDMan|JDownloader|aria2|wget|curl|FDM|python-requests|Go-http-client)\b/i.test(clean(request.headers.get("user-agent")));
+}
+
+function validProofJwk(jwk) {
+  return Boolean(jwk && jwk.kty === "EC" && jwk.crv === "P-256" && jwk.x && jwk.y && !jwk.d);
+}
+
+async function verifyRequestProof(request, token, payload, origin) {
+  if (clean(request.headers.get("x-v5-playback")) !== "sw-v2") return { ok: false, error: "sw_marker_required" };
+  if (downloaderUserAgent(request)) return { ok: false, error: "downloader_user_agent" };
+  const timestampText = clean(request.headers.get("x-v5-playback-timestamp"));
+  if (!/^\d{13}$/.test(timestampText) || Math.abs(Date.now() - Number(timestampText)) > 45_000) return { ok: false, error: "request_timestamp_invalid" };
+  const nonce = clean(request.headers.get("x-v5-playback-nonce"));
+  if (!/^[A-Za-z0-9_-]{20,128}$/.test(nonce)) return { ok: false, error: "request_nonce_invalid" };
+  const signatureText = clean(request.headers.get("x-v5-playback-signature"));
+  if (!signatureText || !validProofJwk(payload.pk)) return { ok: false, error: "request_proof_invalid" };
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const range = clean(request.headers.get("range"));
+  const canonical = [method, range, timestampText, nonce, token, origin].join("\n");
+  try {
+    const key = await crypto.subtle.importKey("jwk", payload.pk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, base64urlBytes(signatureText), new TextEncoder().encode(canonical));
+    return valid ? { ok: true, nonce } : { ok: false, error: "request_signature_invalid" };
+  } catch {
+    return { ok: false, error: "request_signature_invalid" };
+  }
+}
+
+async function consumeNonce(payload, nonce, env) {
+  const namespace = env.V5_PLAYBACK_NONCES;
+  if (!namespace || typeof namespace.idFromName !== "function" || typeof namespace.get !== "function") return { ok: false, status: 503, error: "nonce_guard_unavailable" };
+  try {
+    const id = namespace.idFromName(clean(payload.eh));
+    const response = await namespace.get(id).fetch("https://nonce.internal/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nonce, expiresAt: Math.min(Number(payload.exp), Date.now() + 60_000) })
+    });
+    if (response.status === 204) return { ok: true };
+    if (response.status === 409) return { ok: false, status: 403, error: "request_nonce_replayed" };
+  } catch {}
+  return { ok: false, status: 503, error: "nonce_guard_unavailable" };
 }
 
 function rateLimitRetryAfter(env) {
@@ -138,7 +188,7 @@ function cors(request, env) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
-    "Access-Control-Allow-Headers": "Range,Content-Type",
+    "Access-Control-Allow-Headers": "Range,Content-Type,Authorization,X-V5-Playback,X-V5-Playback-Timestamp,X-V5-Playback-Nonce,X-V5-Playback-Signature",
     "Access-Control-Expose-Headers": "Accept-Ranges,Content-Length,Content-Range,Content-Type,Content-Disposition,ETag,Retry-After",
     "Vary": "Origin"
   };
@@ -226,15 +276,15 @@ function r2RangeFor(requested, resolved, trustedSize) {
   return requested.r2;
 }
 
-async function media(request, env, corsHeaders) {
-  const url = new URL(request.url);
-  const access = await verifyLease(url.searchParams.get("t"), request, env);
-  if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
-  const { payload } = access;
-  const rateLimited = await enforceMediaRateLimit(payload, env, corsHeaders);
-  if (rateLimited) return rateLimited;
+async function serveMedia(request, env, corsHeaders, payload, requireVideoRange = false) {
   const requestedRange = parseRangeRequest(request.headers.get("range"));
   const trustedSize = trustedObjectSize(payload);
+  const isVideo = clean(payload.mt).toLowerCase() === "video" || clean(payload.ct).toLowerCase().startsWith("video/");
+  if (requireVideoRange && request.method === "GET" && isVideo && !requestedRange) {
+    return rangeNotSatisfiable(trustedSize, corsHeaders);
+  }
+  const rateLimited = await enforceMediaRateLimit(payload, env, corsHeaders);
+  if (rateLimited) return rateLimited;
 
   if (request.method === "HEAD") {
     if (requestedRange?.invalid) return rangeNotSatisfiable(trustedSize, corsHeaders);
@@ -273,15 +323,72 @@ async function media(request, env, corsHeaders) {
   return new Response(object.body, { status: range ? 206 : 200, headers });
 }
 
+async function mediaV1(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  const access = await verifyLease(url.searchParams.get("t"), request, env, 1);
+  if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
+  return serveMedia(request, env, corsHeaders, access.payload, false);
+}
+
+async function mediaV2(request, env, corsHeaders, origin) {
+  const url = new URL(request.url);
+  const token = bearerToken(request);
+  if (!token) return json(401, { ok: false, error: "authorization_required" }, corsHeaders);
+  if (url.searchParams.has("t")) return json(400, { ok: false, error: "query_token_forbidden" }, corsHeaders);
+  const access = await verifyLease(token, request, env, 2);
+  if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
+  if (!clean(access.payload.eh) || !validProofJwk(access.payload.pk)) return json(403, { ok: false, error: "invalid_v2_claims" }, corsHeaders);
+  const proof = await verifyRequestProof(request, token, access.payload, origin);
+  if (!proof.ok) return json(403, { ok: false, error: proof.error }, corsHeaders);
+  const nonce = await consumeNonce(access.payload, proof.nonce, env);
+  if (!nonce.ok) return json(nonce.status, { ok: false, error: nonce.error }, corsHeaders);
+  return serveMedia(request, env, corsHeaders, access.payload, true);
+}
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    const isV2 = url.pathname === "/v2/media";
+    const origin = clean(request.headers.get("origin"));
+    if (isV2 && (!origin || !allowedOrigins(env).has(origin))) return json(403, { ok: false, error: "origin_not_allowed" });
     const corsHeaders = cors(request, env);
     if (corsHeaders === null) return json(403, { ok: false, error: "origin_not_allowed" });
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
     if (!["GET", "HEAD"].includes(request.method)) return json(405, { ok: false, error: "method_not_allowed" }, corsHeaders);
-    const url = new URL(request.url);
     if (url.pathname === "/health") return json(200, { ok: true, service: "v5-r2-media" }, corsHeaders);
-    if (url.pathname !== "/v1/media") return json(404, { ok: false, error: "not_found" }, corsHeaders);
-    return media(request, env, corsHeaders);
+    if (url.pathname === "/v1/media") return mediaV1(request, env, corsHeaders);
+    if (isV2) return mediaV2(request, env, corsHeaders, origin);
+    return json(404, { ok: false, error: "not_found" }, corsHeaders);
   }
 };
+
+export class V5PlaybackNonceGuard {
+  constructor(state) {
+    this.storage = state.storage;
+  }
+
+  async fetch(request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    const data = await request.json().catch(() => ({}));
+    const nonce = clean(data.nonce);
+    const expiresAt = Number(data.expiresAt);
+    if (!/^[A-Za-z0-9_-]{20,128}$/.test(nonce) || !Number.isFinite(expiresAt)) return new Response(null, { status: 400 });
+    const key = `n:${nonce}`;
+    if (await this.storage.get(key)) return new Response(null, { status: 409 });
+    await this.storage.put(key, expiresAt);
+    const alarm = await this.storage.getAlarm();
+    if (!alarm || alarm > expiresAt) await this.storage.setAlarm(expiresAt);
+    return new Response(null, { status: 204 });
+  }
+
+  async alarm() {
+    const now = Date.now();
+    const entries = await this.storage.list({ prefix: "n:" });
+    let next = null;
+    for (const [key, expiresAt] of entries) {
+      if (Number(expiresAt) <= now) await this.storage.delete(key);
+      else next = next === null ? Number(expiresAt) : Math.min(next, Number(expiresAt));
+    }
+    if (next !== null) await this.storage.setAlarm(next);
+  }
+}
