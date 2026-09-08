@@ -3,8 +3,46 @@ import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { isV5PlaybackConfigured } from "../v5-playback-lease.js";
 import { v5LearnerReleaseContent } from "../v5-release-snapshot.js";
 
+const MAX_RELEASE_CACHE_ENTRIES = 64;
+const releaseCache = new Map();
+
 function clean(value) {
   return String(value || "").trim();
+}
+
+function rememberRelease(release) {
+  if (!release?.id) return release;
+  const key = String(release.id);
+  releaseCache.delete(key);
+  releaseCache.set(key, release);
+  while (releaseCache.size > MAX_RELEASE_CACHE_ENTRIES) {
+    const oldestKey = releaseCache.keys().next().value;
+    if (!oldestKey) break;
+    releaseCache.delete(oldestKey);
+  }
+  return release;
+}
+
+async function loadPublishedRelease(courseId, releaseId) {
+  const key = clean(releaseId);
+  const cached = releaseCache.get(key);
+  if (cached && String(cached.course_id) === String(courseId) && cached.status === "published") {
+    // Refresh insertion order for a tiny process-local LRU. Release snapshots are
+    // immutable; when a new release is published, published_release_id changes.
+    releaseCache.delete(key);
+    releaseCache.set(key, cached);
+    return cached;
+  }
+
+  const { data: release, error } = await supabase
+    .from("v5_releases")
+    .select("id,course_id,status,snapshot")
+    .eq("id", releaseId)
+    .eq("course_id", courseId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (error) throw error;
+  return release ? rememberRelease(release) : null;
 }
 
 export default async function v5FeedHandler(req, res) {
@@ -30,14 +68,7 @@ export default async function v5FeedHandler(req, res) {
       return res.status(403).json({ success: false, code: "v5_not_published", error: "Khóa V5 chưa được Publish." });
     }
 
-    const { data: release, error: releaseError } = await supabase
-      .from("v5_releases")
-      .select("id,status,snapshot")
-      .eq("id", config.published_release_id)
-      .eq("course_id", course.id)
-      .eq("status", "published")
-      .maybeSingle();
-    if (releaseError) throw releaseError;
+    const release = await loadPublishedRelease(course.id, config.published_release_id);
     const content = release ? v5LearnerReleaseContent(release.snapshot) : null;
     if (!content) {
       return res.status(403).json({ success: false, code: "v5_release_invalid", error: "Release V5 hiện tại không hợp lệ." });
