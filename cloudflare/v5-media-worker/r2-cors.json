@@ -5,7 +5,8 @@
       "https://v4.daubepnho.store",
       "https://hoc.yeubep.shop",
       "https://yeunauan-lms-v4-test-git-f3f806-thienha336501903-a11ys-projects.vercel.app",
-      "https://yeunauan-lms-git-097b69-thienha100022653824678-stacks-projects.vercel.app"
+      "https://yeunauan-lms-git-097b69-thienha100022653824678-stacks-projects.vercel.app",
+      "https://yeunauan-lms-git-d4dd8d-thienha100022653824678-stacks-projects.vercel.app"
     ],
     "AllowedMethods": ["GET", "HEAD", "PUT"],
     "AllowedHeaders": ["Content-Type", "Content-Length", "Range", "x-amz-*"],
