@@ -12,38 +12,35 @@ body{font-family:system-ui,sans-serif;margin:24px;max-width:900px;color:#173327}
 <h1>V5 Preview Load Test</h1>
 <p>Chỉ benchmark metadata/feed + playback lease bằng auth thật. Không tải byte video/R2.</p>
 <p id="gate" class="warn"></p>
-<div>
-<button data-n="50">50 virtual learners</button>
-<button data-n="100">100 virtual learners</button>
-<button data-n="300">300 virtual learners</button>
-</div>
+<button id="suite">Chạy 50 → 100 → 300</button>
 <pre id="out">Chưa chạy.</pre>
 <script>
 const COURSE='clone-factory-test-phase2-range-20260907';
 const ASSET='61b6fb30-e5b7-4a16-8657-fc376ec15892';
 const out=document.getElementById('out');
-const buttons=[...document.querySelectorAll('button[data-n]')];
+const suite=document.getElementById('suite');
 const isPreview=/\.vercel\.app$/i.test(location.hostname);
-if(!isPreview){document.getElementById('gate').textContent='BLOCKED: trang benchmark chỉ chạy trên Vercel Preview.';buttons.forEach(b=>b.disabled=true)}
+if(!isPreview){document.getElementById('gate').textContent='BLOCKED: trang benchmark chỉ chạy trên Vercel Preview.';suite.disabled=true}
 function pct(values,p){if(!values.length)return null;const s=[...values].sort((a,b)=>a-b);return Math.round(s[Math.min(s.length-1,Math.ceil(p*s.length)-1)]*10)/10}
-async function one(i){
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function one(i,stamp){
   const start=performance.now();
-  const feed=await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(COURSE)}&lt=${Date.now()}-${i}`,{credentials:'include',cache:'no-store'});
+  const feed=await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(COURSE)}&lt=${stamp}-${i}`,{credentials:'include',cache:'no-store'});
   let feedBody={};try{feedBody=await feed.json()}catch{}
   const mid=performance.now();
   if(!feed.ok)return {ok:false,stage:'feed',status:feed.status,code:feedBody.code||feedBody.error||'',feedMs:mid-start,totalMs:mid-start};
-  const play=await fetch(`/api/lms/portal?endpoint=v5-play&course=${encodeURIComponent(COURSE)}&asset=${encodeURIComponent(ASSET)}&lt=${Date.now()}-${i}`,{credentials:'include',cache:'no-store'});
+  const play=await fetch(`/api/lms/portal?endpoint=v5-play&course=${encodeURIComponent(COURSE)}&asset=${encodeURIComponent(ASSET)}&lt=${stamp}-${i}`,{credentials:'include',cache:'no-store'});
   let playBody={};try{playBody=await play.json()}catch{}
   const end=performance.now();
   return {ok:play.ok,stage:play.ok?'done':'play',status:play.status,code:playBody.code||playBody.error||'',feedMs:mid-start,playMs:end-mid,totalMs:end-start};
 }
-async function run(n){
-  buttons.forEach(b=>b.disabled=true);out.textContent=`Đang chạy ${n} virtual learners = ${n*2} authenticated function requests…`;
+async function runLevel(n){
   const wallStart=performance.now();
-  const rows=await Promise.all(Array.from({length:n},(_,i)=>one(i)));
+  const stamp=Date.now();
+  const rows=await Promise.all(Array.from({length:n},(_,i)=>one(i,stamp)));
   const wallMs=performance.now()-wallStart;
   const ok=rows.filter(r=>r.ok);const fail=rows.filter(r=>!r.ok);
-  const report={
+  return {
     virtualLearners:n,
     intendedRequests:n*2,
     passed:ok.length,
@@ -56,10 +53,24 @@ async function run(n){
     totalMs:{p50:pct(rows.map(r=>r.totalMs),.5),p95:pct(rows.map(r=>r.totalMs),.95),p99:pct(rows.map(r=>r.totalMs),.99),max:pct(rows.map(r=>r.totalMs),1)},
     failures:[...new Map(fail.map(r=>[`${r.stage}:${r.status}:${r.code}`,r])).keys()].slice(0,20)
   };
-  out.textContent=JSON.stringify(report,null,2);
-  buttons.forEach(b=>b.disabled=false);
 }
-buttons.forEach(b=>b.onclick=()=>run(Number(b.dataset.n)));
+async function runSuite(){
+  suite.disabled=true;
+  const history=[];
+  try{
+    for(const n of [50,100,300]){
+      out.textContent=`Đang chạy tầng ${n}…\n\n${JSON.stringify(history,null,2)}`;
+      const report=await runLevel(n);
+      history.push(report);
+      out.textContent=JSON.stringify({completed:false,levels:history},null,2);
+      if(report.successRatePct<99){out.textContent=JSON.stringify({completed:false,stoppedAt:n,reason:'success rate < 99%',levels:history},null,2);return}
+      if(n!==300)await sleep(5000);
+    }
+    out.textContent=JSON.stringify({completed:true,levels:history},null,2);
+  }catch(error){out.textContent=JSON.stringify({completed:false,error:error?.message||String(error),levels:history},null,2)}
+  finally{suite.disabled=false}
+}
+suite.onclick=runSuite;
 </script>
 </body>
 </html>
