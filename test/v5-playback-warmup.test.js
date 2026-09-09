@@ -23,9 +23,12 @@ test('V5 service worker prewarms proof identity and deduplicates concurrent leas
   assert.match(sw, /event\.waitUntil\(fetchLease\(course, assetId, false\)/);
 });
 
-test('V5 bounds the synthesized first video range instead of requesting the whole object', () => {
+test('V5 bounds synthesized and browser open-ended video ranges instead of requesting the whole object', () => {
   assert.match(sw, /const INITIAL_VIDEO_RANGE_BYTES = 4 \* 1024 \* 1024/);
   assert.match(sw, /`bytes=0-\$\{INITIAL_VIDEO_RANGE_BYTES - 1\}`/);
+  assert.ok(sw.includes('const openEnded = value.match(/^bytes=(\\d+)-$/i);'));
+  assert.ok(sw.includes('return `bytes=${start}-${end}`;'));
+  assert.doesNotMatch(sw, /if \(value\) return value;/);
   assert.doesNotMatch(sw, /\? "bytes=0-" : ""/);
 });
 
