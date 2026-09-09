@@ -190,6 +190,7 @@ function cors(request, env) {
     "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
     "Access-Control-Allow-Headers": "Range,Content-Type,Authorization,X-V5-Playback,X-V5-Playback-Timestamp,X-V5-Playback-Nonce,X-V5-Playback-Signature",
     "Access-Control-Expose-Headers": "Accept-Ranges,Content-Length,Content-Range,Content-Type,Content-Disposition,ETag,Retry-After",
+    "Access-Control-Max-Age": "3600",
     "Vary": "Origin"
   };
 }

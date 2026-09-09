@@ -1,11 +1,15 @@
 const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
+const leaseRequests = new Map();
 const REFRESH_SKEW_MS = 45 * 1000;
 const encoder = new TextEncoder();
 let proofIdentityPromise = null;
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", event => event.waitUntil(Promise.all([
+  self.clients.claim(),
+  proofIdentity().catch(() => null)
+])));
 
 function clean(value) {
   return String(value || "").trim();
@@ -47,11 +51,7 @@ function playbackRange(rawRange, mimeType) {
   return clean(mimeType).toLowerCase().startsWith("video/") ? "bytes=0-" : "";
 }
 
-async function fetchLease(course, assetId, force = false) {
-  const key = cacheKey(course, assetId);
-  const current = leases.get(key);
-  if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
-
+async function issueLease(course, assetId) {
   const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
   const proof = await proofIdentity();
   const response = await fetch(`/api/lms/portal?${params}`, {
@@ -66,15 +66,31 @@ async function fetchLease(course, assetId, force = false) {
     error.status = response.status;
     throw error;
   }
-  const lease = {
+  return {
     url: String(data.playbackUrl),
     token: String(data.playbackLease),
     mimeType: String(data.mimeType || ""),
     key: proof.privateKey,
     expiresAt: Number(data.expiresAt)
   };
-  leases.set(key, lease);
-  return lease;
+}
+
+async function fetchLease(course, assetId, force = false) {
+  const key = cacheKey(course, assetId);
+  const current = leases.get(key);
+  if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
+  if (!force && leaseRequests.has(key)) return leaseRequests.get(key);
+
+  const request = issueLease(course, assetId).then(lease => {
+    leases.set(key, lease);
+    return lease;
+  });
+  if (!force) leaseRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (!force && leaseRequests.get(key) === request) leaseRequests.delete(key);
+  }
 }
 
 function copyHeaders(upstream) {
@@ -144,6 +160,15 @@ async function proxyMedia(request, course, assetId) {
     });
   }
 }
+
+self.addEventListener("message", event => {
+  const data = event.data || {};
+  if (data.type !== "v5-warm-lease") return;
+  const course = clean(data.course);
+  const assetId = clean(data.assetId);
+  if (!course || !assetId) return;
+  event.waitUntil(fetchLease(course, assetId, false).catch(() => null));
+});
 
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
