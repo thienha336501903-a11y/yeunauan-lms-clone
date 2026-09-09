@@ -23,6 +23,12 @@ test('V5 service worker prewarms proof identity and deduplicates concurrent leas
   assert.match(sw, /event\.waitUntil\(fetchLease\(course, assetId, false\)/);
 });
 
+test('V5 bounds the synthesized first video range instead of requesting the whole object', () => {
+  assert.match(sw, /const INITIAL_VIDEO_RANGE_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(sw, /`bytes=0-\$\{INITIAL_VIDEO_RANGE_BYTES - 1\}`/);
+  assert.doesNotMatch(sw, /\? "bytes=0-" : ""/);
+});
+
 test('V5 Worker permits browser preflight caching without weakening media cache policy', () => {
   assert.match(worker, /"Access-Control-Max-Age": "3600"/);
   assert.match(worker, /"Cache-Control": "private, no-store"/);
