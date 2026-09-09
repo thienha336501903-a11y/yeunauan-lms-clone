@@ -48,8 +48,17 @@ function cacheKey(course, assetId) {
 
 function playbackRange(rawRange, mimeType) {
   const value = clean(rawRange);
-  if (value) return value;
-  return clean(mimeType).toLowerCase().startsWith("video/") ? `bytes=0-${INITIAL_VIDEO_RANGE_BYTES - 1}` : "";
+  const isVideo = clean(mimeType).toLowerCase().startsWith("video/");
+  if (value) {
+    if (!isVideo) return value;
+    const openEnded = value.match(/^bytes=(\d+)-$/i);
+    if (!openEnded) return value;
+    const start = Number(openEnded[1]);
+    const end = start + INITIAL_VIDEO_RANGE_BYTES - 1;
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(end)) return value;
+    return `bytes=${start}-${end}`;
+  }
+  return isVideo ? `bytes=0-${INITIAL_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
 async function issueLease(course, assetId) {
