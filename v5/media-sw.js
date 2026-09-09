@@ -2,6 +2,7 @@ const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
 const leaseRequests = new Map();
 const REFRESH_SKEW_MS = 45 * 1000;
+const INITIAL_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 let proofIdentityPromise = null;
 
@@ -48,7 +49,7 @@ function cacheKey(course, assetId) {
 function playbackRange(rawRange, mimeType) {
   const value = clean(rawRange);
   if (value) return value;
-  return clean(mimeType).toLowerCase().startsWith("video/") ? "bytes=0-" : "";
+  return clean(mimeType).toLowerCase().startsWith("video/") ? `bytes=0-${INITIAL_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
 async function issueLease(course, assetId) {
