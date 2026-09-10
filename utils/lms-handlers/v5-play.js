@@ -27,9 +27,15 @@ export default async function v5PlayHandler(req, res) {
     const assetId = clean(req.query?.asset);
     if (!assetId) return res.status(400).json({ success: false, code: "missing_asset", error: "Thiếu media asset." });
     const proofHeader = clean(req.headers?.["x-v5-playback-key"]);
-    const playbackProofKey = proofHeader ? proofPublicJwk(proofHeader) : null;
-    if (proofHeader && !playbackProofKey) return res.status(400).json({ success: false, code: "v5_playback_proof_invalid", error: "Khóa proof V5 không hợp lệ." });
-    const playbackVersion = playbackProofKey ? 2 : 1;
+    if (!proofHeader) {
+      return res.status(426).json({
+        success: false,
+        code: "v5_playback_v2_required",
+        error: "Phiên phát V5 cần Service Worker V2. Hãy tải lại trang học."
+      });
+    }
+    const playbackProofKey = proofPublicJwk(proofHeader);
+    if (!playbackProofKey) return res.status(400).json({ success: false, code: "v5_playback_proof_invalid", error: "Khóa proof V5 không hợp lệ." });
 
     const access = await requireV4CourseAccess(req, courseSlug);
     if (!access.ok) return res.status(access.status).json({ success: false, code: access.code, error: access.error });
@@ -67,7 +73,7 @@ export default async function v5PlayHandler(req, res) {
     }
 
     const lease = issueV5PlaybackLease({
-      version: playbackVersion,
+      version: 2,
       assetId: asset.id,
       courseSlug,
       objectKey: asset.r2_object_key,
@@ -77,7 +83,7 @@ export default async function v5PlayHandler(req, res) {
       bytes: asset.bytes,
       userAgent: req.headers["user-agent"] || "",
       email: access.email,
-      proofPublicJwk: playbackProofKey || undefined
+      proofPublicJwk: playbackProofKey
     });
 
     return res.status(200).json({
@@ -85,7 +91,7 @@ export default async function v5PlayHandler(req, res) {
       assetId: asset.id,
       releaseId,
       playbackUrl: lease.url,
-      ...(playbackVersion === 2 ? { playbackLease: lease.token } : {}),
+      playbackLease: lease.token,
       mimeType: asset.mime_type,
       expiresAt: lease.expiresAt
     });
