@@ -201,15 +201,19 @@ async function proxyMedia(request, course, assetId, clientId, diagnostic) {
   const browserRange = clean(request.headers.get("range"));
   const chunkBytes = diagnostic ? diagnostic.chunkMiB * 1024 * 1024 : INITIAL_VIDEO_RANGE_BYTES;
   try {
+    const cachedLease = leases.get(cacheKey(course, assetId));
+    const leaseCacheHit = Boolean(cachedLease && Number(cachedLease.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS);
     const leaseStartedAt = performance.now();
     let lease = await fetchLease(course, assetId, false);
     let leaseMs = performance.now() - leaseStartedAt;
     let attempt = await upstreamRequest(request, lease, chunkBytes);
     let upstream = attempt.response;
     let retries = 0;
+    let retryFromStatus = 0;
 
     if ([401, 403, 410].includes(upstream.status)) {
       retries = 1;
+      retryFromStatus = upstream.status;
       leases.delete(cacheKey(course, assetId));
       const refreshStartedAt = performance.now();
       lease = await fetchLease(course, assetId, true);
@@ -229,10 +233,12 @@ async function proxyMedia(request, course, assetId, clientId, diagnostic) {
       contentLength: Number(upstream.headers.get("content-length") || 0),
       contentRange: clean(upstream.headers.get("content-range")),
       leaseMs: Number(leaseMs.toFixed(2)),
+      leaseCacheHit,
       signMs: Number(attempt.signMs.toFixed(2)),
       workerTtfbMs: Number((attempt.headersAt - attempt.fetchStartedAt).toFixed(2)),
       totalHeadersMs: Number((headersAt - requestStartedAt).toFixed(2)),
-      retries
+      retries,
+      retryFromStatus
     };
     await notifyDiagnostic(clientId, { phase: "headers", ...baseRecord });
     const body = diagnostic && request.method !== "HEAD"

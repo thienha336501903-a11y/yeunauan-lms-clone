@@ -55,6 +55,14 @@ function summarize() {
   for (const item of headers) requestsByStatus[item.status] = (requestsByStatus[item.status] || 0) + 1;
   const finiteBrowserRanges = headers.filter(item => /^bytes=\d+-\d+$/i.test(item.browserRange || '')).length;
   const openBrowserRanges = headers.filter(item => /^bytes=\d+-$/i.test(item.browserRange || '')).length;
+  const totalBytes = headers.map(item => parseContentRange(item.contentRange)?.total).find(Number.isFinite) || null;
+  const lastVideo = [...records].reverse().find(item => item.kind === 'video:sample' || item.kind === 'video:loadedmetadata');
+  const durationSeconds = Number.isFinite(lastVideo?.duration) && lastVideo.duration > 0 ? lastVideo.duration : null;
+  const averageMbps = totalBytes && durationSeconds ? round(totalBytes * 8 / durationSeconds / 1_000_000) : null;
+  const chunkBytes = Number($('chunk').value) * 1024 * 1024;
+  const boundaryRequestsPerMinute = averageMbps ? round((60 * averageMbps * 1_000_000 / 8) / chunkBytes) : null;
+  const requestTimes = headers.map(item => Number(item.at)).filter(Number.isFinite).sort((a, b) => a - b);
+  const requestGaps = requestTimes.slice(1).map((time, index) => time - requestTimes[index]);
   return {
     previewOnly: isPreview,
     chunkMiB: Number($('chunk').value),
@@ -63,12 +71,24 @@ function summarize() {
     browserRangePattern: { finite: finiteBrowserRanges, openEnded: openBrowserRanges, missing: headers.length - finiteBrowserRanges - openBrowserRanges },
     statusCounts: requestsByStatus,
     retries401_403_410: headers.reduce((sum, item) => sum + Number(item.retries || 0), 0),
+    retrySourceStatuses: headers.map(item => item.retryFromStatus).filter(Boolean),
+    leaseCacheHits: headers.filter(item => item.leaseCacheHit).length,
     leaseMs: { p50: percentile(headers.map(item => item.leaseMs), .5), p95: percentile(headers.map(item => item.leaseMs), .95) },
     ecdsaSignMs: { p50: percentile(headers.map(item => item.signMs), .5), p95: percentile(headers.map(item => item.signMs), .95) },
     workerTtfbMs: { p50: percentile(headers.map(item => item.workerTtfbMs), .5), p95: percentile(headers.map(item => item.workerTtfbMs), .95) },
     downloadMs: { p50: percentile(ranges.map(item => item.downloadMs), .5), p95: percentile(ranges.map(item => item.downloadMs), .95) },
     throughputMiBs: { p50: percentile(ranges.map(item => item.throughputMiBs).filter(Number.isFinite), .5), p95: percentile(ranges.map(item => item.throughputMiBs).filter(Number.isFinite), .95) },
+    rangeGapMs: { p50: percentile(requestGaps, .5), p95: percentile(requestGaps, .95) },
     stalls: { count: stalls.length, totalMs: round(stalls.reduce((sum, item) => sum + item.durationMs, 0)), maxMs: round(Math.max(0, ...stalls.map(item => item.durationMs))) },
+    media: {
+      totalBytes,
+      durationSeconds,
+      averageMbps,
+      estimatedBoundaryRequestsPerMinutePerLearner: boundaryRequestsPerMinute,
+      estimatedBoundaryRequestsPerMinute100Learners: boundaryRequestsPerMinute ? round(boundaryRequestsPerMinute * 100) : null,
+      estimatedBoundaryRequestsPerMinute300Learners: boundaryRequestsPerMinute ? round(boundaryRequestsPerMinute * 300) : null,
+      estimatedChunkSecondsAtAverageBitrate: averageMbps ? round(chunkBytes * 8 / 1_000_000 / averageMbps) : null
+    },
     lastVideoSample: [...records].reverse().find(item => item.kind === 'video:sample') || null
   };
 }
