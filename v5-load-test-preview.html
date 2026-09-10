@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>V5 V2 Preview Load Test</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:24px;max-width:980px;color:#173327}button{padding:10px 16px;margin:4px;border:0;border-radius:9px;background:#1c7c54;color:white;font-weight:700}button:disabled{opacity:.5}pre{white-space:pre-wrap;background:#f3f6f4;padding:14px;border-radius:12px;overflow:auto}.warn{color:#a61b1b;font-weight:700}.ok{color:#17653f;font-weight:700}
+</style>
+</head>
+<body>
+<h1>V5 V2 Preview Load Test</h1>
+<p>Benchmark auth thật: V5 feed → V2 playback lease → Cloudflare signed Range <code>bytes=0-0</code>. Mỗi virtual learner chỉ đọc 1 byte từ R2; không tải full video.</p>
+<p id="gate" class="warn"></p>
+<div>
+<button data-n="50">50 virtual learners</button>
+<button data-n="100">100 virtual learners</button>
+<button data-n="300">300 virtual learners</button>
+</div>
+<pre id="out">Chưa chạy.</pre>
+<script>
+const COURSE='clone-factory-test-phase2-range-20260907';
+const ASSET='61b6fb30-e5b7-4a16-8657-fc376ec15892';
+const RANGE='bytes=0-0';
+const out=document.getElementById('out');
+const buttons=[...document.querySelectorAll('button[data-n]')];
+const isPreview=/\.vercel\.app$/i.test(location.hostname);
+if(!isPreview){document.getElementById('gate').textContent='BLOCKED: trang benchmark chỉ chạy trên Vercel Preview.';buttons.forEach(b=>b.disabled=true)}
+function clean(v){return String(v||'').trim()}
+function b64url(bytes){let s='';for(const v of new Uint8Array(bytes))s+=String.fromCharCode(v);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'')}
+function b64urlJson(value){return b64url(new TextEncoder().encode(JSON.stringify(value)))}
+function nonce(){const b=new Uint8Array(16);crypto.getRandomValues(b);return b64url(b)}
+function pct(values,p){if(!values.length)return null;const s=[...values].sort((a,b)=>a-b);return Math.round(s[Math.min(s.length-1,Math.ceil(p*s.length)-1)]*10)/10}
+async function identity(){const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);return {privateKey:pair.privateKey,publicJwk:await crypto.subtle.exportKey('jwk',pair.publicKey)}}
+async function one(i,id){
+  const start=performance.now();
+  const feed=await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(COURSE)}&lt=${Date.now()}-${i}`,{credentials:'include',cache:'no-store'});
+  let feedBody={};try{feedBody=await feed.json()}catch{}
+  const afterFeed=performance.now();
+  if(!feed.ok)return {ok:false,stage:'feed',status:feed.status,code:feedBody.code||feedBody.error||'',feedMs:afterFeed-start,totalMs:afterFeed-start};
+
+  const play=await fetch(`/api/lms/portal?endpoint=v5-play&course=${encodeURIComponent(COURSE)}&asset=${encodeURIComponent(ASSET)}&lt=${Date.now()}-${i}`,{credentials:'include',cache:'no-store',headers:{'Accept':'application/json','X-V5-Playback-Key':b64urlJson(id.publicJwk)}});
+  let playBody={};try{playBody=await play.json()}catch{}
+  const afterPlay=performance.now();
+  if(!play.ok||playBody.success!==true||!playBody.playbackUrl||!playBody.playbackLease)return {ok:false,stage:'play',status:play.status,code:playBody.code||playBody.error||'',feedMs:afterFeed-start,playMs:afterPlay-afterFeed,totalMs:afterPlay-start};
+  if(!/\/v2\/media(?:$|\?)/.test(String(playBody.playbackUrl)))return {ok:false,stage:'lease-version',status:0,code:'not_v2',feedMs:afterFeed-start,playMs:afterPlay-afterFeed,totalMs:afterPlay-start};
+
+  const timestamp=String(Date.now());
+  const n=nonce();
+  const canonical=['GET',RANGE,timestamp,n,String(playBody.playbackLease),location.origin].join('\n');
+  const sig=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},id.privateKey,new TextEncoder().encode(canonical));
+  const media=await fetch(String(playBody.playbackUrl),{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',headers:{'Range':RANGE,'Authorization':`Bearer ${playBody.playbackLease}`,'X-V5-Playback':'sw-v2','X-V5-Playback-Timestamp':timestamp,'X-V5-Playback-Nonce':n,'X-V5-Playback-Signature':b64url(sig)}});
+  const end=performance.now();
+  const contentRange=clean(media.headers.get('content-range'));
+  const length=Number(media.headers.get('content-length')||0);
+  const mediaOk=media.status===206&&contentRange.startsWith('bytes 0-0/')&&length===1;
+  try{await media.arrayBuffer()}catch{}
+  return {ok:mediaOk,stage:mediaOk?'done':'media',status:media.status,code:mediaOk?'':`${contentRange}|len=${length}`,feedMs:afterFeed-start,playMs:afterPlay-afterFeed,mediaMs:end-afterPlay,totalMs:end-start};
+}
+async function run(n){
+  buttons.forEach(b=>b.disabled=true);out.textContent=`Chuẩn bị ${n} proof keys…`;
+  const ids=await Promise.all(Array.from({length:n},()=>identity()));
+  out.textContent=`Đang chạy ${n} virtual learners = ${n*3} authenticated/V2 requests; R2 chỉ ${n} byte…`;
+  const wallStart=performance.now();
+  const rows=await Promise.all(Array.from({length:n},(_,i)=>one(i,ids[i])));
+  const wallMs=performance.now()-wallStart;
+  const ok=rows.filter(r=>r.ok),fail=rows.filter(r=>!r.ok);
+  const report={
+    v2:true,range:RANGE,virtualLearners:n,intendedRequests:n*3,intendedR2Bytes:n,passed:ok.length,failed:fail.length,
+    successRatePct:Math.round(ok.length/n*10000)/100,wallMs:Math.round(wallMs),virtualLearnersPerSecond:Math.round(n/(wallMs/1000)*100)/100,
+    feedMs:{p50:pct(rows.map(r=>r.feedMs),.5),p95:pct(rows.map(r=>r.feedMs),.95),p99:pct(rows.map(r=>r.feedMs),.99),max:pct(rows.map(r=>r.feedMs),1)},
+    playMs:{p50:pct(rows.filter(r=>r.playMs!=null).map(r=>r.playMs),.5),p95:pct(rows.filter(r=>r.playMs!=null).map(r=>r.playMs),.95),p99:pct(rows.filter(r=>r.playMs!=null).map(r=>r.playMs),.99),max:pct(rows.filter(r=>r.playMs!=null).map(r=>r.playMs),1)},
+    mediaMs:{p50:pct(rows.filter(r=>r.mediaMs!=null).map(r=>r.mediaMs),.5),p95:pct(rows.filter(r=>r.mediaMs!=null).map(r=>r.mediaMs),.95),p99:pct(rows.filter(r=>r.mediaMs!=null).map(r=>r.mediaMs),.99),max:pct(rows.filter(r=>r.mediaMs!=null).map(r=>r.mediaMs),1)},
+    totalMs:{p50:pct(rows.map(r=>r.totalMs),.5),p95:pct(rows.map(r=>r.totalMs),.95),p99:pct(rows.map(r=>r.totalMs),.99),max:pct(rows.map(r=>r.totalMs),1)},
+    failures:[...new Map(fail.map(r=>[`${r.stage}:${r.status}:${r.code}`,r])).keys()].slice(0,20)
+  };
+  out.textContent=JSON.stringify(report,null,2);buttons.forEach(b=>b.disabled=false);
+}
+buttons.forEach(b=>b.onclick=()=>run(Number(b.dataset.n)));
+</script>
+</body>
+</html>
