@@ -27,7 +27,11 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(play, /playbackUrl: lease\.url/);
   assert.match(play, /playbackLease: lease\.token/);
   assert.match(play, /proofPublicJwk/);
-  assert.match(play, /playbackVersion = playbackProofKey \? 2 : 1/);
+  assert.match(play, /if \(!proofHeader\)/);
+  assert.match(play, /v5_playback_v2_required/);
+  assert.match(play, /res\.status\(426\)/);
+  assert.match(play, /version: 2/);
+  assert.doesNotMatch(play, /playbackVersion = playbackProofKey \? 2 : 1/);
   assert.match(play, /expiresAt: lease\.expiresAt/);
 
   assert.match(feed, /playback_ready/);
