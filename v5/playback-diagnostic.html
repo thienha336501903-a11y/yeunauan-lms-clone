@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>V5 Sustained Playback Diagnostic</title>
+  <link rel="stylesheet" href="/v5/playback-diagnostic.css">
+</head>
+<body>
+  <main>
+    <h1>V5 Sustained Playback Diagnostic</h1>
+    <p class="notice">Chỉ hoạt động trên Vercel Preview. Kết quả ở lại trong trình duyệt; không ghi lease, chữ ký hoặc khóa proof.</p>
+    <section class="controls">
+      <label>Course <input id="course" autocomplete="off"></label>
+      <label>Asset ID <input id="asset" autocomplete="off"></label>
+      <label>Chunk
+        <select id="chunk">
+          <option value="4">4 MiB</option>
+          <option value="8">8 MiB</option>
+          <option value="16">16 MiB</option>
+        </select>
+      </label>
+      <label>Preload
+        <select id="preload">
+          <option value="none">none (Production hiện tại)</option>
+          <option value="metadata">metadata</option>
+        </select>
+      </label>
+      <label>Benchmark <input id="benchmarkMiB" type="number" min="8" max="128" step="4" value="32"> MiB</label>
+      <div class="buttons">
+        <button id="play" type="button">Chạy playback thật</button>
+        <button id="benchmark" type="button">Chạy benchmark tuần tự</button>
+        <button id="stop" type="button">Dừng</button>
+        <button id="clear" type="button">Xóa log</button>
+        <button id="download" type="button">Tải JSON</button>
+      </div>
+    </section>
+    <section id="status" class="status">Sẵn sàng.</section>
+    <section id="player"></section>
+    <section>
+      <h2>Tóm tắt</h2>
+      <pre id="summary">Chưa có dữ liệu.</pre>
+    </section>
+    <section>
+      <h2>Timeline</h2>
+      <pre id="timeline"></pre>
+    </section>
+  </main>
+  <script src="/v5/playback-diagnostic.js" type="module"></script>
+</body>
+</html>

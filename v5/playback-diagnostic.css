@@ -1,0 +1,16 @@
+:root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #15332d; background: #f4f7f6; }
+body { margin: 0; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+h1, h2 { margin: 0 0 14px; }
+.notice, .status, .controls, section { background: #fff; border: 1px solid #d9e5e1; border-radius: 12px; padding: 16px; margin: 0 0 16px; }
+.notice { background: #fff8d9; border-color: #ead87e; }
+.controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+label { display: grid; gap: 6px; font-weight: 650; }
+input, select, button { font: inherit; padding: 10px; border: 1px solid #aac5bc; border-radius: 8px; }
+.buttons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+button { background: #087f68; color: #fff; border: 0; cursor: pointer; }
+button:disabled { opacity: .55; cursor: wait; }
+#player video { width: 100%; max-height: 62vh; background: #000; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.status { position: sticky; top: 8px; z-index: 2; }
+@media (max-width: 720px) { main { padding: 12px; } .controls { grid-template-columns: 1fr; } }
