@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const sw = fs.readFileSync(new URL('../v5/media-sw.js', import.meta.url), 'utf8');
 const warm = fs.readFileSync(new URL('../v5/media-warm.js', import.meta.url), 'utf8');
+const bootstrap = fs.readFileSync(new URL('../v5/media-bootstrap.js', import.meta.url), 'utf8');
 const index = fs.readFileSync(new URL('../v5/index.html', import.meta.url), 'utf8');
 const worker = fs.readFileSync(new URL('../cloudflare/v5-media-worker/src/index.js', import.meta.url), 'utf8');
 
@@ -30,6 +31,15 @@ test('V5 bounds synthesized and browser open-ended video ranges instead of reque
   assert.ok(sw.includes('return `bytes=${start}-${end}`;'));
   assert.doesNotMatch(sw, /if \(value\) return value;/);
   assert.doesNotMatch(sw, /\? "bytes=0-" : ""/);
+});
+
+test('V5 first-load bootstrap recovers once if a hard reload is not controlled yet', () => {
+  assert.match(index, /\/v5\/media-bootstrap\.js[\s\S]*\/v5\/app\.js/);
+  assert.match(bootstrap, /navigator\.serviceWorker\.register\('\/v5\/media-sw\.js'/);
+  assert.match(bootstrap, /navigator\.serviceWorker\.controller/);
+  assert.match(bootstrap, /sessionStorage\.getItem\(RELOAD_GUARD\)/);
+  assert.match(bootstrap, /location\.reload\(\)/);
+  assert.match(bootstrap, /setTimeout\(finish, 1500\)/);
 });
 
 test('V5 Worker permits browser preflight caching without weakening media cache policy', () => {
