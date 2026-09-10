@@ -42,7 +42,16 @@ export function publicJwkFromPrivateEnv() {
   return crypto.createPublicKey(key).export({ format: "jwk" });
 }
 
-export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType, filename, bytes, userAgent, email, ttlMs }) {
+function normalizedProofPublicJwk(value) {
+  if (!value || typeof value !== "object" || value.kty !== "EC" || value.crv !== "P-256" || !clean(value.x) || !clean(value.y) || value.d) {
+    const error = new Error("V5 playback proof key không hợp lệ.");
+    error.code = "v5_playback_proof_invalid";
+    throw error;
+  }
+  return { kty: "EC", crv: "P-256", x: clean(value.x), y: clean(value.y), ext: true };
+}
+
+export function issueV5PlaybackLease({ version = 1, assetId, courseSlug, objectKey, mediaType, mimeType, filename, bytes, userAgent, email, ttlMs, proofPublicJwk }) {
   const baseUrl = clean(process.env.V5_MEDIA_PUBLIC_URL).replace(/\/$/, "");
   if (!baseUrl) {
     const error = new Error("V5_MEDIA_PUBLIC_URL chưa được cấu hình.");
@@ -52,11 +61,13 @@ export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType,
   const now = Date.now();
   const maxTtl = 30 * 60 * 1000;
   const effectiveTtl = Math.min(maxTtl, Math.max(60 * 1000, Number(ttlMs || DEFAULT_TTL_MS)));
+  const leaseVersion = Number(version) === 2 ? 2 : 1;
   const payload = {
-    v: 1,
+    v: leaseVersion,
     aid: clean(assetId),
     c: clean(courseSlug),
     k: clean(objectKey),
+    mt: clean(mediaType).toLowerCase(),
     ct: clean(mimeType) || "application/octet-stream",
     fn: clean(filename) || "media",
     iat: now,
@@ -69,9 +80,14 @@ export function issueV5PlaybackLease({ assetId, courseSlug, objectKey, mimeType,
     const objectBytes = Number(bytes);
     if (Number.isSafeInteger(objectBytes) && objectBytes >= 0) payload.sz = objectBytes;
   }
+  if (leaseVersion === 2) payload.pk = normalizedProofPublicJwk(proofPublicJwk);
   if (!payload.aid || !payload.c || !payload.k) throw new Error("Thiếu dữ liệu để cấp playback lease.");
   const encoded = base64urlJson(payload);
   const signature = crypto.sign("sha256", Buffer.from(encoded, "utf8"), { key: privateKey(), dsaEncoding: "ieee-p1363" }).toString("base64url");
   const token = `${encoded}.${signature}`;
-  return { token, expiresAt: payload.exp, url: `${baseUrl}/v1/media?t=${encodeURIComponent(token)}` };
+  return {
+    token,
+    expiresAt: payload.exp,
+    url: leaseVersion === 2 ? `${baseUrl}/v2/media` : `${baseUrl}/v1/media?t=${encodeURIComponent(token)}`
+  };
 }

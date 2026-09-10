@@ -1,44 +1,106 @@
 const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
+const leaseRequests = new Map();
 const REFRESH_SKEW_MS = 45 * 1000;
+const INITIAL_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
+const encoder = new TextEncoder();
+let proofIdentityPromise = null;
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", event => event.waitUntil(Promise.all([
+  self.clients.claim(),
+  proofIdentity().catch(() => null)
+])));
 
 function clean(value) {
   return String(value || "").trim();
+}
+
+function base64url(bytes) {
+  let binary = "";
+  for (const value of new Uint8Array(bytes)) binary += String.fromCharCode(value);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64urlJson(value) {
+  return base64url(encoder.encode(JSON.stringify(value)));
+}
+
+function randomNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return base64url(bytes);
+}
+
+async function proofIdentity() {
+  if (!proofIdentityPromise) {
+    proofIdentityPromise = (async () => {
+      const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+      return { privateKey: pair.privateKey, publicJwk: await crypto.subtle.exportKey("jwk", pair.publicKey) };
+    })();
+  }
+  return proofIdentityPromise;
 }
 
 function cacheKey(course, assetId) {
   return `${course}:${assetId}`;
 }
 
-function playbackRange(rawRange) {
+function playbackRange(rawRange, mimeType) {
   const value = clean(rawRange);
-  return value || "bytes=0-";
+  const isVideo = clean(mimeType).toLowerCase().startsWith("video/");
+  if (value) {
+    if (!isVideo) return value;
+    const openEnded = value.match(/^bytes=(\d+)-$/i);
+    if (!openEnded) return value;
+    const start = Number(openEnded[1]);
+    const end = start + INITIAL_VIDEO_RANGE_BYTES - 1;
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(end)) return value;
+    return `bytes=${start}-${end}`;
+  }
+  return isVideo ? `bytes=0-${INITIAL_VIDEO_RANGE_BYTES - 1}` : "";
+}
+
+async function issueLease(course, assetId) {
+  const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
+  const proof = await proofIdentity();
+  const response = await fetch(`/api/lms/portal?${params}`, {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Accept": "application/json", "X-V5-Playback-Key": base64urlJson(proof.publicJwk) }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success !== true || !data.playbackUrl || !data.playbackLease || !data.expiresAt) {
+    const error = new Error(data.error || `lease_http_${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return {
+    url: String(data.playbackUrl),
+    token: String(data.playbackLease),
+    mimeType: String(data.mimeType || ""),
+    key: proof.privateKey,
+    expiresAt: Number(data.expiresAt)
+  };
 }
 
 async function fetchLease(course, assetId, force = false) {
   const key = cacheKey(course, assetId);
   const current = leases.get(key);
   if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
+  if (!force && leaseRequests.has(key)) return leaseRequests.get(key);
 
-  const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
-  const response = await fetch(`/api/lms/portal?${params}`, {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-    headers: { "Accept": "application/json" }
+  const request = issueLease(course, assetId).then(lease => {
+    leases.set(key, lease);
+    return lease;
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success !== true || !data.playbackUrl || !data.expiresAt) {
-    const error = new Error(data.error || `lease_http_${response.status}`);
-    error.status = response.status;
-    throw error;
+  if (!force) leaseRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (!force && leaseRequests.get(key) === request) leaseRequests.delete(key);
   }
-  const lease = { url: String(data.playbackUrl), expiresAt: Number(data.expiresAt) };
-  leases.set(key, lease);
-  return lease;
 }
 
 function copyHeaders(upstream) {
@@ -61,10 +123,21 @@ function copyHeaders(upstream) {
 }
 
 async function upstreamRequest(request, lease) {
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const range = playbackRange(request.headers.get("range"), lease.mimeType);
+  const timestamp = String(Date.now());
+  const nonce = randomNonce();
+  const canonical = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, lease.key, encoder.encode(canonical));
   const headers = new Headers();
-  headers.set("Range", playbackRange(request.headers.get("range")));
+  if (range) headers.set("Range", range);
+  headers.set("Authorization", `Bearer ${lease.token}`);
+  headers.set("X-V5-Playback", "sw-v2");
+  headers.set("X-V5-Playback-Timestamp", timestamp);
+  headers.set("X-V5-Playback-Nonce", nonce);
+  headers.set("X-V5-Playback-Signature", base64url(signature));
   return fetch(lease.url, {
-    method: request.method === "HEAD" ? "HEAD" : "GET",
+    method,
     headers,
     mode: "cors",
     credentials: "omit",
@@ -97,6 +170,15 @@ async function proxyMedia(request, course, assetId) {
     });
   }
 }
+
+self.addEventListener("message", event => {
+  const data = event.data || {};
+  if (data.type !== "v5-warm-lease") return;
+  const course = clean(data.course);
+  const assetId = clean(data.assetId);
+  if (!course || !assetId) return;
+  event.waitUntil(fetchLease(course, assetId, false).catch(() => null));
+});
 
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);

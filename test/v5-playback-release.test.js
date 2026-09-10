@@ -25,6 +25,9 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.doesNotMatch(play, /v5ReleaseHasAsset/);
   assert.doesNotMatch(play, /from\("v5_releases"\)/);
   assert.match(play, /playbackUrl: lease\.url/);
+  assert.match(play, /playbackLease: lease\.token/);
+  assert.match(play, /proofPublicJwk/);
+  assert.match(play, /playbackVersion = playbackProofKey \? 2 : 1/);
   assert.match(play, /expiresAt: lease\.expiresAt/);
 
   assert.match(feed, /playback_ready/);
@@ -45,6 +48,10 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(sw, /REFRESH_SKEW_MS = 45 \* 1000/);
   assert.match(sw, /\[401, 403, 410\]\.includes\(upstream\.status\)/);
   assert.match(sw, /fetchLease\(course, assetId, true\)/);
+  assert.match(sw, /Authorization/);
+  assert.match(sw, /X-V5-Playback-Signature/);
+  assert.match(sw, /crypto\.subtle\.generateKey/);
+  assert.doesNotMatch(sw, /[?&]t=\$\{/);
 });
 
 test('V5 playback authorization RPC keeps release membership and thumbnail checks inside Postgres', () => {

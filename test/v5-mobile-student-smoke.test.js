@@ -21,7 +21,8 @@ test('V5 student renderer keeps the mobile playback contract', () => {
 
 test('V5 media service worker preserves byte-range playback on mobile browsers', () => {
   const sw = read('v5/media-sw.js');
-  assert.match(sw, /headers\.set\("Range", playbackRange\(request\.headers\.get\("range"\)\)\)/);
+  assert.match(sw, /playbackRange\(request\.headers\.get\("range"\), lease\.mimeType\)/);
+  assert.match(sw, /if \(range\) headers\.set\("Range", range\)/);
   assert.match(sw, /"content-range"/);
   assert.match(sw, /"accept-ranges"/);
   assert.match(sw, /"retry-after"/);

@@ -19,6 +19,15 @@ namespace_id = "1001"
   limit = 600
   period = 60
 
+# V2 nonce replay protection is strongly consistent per student/video shard.
+[[durable_objects.bindings]]
+name = "V5_PLAYBACK_NONCES"
+class_name = "V5PlaybackNonceGuard"
+
+[[migrations]]
+tag = "v5-playback-v2-nonces"
+new_sqlite_classes = ["V5PlaybackNonceGuard"]
+
 [vars]
 # Comma-separated exact origins.
 # Keep only exact trusted Preview aliases while V5 is being tested; do not use wildcards.
