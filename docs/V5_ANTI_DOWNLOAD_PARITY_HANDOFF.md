@@ -14,12 +14,13 @@ Last updated: 2026-09-10 +07
 
 ## Current checkpoint
 
-- PR: Draft #158 — `https://github.com/thienha336501903-a11y/yeunauan-lms-clone/pull/158`.
+- PR: Ready for review #158 — `https://github.com/thienha336501903-a11y/yeunauan-lms-clone/pull/158`; **not merged**.
 - Functional code used for final browser/load QA: `ca72a9caf1f5e80494dd03c58833fbfed1f187d0`.
-- CI: LMS CI run #421 PASS on SHA `ca72a9caf1f5e80494dd03c58833fbfed1f187d0`.
+- CI: LMS CI run #421 PASS on functional QA SHA `ca72a9caf1f5e80494dd03c58833fbfed1f187d0`; cleanup/handoff CI run #423 PASS on SHA `0c96835bbd4d64e7a76893fc942371c1c8b9b721`.
 - Temporary signed V2 benchmark harness was removed after the 50→100→300 run by cleanup commit `9fa889581c1581ed0320297c107cfe4b7892af63`.
 - Preview alias: `https://yeunauan-lms-git-37badb-thienha100022653824678-stacks-projects.vercel.app`.
 - Preview deployment used for final 50→100→300 benchmark: `dpl_4FtqgeBGZErEW6d4N6yinHpZh9uQ` READY.
+- Cleanup/handoff Preview deployment on `0c96835...`: `dpl_GUtXmtZViFTSVahBw3YARFib8NVU` READY.
 - Cloudflare Worker: `yeubep-v5-media`.
 - Vercel Production remains READY on main `4af614cb4ae8c3bbdc5dc6258bf3cd1aeeb4655e` / deployment `dpl_9x4YBkM23AtWAaURgTPEQjLXqcbG`; unchanged.
 
@@ -41,24 +42,20 @@ Last updated: 2026-09-10 +07
 - No full video payload is intentionally preloaded by warm-up; only playback lease/proof identity are warmed.
 - First-play latency improved materially after lease/proof warm-up; user confirmed cold first Play became quick.
 - Forced-first-install robustness fix is in branch: media bootstrap loads before learner app, waits for Service Worker control and can recover with one bounded automatic reload instead of requiring the learner to manually F5. CI coverage PASS on run #421.
+- Final manual first-install browser recheck PASS on 2026-09-10: after `Unregister`, one normal F5 was sufficient; protected image and video recovered without a second reload.
 - Security/range regression suite remains green; rejection cases are designed to fail before R2.
 - Authenticated signed V2 benchmark PASS at all staged levels using `v5-feed` → `v5-play` V2 → Cloudflare signed `Range: bytes=0-0`; each virtual learner reads only 1 byte from R2:
   - 50 learners: 50/50 PASS, 150 intended requests, 50 intended R2 bytes, wall 6975 ms, feed p95 3714.1 ms, play p95 591 ms, media p95 2940.7 ms, total p95 6893.6 ms. Vercel runtime matched 100/100 function requests with HTTP 200.
   - 100 learners: 100/100 PASS, 300 intended requests, 100 intended R2 bytes, wall 5250 ms, 19.05 learners/s, feed p95 3924.1 ms, play p95 681.4 ms, media p95 904.3 ms, total p95 5046.2 ms. Vercel runtime matched 200/200 function requests with HTTP 200.
   - 300 learners: 300/300 PASS, 900 intended requests, 300 intended R2 bytes, wall 7866 ms, 38.14 learners/s, feed p95 6058.7 ms, play p95 2298.7 ms, media p95 908.4 ms, total p95 7469.4 ms. Vercel runtime matched 600/600 function requests with HTTP 200.
 - Temporary benchmark page removed after successful staged run; it is not intended to remain in final branch output.
+- PR #158 moved from Draft to Ready for review after final browser QA PASS; no merge was performed.
 
-### Remaining QA item
+### Remaining gated actions
 
-- The forced Service Worker reset (`Unregister` followed immediately by hard reload) previously exposed a first-render media race that required an extra F5. The branch now contains an automatic recovery fix with passing CI, but one clean manual first-install browser recheck should still be done before moving PR #158 to Ready for review.
-
-### Next step
-
-1. Perform one clean browser first-install check on the latest Preview: unregister Service Worker once, open/reload V5 normally, and confirm image + video recover without manual second F5.
-2. Reconfirm latest Preview deployment and CI after cleanup/handoff commits.
-3. If the first-install browser check passes and no new CI/runtime error appears, move PR #158 from Draft to Ready for review only after Admin confirmation if required by workflow.
-4. Any Production LMS V2 rollout or PR #158 merge still requires separate Admin confirmation.
-5. Keep `/v1/media` and legacy lease fallback for at least 35 minutes after any separately authorized Production LMS V2 rollout.
+1. Review PR #158. Do not merge without separate Admin confirmation.
+2. Any Production LMS V2 rollout requires separate Admin confirmation.
+3. After any separately authorized Production LMS V2 rollout, keep `/v1/media` and legacy lease fallback for at least 35 minutes before considering removal.
 
 ## V2 design
 
