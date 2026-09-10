@@ -57,13 +57,13 @@ async function publicKeys(env) {
   }
 }
 
-async function verifyLease(token, request, env, expectedVersion = 1) {
+async function verifyLease(token, request, env) {
   const parts = clean(token).split(".");
   if (parts.length !== 2) return { ok: false, status: 401, error: "invalid_token" };
   const [encoded, signatureText] = parts;
   let payload;
   try { payload = decodePayload(encoded); } catch { return { ok: false, status: 401, error: "invalid_payload" }; }
-  if (payload?.v !== expectedVersion || !payload?.aid || !payload?.c || !payload?.k || !payload?.exp) return { ok: false, status: 401, error: "invalid_claims" };
+  if (payload?.v !== 2 || !payload?.aid || !payload?.c || !payload?.k || !payload?.exp) return { ok: false, status: 401, error: "invalid_claims" };
   if (Number(payload.exp) <= Date.now()) return { ok: false, status: 403, error: "lease_expired" };
   if (Number(payload.exp) - Number(payload.iat || 0) > 30 * 60 * 1000 + 5000) return { ok: false, status: 403, error: "lease_ttl_invalid" };
   const uaHash = await sha256base64url(request.headers.get("user-agent") || "");
@@ -324,19 +324,12 @@ async function serveMedia(request, env, corsHeaders, payload, requireVideoRange 
   return new Response(object.body, { status: range ? 206 : 200, headers });
 }
 
-async function mediaV1(request, env, corsHeaders) {
-  const url = new URL(request.url);
-  const access = await verifyLease(url.searchParams.get("t"), request, env, 1);
-  if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
-  return serveMedia(request, env, corsHeaders, access.payload, false);
-}
-
 async function mediaV2(request, env, corsHeaders, origin) {
   const url = new URL(request.url);
   const token = bearerToken(request);
   if (!token) return json(401, { ok: false, error: "authorization_required" }, corsHeaders);
   if (url.searchParams.has("t")) return json(400, { ok: false, error: "query_token_forbidden" }, corsHeaders);
-  const access = await verifyLease(token, request, env, 2);
+  const access = await verifyLease(token, request, env);
   if (!access.ok) return json(access.status, { ok: false, error: access.error }, corsHeaders);
   if (!clean(access.payload.eh) || !validProofJwk(access.payload.pk)) return json(403, { ok: false, error: "invalid_v2_claims" }, corsHeaders);
   const proof = await verifyRequestProof(request, token, access.payload, origin);
@@ -357,7 +350,6 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
     if (!["GET", "HEAD"].includes(request.method)) return json(405, { ok: false, error: "method_not_allowed" }, corsHeaders);
     if (url.pathname === "/health") return json(200, { ok: true, service: "v5-r2-media" }, corsHeaders);
-    if (url.pathname === "/v1/media") return mediaV1(request, env, corsHeaders);
     if (isV2) return mediaV2(request, env, corsHeaders, origin);
     return json(404, { ok: false, error: "not_found" }, corsHeaders);
   }
