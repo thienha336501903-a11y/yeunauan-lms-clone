@@ -7,18 +7,6 @@ let sampleTimer = null;
 let waitingStartedAt = null;
 let abortController = null;
 
-navigator.serviceWorker?.addEventListener('message', event => {
-  const message = event.data || {};
-  if (message.type !== 'v5-playback-diagnostic' || !message.requestId) return;
-  const current = requestRecords.get(message.requestId) || {};
-  const merged = { ...current, ...message };
-  if (message.phase === 'complete' && message.downloadMs > 0) {
-    merged.throughputMiBs = round((Number(message.bytes || 0) / 1024 / 1024) / (message.downloadMs / 1000));
-  }
-  requestRecords.set(message.requestId, merged);
-  add(`sw:${message.phase}`, Object.fromEntries(Object.entries(message).filter(([key]) => key !== 'type')));
-});
-
 const isPreview = location.hostname.endsWith('.vercel.app');
 $('course').value = params.get('course') || 'clone-factory-test-phase2-range-20260907';
 $('asset').value = params.get('asset') || '61b6fb30-e5b7-4a16-8657-fc376ec15892';
