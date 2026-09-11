@@ -1,0 +1,79 @@
+name: Ops allow V5 diagnostic origin once
+
+on:
+  push:
+    branches:
+      - ops/v5-allow-diagnostic-origin-20260911
+    paths:
+      - .github/workflows/ops-v5-allow-diagnostic-origin-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+      CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Confirm exact System B Worker target
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'url.pathname === "/v2/media"' cloudflare/v5-media-worker/src/index.js
+          if grep -q 'url.pathname === "/v1/media"' cloudflare/v5-media-worker/src/index.js; then
+            echo '::error::V1 route unexpectedly present; refusing deploy.'
+            exit 1
+          fi
+          grep -q 'yeunauan-lms-git-0c9a79-thienha100022653824678-stacks-projects.vercel.app' cloudflare/v5-media-worker/wrangler.toml.example
+      - name: Prepare exact production Wrangler config
+        shell: bash
+        run: |
+          cat > cloudflare/v5-media-worker/wrangler.deploy.toml <<'EOF'
+          name = "yeubep-v5-media"
+          main = "src/index.js"
+          compatibility_date = "2026-08-01"
+
+          [[r2_buckets]]
+          binding = "V5_MEDIA"
+          bucket_name = "yeubep-v5-media-prod"
+
+          [[ratelimits]]
+          name = "V5_MEDIA_RATE_LIMITER"
+          namespace_id = "1001"
+            [ratelimits.simple]
+            limit = 600
+            period = 60
+
+          [[durable_objects.bindings]]
+          name = "V5_PLAYBACK_NONCES"
+          class_name = "V5PlaybackNonceGuard"
+
+          [[migrations]]
+          tag = "v5-playback-v2-nonces"
+          new_sqlite_classes = ["V5PlaybackNonceGuard"]
+
+          [vars]
+          V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop,https://yeunauan-lms-v4-test-git-bb43d1-thienha336501903-a11ys-projects.vercel.app,https://yeunauan-lms-git-d4dd8d-thienha100022653824678-stacks-projects.vercel.app,https://yeunauan-lms-git-0c9a79-thienha100022653824678-stacks-projects.vercel.app"
+          V5_MEDIA_RATE_LIMIT_RETRY_AFTER_SECONDS = "60"
+          EOF
+      - name: Verify Cloudflare auth is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && { [ -z "${CLOUDFLARE_API_KEY:-}" ] || [ -z "${CLOUDFLARE_EMAIL:-}" ]; }; then
+            echo '::error::No Cloudflare credential is configured in GitHub Actions secrets.'
+            exit 2
+          fi
+      - name: Wrangler dry run
+        run: npx --yes wrangler@4.129.1 deploy --config cloudflare/v5-media-worker/wrangler.deploy.toml --dry-run
+      - name: Deploy exact allowlist update
+        run: npx --yes wrangler@4.129.1 deploy --config cloudflare/v5-media-worker/wrangler.deploy.toml
