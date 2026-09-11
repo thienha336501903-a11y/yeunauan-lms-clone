@@ -31,7 +31,7 @@ new_sqlite_classes = ["V5PlaybackNonceGuard"]
 [vars]
 # Comma-separated exact origins.
 # Keep only exact trusted Preview aliases while V5 is being tested; do not use wildcards.
-V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop,https://yeunauan-lms-v4-test-git-bb43d1-thienha336501903-a11ys-projects.vercel.app,https://yeunauan-lms-git-d4dd8d-thienha100022653824678-stacks-projects.vercel.app"
+V5_ALLOWED_ORIGINS = "https://v5.daubepnho.store,https://v4.daubepnho.store,https://hoc.yeubep.shop,https://yeunauan-lms-v4-test-git-bb43d1-thienha336501903-a11ys-projects.vercel.app,https://yeunauan-lms-git-d4dd8d-thienha100022653824678-stacks-projects.vercel.app,https://yeunauan-lms-git-0c9a79-thienha100022653824678-stacks-projects.vercel.app"
 V5_MEDIA_RATE_LIMIT_RETRY_AFTER_SECONDS = "60"
 
 # Secret required at runtime (set with `wrangler secret put`, not here):
