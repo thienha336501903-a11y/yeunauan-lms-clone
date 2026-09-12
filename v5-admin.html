@@ -99,7 +99,40 @@ $('confirmLessonBtn').onclick=()=>busyRun(async()=>{const title=$('lessonTitleIn
 $('savePostBtn').onclick=()=>busyRun(async()=>{await contentAction('updatePost',{postId:state.editingPostId,textContent:$('editTextInput').value});closeModal('editModal')});
 $('deletePostBtn').onclick=()=>{if(confirm('Xóa Post này?'))busyRun(async()=>{await contentAction('deletePost',{postId:state.editingPostId});closeModal('editModal')})};
 document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>closeModal(button.dataset.close));
-$('previewBtn').onclick=()=>state.courseSlug&&window.open(`/v5.html?course=${encodeURIComponent(state.courseSlug)}`,'_blank');
+$('previewBtn').onclick=async()=>{
+  if(!state.courseSlug)return toast('Hãy chọn khóa V5 trước.');
+  if(state.busy)return;
+  const btn=$('previewBtn');
+  const originalText=btn.textContent;
+  let previewWindow=null;
+  try{previewWindow=window.open('about:blank','_blank');}catch(e){}
+  btn.disabled=true;
+  btn.textContent='Đang cấp quyền xem trước...';
+  try{
+    const data=await api('/api/lms/admin?endpoint=v5-preview-access',{method:'POST',body:JSON.stringify({course:state.courseSlug})});
+    const targetUrl=`/v5/?course=${encodeURIComponent(state.courseSlug)}`;
+    if(previewWindow&&!previewWindow.closed){
+      previewWindow.location.href=targetUrl;
+    }else{
+      window.open(targetUrl,'_blank');
+    }
+    if(data.hasPublishedRelease===false){
+      toast('Khóa chưa có Published release để xem trước.');
+    }
+  }catch(error){
+    if(previewWindow&&!previewWindow.closed){
+      previewWindow.close();
+    }
+    if(error.auth){
+      showAuth();
+    }else{
+      toast(error.message||'Không thể cấp quyền xem trước.');
+    }
+  }finally{
+    btn.disabled=false;
+    btn.textContent=originalText;
+  }
+};
 $('publishBtn').onclick=runPreflight;
 $('confirmPublishBtn').onclick=publish;
 $('channel').addEventListener('dragover',event=>{event.preventDefault()});
