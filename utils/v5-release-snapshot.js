@@ -48,8 +48,12 @@ export function v5ReleaseContent(snapshot) {
 export function v5LearnerReleaseContent(snapshot) {
   const content = v5ReleaseContent(snapshot);
   if (!content) return null;
+  const config = { source_mode: content.config?.source_mode || "" };
+  if (content.config?.settings?.authoring_mode) {
+    config.settings = { authoring_mode: content.config.settings.authoring_mode };
+  }
   return {
-    config: { source_mode: content.config?.source_mode || "" },
+    config,
     lessons: content.lessons.map(({ id, title, position }) => ({ id, title, position })),
     posts: content.posts.map(({ id, lesson_id, position, text_content, caption, metadata }) => ({
       id,

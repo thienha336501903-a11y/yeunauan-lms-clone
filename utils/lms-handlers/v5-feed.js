@@ -110,10 +110,13 @@ export default async function v5FeedHandler(req, res) {
       }));
     }
 
+    const authoringMode = content.config?.settings?.authoring_mode || "lesson";
     return res.status(200).json({
       success: true,
       course: { slug: course.slug, title: access.courseTitle || course.title, subtitle: course.subtitle || "", imageUrl: course.image_url || "" },
       sourceMode: clean(content.config?.source_mode) || config.source_mode || "direct",
+      settings: content.config?.settings || { authoring_mode: authoringMode },
+      authoringMode,
       releaseId: release.id,
       playbackConfigured,
       lessons: content.lessons,
