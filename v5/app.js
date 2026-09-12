@@ -82,6 +82,11 @@ function unfinishedVideo(progress) {
   return !(duration > 0 && (progress.currentTime >= duration - 2 || progress.currentTime / duration >= .98));
 }
 
+function resumeTimeFor(assetId) {
+  if (!unfinishedVideo(videoProgress) || String(videoProgress.assetId) !== String(assetId)) return 0;
+  return Math.max(0, Number(videoProgress.currentTime || 0));
+}
+
 function saveVideoProgress(video) {
   const cell = video.closest('[data-asset-id]');
   const card = video.closest('[data-lesson-id]');
@@ -126,7 +131,7 @@ function updateProgressUI() {
   const lesson = getResumeLesson();
   if (lesson) {
     $('resumeSideTitle').textContent = lesson.title;
-    $('resumeSideLabel').textContent = seen.has(String(lesson.id)) ? 'Xem lại bài gần nhất' : 'Tiếp tục học';
+    $('resumeSideLabel').textContent = unfinishedVideo(videoProgress) ? 'Tiếp tục video đang xem' : (seen.has(String(lesson.id)) ? 'Xem lại bài gần nhất' : 'Tiếp tục học');
   }
   const resumable = unfinishedVideo(videoProgress) && document.querySelector(`[data-asset-id="${CSS.escape(String(videoProgress.assetId))}"]`);
   $('resumeFloat').hidden = !resumable;
@@ -288,11 +293,14 @@ function releaseVideo(video) {
   if (activeVideo === video) activeVideo = null;
 }
 
-async function startVideo(cell) {
+async function startVideo(cell, { resume = false } = {}) {
   if (cell.dataset.loading === '1') return;
   cell.dataset.loading = '1';
   const button = cell.querySelector('[data-v5-start]');
   if (button) button.disabled = true;
+  const resumeAt = resume ? resumeTimeFor(cell.dataset.assetId) : 0;
+  const posterImage = cell.querySelector('.video-poster-image');
+  const posterSource = posterImage?.currentSrc || posterImage?.getAttribute('src') || posterImage?.dataset?.src || '';
   try {
     // Normal /learning entry activates the /v5/ Service Worker before the page
     // is entered. On mobile, do not cross an async boundary before play() when
@@ -302,14 +310,23 @@ async function startVideo(cell) {
     if (activeVideo) releaseVideo(activeVideo);
     const video = document.createElement('video');
     video.controls = true; video.playsInline = true; video.preload = 'none';
+    if (posterSource) video.poster = posterSource;
     video.setAttribute('controlsList', 'nodownload noremoteplayback'); video.setAttribute('disableRemotePlayback', '');
     video.addEventListener('contextmenu', event => event.preventDefault());
-    video.addEventListener('loadedmetadata', () => { if (unfinishedVideo(videoProgress) && String(videoProgress.assetId) === cell.dataset.assetId) video.currentTime = Math.min(Number(videoProgress.currentTime || 0), Math.max(0, video.duration - 1)); });
+    if (resumeAt > .5) video.addEventListener('loadedmetadata', () => {
+      const target = Math.min(resumeAt, Math.max(0, video.duration - 1));
+      if (!(target > .5)) return;
+      if (typeof video.fastSeek === 'function') video.fastSeek(target);
+      else video.currentTime = target;
+    }, { once: true });
     let lastSave = 0;
     video.addEventListener('timeupdate', () => { if (Date.now() - lastSave > 1000) { lastSave = Date.now(); saveVideoProgress(video); } });
     video.addEventListener('pause', () => saveVideoProgress(video));
     video.addEventListener('ended', () => { clearVideoProgress(cell.dataset.assetId); markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId); });
-    video.addEventListener('playing', () => { cell.dataset.loading = ''; }, { once: true });
+    video.addEventListener('playing', () => {
+      cell.dataset.loading = '';
+      if (!resume && unfinishedVideo(videoProgress) && String(videoProgress.assetId) === String(cell.dataset.assetId)) clearVideoProgress(cell.dataset.assetId);
+    }, { once: true });
     cell.replaceChildren(video);
     activeVideo = video;
     markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId);
@@ -320,6 +337,18 @@ async function startVideo(cell) {
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
   }
+}
+
+function resumeSavedVideo() {
+  if (!unfinishedVideo(videoProgress)) {
+    const lesson = getResumeLesson();
+    if (lesson) scrollToLesson(lesson.id);
+    return;
+  }
+  const cell = document.querySelector(`[data-asset-id="${CSS.escape(String(videoProgress.assetId))}"]`);
+  if (!cell) return;
+  cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  startVideo(cell, { resume: true });
 }
 
 function openLightbox(source) { $('lightImage').src = source; $('lightbox').classList.add('open'); $('lightbox').setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; }
@@ -381,8 +410,8 @@ function bind() {
   $('mobileSearchClear').addEventListener('click', clearSearch); $('searchCancel').addEventListener('click', clearSearch);
   $('mobileOutlineBtn').addEventListener('click', openOutline); $('mobileOutlineBackdrop').addEventListener('click', closeOutline); $('mobileOutlineClose').addEventListener('click', closeOutline);
   $('lightClose').addEventListener('click', closeLightbox); $('lightbox').addEventListener('click', event => { if (event.target === $('lightbox')) closeLightbox(); });
-  $('resumeSide').addEventListener('click', () => { const lesson = getResumeLesson(); if (lesson) scrollToLesson(lesson.id); });
-  $('resumeFloat').addEventListener('click', () => { const cell = unfinishedVideo(videoProgress) ? document.querySelector(`[data-asset-id="${CSS.escape(String(videoProgress.assetId))}"]`) : null; cell?.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+  $('resumeSide').addEventListener('click', () => { if (unfinishedVideo(videoProgress)) resumeSavedVideo(); else { const lesson = getResumeLesson(); if (lesson) scrollToLesson(lesson.id); } });
+  $('resumeFloat').addEventListener('click', resumeSavedVideo);
   document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLightbox(); closeOutline(); setMobileSearch(false); } });
   addEventListener('pagehide', () => releaseVideo(activeVideo));
 }
