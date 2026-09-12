@@ -38,9 +38,11 @@ test('Unified My Courses exposes V5 and routes ready students through learning',
   assert.match(html, /@media\(max-width:420px\)/);
 });
 
-test('Learning router sends only V5 courses to the isolated V5 renderer', () => {
+test('Learning router sends only V5 courses through the isolated V5 worker bootstrap', () => {
   const learning = read('api/learning.js');
+  const bootstrap = read('v5-sw-bootstrap.html');
   assert.match(learning, /const requestedV5 = deliveryMode === "v5"/);
-  assert.match(learning, /requestedV5\s*\?\s*"\/v5\/"/);
+  assert.match(learning, /requestedV5\s*\?\s*"\/v5-sw-bootstrap\.html"/);
+  assert.match(bootstrap, /const target = '\/v5\/' \+ location\.search \+ location\.hash/);
   assert.match(learning, /res\.redirect\(307, target \+ \(qs \? `\?\$\{qs\}` : ""\)\)/);
 });
