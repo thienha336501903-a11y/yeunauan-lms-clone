@@ -10,22 +10,9 @@ async function ensureInitialMediaController() {
       return;
     }
 
-    await new Promise(resolve => {
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        resolve();
-      };
-      navigator.serviceWorker.addEventListener('controllerchange', finish, { once: true });
-      setTimeout(finish, 1500);
-    });
-
-    if (navigator.serviceWorker.controller) {
-      sessionStorage.removeItem(RELOAD_GUARD);
-      return;
-    }
-
+    // Once an active /v5/ registration exists, the next navigation inside its
+    // scope is controlled. Reload immediately once instead of holding protected
+    // images on a fixed first-load delay before doing the same recovery.
     if (!sessionStorage.getItem(RELOAD_GUARD)) {
       sessionStorage.setItem(RELOAD_GUARD, '1');
       location.reload();
