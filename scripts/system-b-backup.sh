@@ -29,6 +29,12 @@ if [[ "${R2_BACKUP_BUCKET}" == "yeubep-v5-media-prod" ]]; then
   exit 1
 fi
 
+backup_class="${SYSTEM_B_BACKUP_CLASS:-manual}"
+if [[ "${backup_class}" != "weekly" && "${backup_class}" != "manual" ]]; then
+  echo "Unsupported SYSTEM_B_BACKUP_CLASS: ${backup_class}" >&2
+  exit 1
+fi
+
 export AWS_ACCESS_KEY_ID="${R2_BACKUP_ACCESS_KEY_ID}"
 export AWS_SECRET_ACCESS_KEY="${R2_BACKUP_SECRET_ACCESS_KEY}"
 export AWS_DEFAULT_REGION="auto"
@@ -68,15 +74,18 @@ pg_dump \
     --encrypt
 (cd "${work_dir}" && sha256sum "$(basename "${encrypted_path}")" > "$(basename "${encrypted_path}").sha256")
 
-daily_key="system-b/daily/${year}/${day}/$(basename "${encrypted_path}")"
-aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}" "s3://${R2_BACKUP_BUCKET}/${daily_key}" --only-show-errors
-aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}.sha256" "s3://${R2_BACKUP_BUCKET}/${daily_key}.sha256" --only-show-errors
-
-if [[ "$(date -u +%u)" == "7" ]]; then
-  weekly_key="system-b/weekly/${year}/${week}/$(basename "${encrypted_path}")"
-  aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}" "s3://${R2_BACKUP_BUCKET}/${weekly_key}" --only-show-errors
-  aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}.sha256" "s3://${R2_BACKUP_BUCKET}/${weekly_key}.sha256" --only-show-errors
+if [[ "${backup_class}" == "weekly" ]]; then
+  backup_key="system-b/weekly/${year}/${week}/$(basename "${encrypted_path}")"
+  retention_prefix="system-b/weekly/"
+  retention_count=8
+else
+  backup_key="system-b/manual/${year}/${day}/$(basename "${encrypted_path}")"
+  retention_prefix="system-b/manual/"
+  retention_count=8
 fi
+
+aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}" "s3://${R2_BACKUP_BUCKET}/${backup_key}" --only-show-errors
+aws --endpoint-url "${endpoint}" s3 cp "${encrypted_path}.sha256" "s3://${R2_BACKUP_BUCKET}/${backup_key}.sha256" --only-show-errors
 
 prune_prefix() {
   local prefix="$1"
@@ -99,7 +108,6 @@ prune_prefix() {
   done
 }
 
-prune_prefix "system-b/daily/" 14
-prune_prefix "system-b/weekly/" 8
+prune_prefix "${retention_prefix}" "${retention_count}"
 
-echo "Encrypted System B backup uploaded and retention enforced."
+echo "Encrypted System B ${backup_class} backup uploaded and retention enforced."
