@@ -11,10 +11,21 @@ const worker = fs.readFileSync(new URL('../cloudflare/v5-media-worker/src/index.
 
 test('V5 warms only playback leases before Play and does not preload media bytes', () => {
   assert.match(index, /\/v5\/media-warm\.js/);
-  assert.match(warm, /postMessage\(\{ type: WARM_MESSAGE, course: COURSE, assetId \}\)/);
+  assert.match(warm, /postMessage\(\{ type: WARM_MESSAGE, course: COURSE, assetId \}/);
   assert.match(warm, /rootMargin: '700px 0px'/);
+  assert.match(warm, /const IMMEDIATE_WARM_BUDGET = 2/);
+  assert.match(warm, /warmFirstVideoCells\(\)/);
   assert.doesNotMatch(warm, /fetch\s*\(/);
   assert.doesNotMatch(warm, /\.src\s*=\s*mediaUrl/);
+});
+
+test('V5 waits for confirmed lease warmup and retries instead of marking a failed warm as ready', () => {
+  assert.match(warm, /const warming = new Map\(\)/);
+  assert.match(warm, /new MessageChannel\(\)/);
+  assert.match(warm, /event\.data\?\.ok === true/);
+  assert.match(warm, /warmed\.add\(assetId\)/);
+  assert.match(warm, /if \(!controller\) return false/);
+  assert.match(warm, /warming\.delete\(assetId\)/);
 });
 
 test('V5 service worker prewarms proof identity and deduplicates concurrent lease issuance', () => {
@@ -22,7 +33,9 @@ test('V5 service worker prewarms proof identity and deduplicates concurrent leas
   assert.match(sw, /const leaseRequests = new Map\(\)/);
   assert.match(sw, /leaseRequests\.has\(key\)/);
   assert.match(sw, /data\.type !== "v5-warm-lease"/);
-  assert.match(sw, /event\.waitUntil\(fetchLease\(course, assetId, false\)/);
+  assert.match(sw, /const task = fetchLease\(course, assetId, false\)/);
+  assert.match(sw, /reply\?\.postMessage\(\{ ok: true \}\)/);
+  assert.match(sw, /event\.waitUntil\(task\)/);
 });
 
 test('V5 uses a smaller first video range while keeping steady-state chunks bounded', () => {

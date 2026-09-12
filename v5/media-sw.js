@@ -179,7 +179,11 @@ self.addEventListener("message", event => {
   const course = clean(data.course);
   const assetId = clean(data.assetId);
   if (!course || !assetId) return;
-  event.waitUntil(fetchLease(course, assetId, false).catch(() => null));
+  const reply = event.ports?.[0] || null;
+  const task = fetchLease(course, assetId, false)
+    .then(() => { try { reply?.postMessage({ ok: true }); } catch {} })
+    .catch(error => { try { reply?.postMessage({ ok: false, status: Number(error?.status || 0) }); } catch {} });
+  event.waitUntil(task);
 });
 
 self.addEventListener("fetch", event => {
