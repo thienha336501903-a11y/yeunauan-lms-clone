@@ -19,6 +19,15 @@ test('V5 student renderer keeps the mobile playback contract', () => {
   assert.match(app, /credentials: 'include'/);
 });
 
+test('V5 mobile Play keeps the tap activation when the protected-media worker already controls the page', () => {
+  const app = read('v5/app.js');
+  const start = app.slice(app.indexOf('async function startVideo'), app.indexOf('function openLightbox'));
+  assert.match(start, /if \(!navigator\.serviceWorker\?\.controller\) await ensureMediaWorker\(\)/);
+  assert.doesNotMatch(start, /try \{\s*await ensureMediaWorker\(\)/);
+  assert.match(start, /video\.src = mediaUrl\(cell\.dataset\.assetId\);\s*const playAttempt = video\.play\(\)/);
+  assert.match(start, /playAttempt\.catch\(\(\) => \{ cell\.dataset\.loading = ''; \}\)/);
+});
+
 test('V5 media service worker preserves byte-range playback on mobile browsers', () => {
   const sw = read('v5/media-sw.js');
   assert.match(sw, /playbackRange\(request\.headers\.get\("range"\), lease\.mimeType\)/);
