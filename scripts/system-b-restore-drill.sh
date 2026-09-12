@@ -22,7 +22,7 @@ if [[ "${SYSTEM_B_TEMP_RESTORE_CONFIRMATION}" != "TEMPORARY_SYSTEM_B_RESTORE_ONL
   echo "Restore confirmation marker is invalid." >&2
   exit 1
 fi
-if [[ ! "${SYSTEM_B_BACKUP_KEY}" =~ ^system-b/(daily|weekly)/[A-Za-z0-9._/-]+\.dump\.gpg$ ]]; then
+if [[ ! "${SYSTEM_B_BACKUP_KEY}" =~ ^system-b/(manual|weekly)/[A-Za-z0-9._/-]+\.dump\.gpg$ ]]; then
   echo "Backup key is outside the allowed System B prefixes." >&2
   exit 1
 fi
