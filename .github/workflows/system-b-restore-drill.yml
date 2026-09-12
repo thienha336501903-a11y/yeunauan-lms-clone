@@ -43,9 +43,40 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-      - name: Install PostgreSQL, GnuPG and AWS CLI
+      - name: Install PostgreSQL and GnuPG; use runner AWS CLI
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes postgresql-client gnupg awscli
+          sudo apt-get install --yes postgresql-client gnupg
+          command -v aws
+          aws --version
+          command -v pg_restore
+          command -v psql
+          command -v gpg
+          command -v node
+      - name: Preflight required restore-drill secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            SYSTEM_B_BACKUP_GPG_PRIVATE_KEY_B64
+            SYSTEM_B_TEMP_RESTORE_DATABASE_URL
+            SYSTEM_B_TEMP_RESTORE_CONFIRMATION
+            R2_BACKUP_ACCOUNT_ID
+            R2_BACKUP_ACCESS_KEY_ID
+            R2_BACKUP_SECRET_ACCESS_KEY
+            R2_BACKUP_BUCKET
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required restore-drill secret: %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+          echo "Required restore-drill secrets are configured."
       - name: Restore only to the guarded temporary target
         run: bash scripts/system-b-restore-drill.sh
