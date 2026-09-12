@@ -51,15 +51,33 @@ jobs:
           done
           exit "${missing}"
 
-      - name: Install backup dependencies
+      - name: Install PostgreSQL 17 backup dependencies
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes postgresql-client gnupg jq
+          sudo apt-get install --yes ca-certificates curl gnupg jq postgresql-common
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          arch="$(dpkg --print-architecture)"
+          sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: ${arch}
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "${GITHUB_PATH}"
+          export PATH="/usr/lib/postgresql/17/bin:${PATH}"
           command -v aws >/dev/null
           aws --version
           pg_dump --version
+          [[ "$(pg_dump --version)" == "pg_dump (PostgreSQL) 17."* ]]
           gpg --version | head -n 1
           jq --version
 
