@@ -1,4 +1,4 @@
-import { buildV5ViewModel, normalizeSearch } from './ui-model.js';
+import { buildV5ViewModel, buildTimelineOutline, normalizeSearch } from './ui-model.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);
@@ -13,7 +13,10 @@ let activeVideo = null;
 let videoProgress = null;
 let observer = null;
 
-const progressKey = () => `v5_progress_${activeCourse || 'unknown'}`;
+function isTimelineMode() {
+  return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
+}
+const progressKey = () => isTimelineMode() ? `v5_timeline_progress_${activeCourse || 'unknown'}` : `v5_progress_${activeCourse || 'unknown'}`;
 const videoProgressKey = () => `v5_video_progress_${activeCourse || 'unknown'}`;
 const mediaUrl = assetId => `/v5/media/${encodeURIComponent(assetId)}?course=${encodeURIComponent(activeCourse)}`;
 
@@ -66,18 +69,30 @@ function formatDuration(milliseconds) {
 function loadProgress() {
   try {
     const saved = JSON.parse(localStorage.getItem(progressKey()) || '{}');
-    seen = new Set(Array.isArray(saved.seen) ? saved.seen.map(String) : []);
-    lastSeen = String(saved.last || '');
+    if (isTimelineMode()) {
+      const savedSeen = Array.isArray(saved.seenPosts) ? saved.seenPosts : (Array.isArray(saved.seen) ? saved.seen : []);
+      seen = new Set(savedSeen.map(String));
+      lastSeen = String(saved.lastPost || saved.last || '');
+    } else {
+      seen = new Set(Array.isArray(saved.seen) ? saved.seen.map(String) : []);
+      lastSeen = String(saved.last || '');
+    }
     videoProgress = JSON.parse(localStorage.getItem(videoProgressKey()) || 'null');
   } catch { seen = new Set(); lastSeen = ''; videoProgress = null; }
 }
 
 function saveProgress() {
-  try { localStorage.setItem(progressKey(), JSON.stringify({ seen: [...seen], last: lastSeen, updatedAt: new Date().toISOString() })); } catch {}
+  try {
+    if (isTimelineMode()) {
+      localStorage.setItem(progressKey(), JSON.stringify({ seenPosts: [...seen], lastPost: lastSeen, updatedAt: new Date().toISOString() }));
+    } else {
+      localStorage.setItem(progressKey(), JSON.stringify({ seen: [...seen], last: lastSeen, updatedAt: new Date().toISOString() }));
+    }
+  } catch {}
 }
 
 function unfinishedVideo(progress) {
-  if (!progress?.assetId || !progress?.lessonId || !(Number(progress.currentTime) > .5)) return false;
+  if (!progress?.assetId || (!progress.lessonId && !progress.postId) || !(Number(progress.currentTime) > .5)) return false;
   const duration = Number(progress.duration || 0);
   return !(duration > 0 && (progress.currentTime >= duration - 2 || progress.currentTime / duration >= .98));
 }
@@ -89,10 +104,17 @@ function resumeTimeFor(assetId) {
 
 function saveVideoProgress(video) {
   const cell = video.closest('[data-asset-id]');
-  const card = video.closest('[data-lesson-id]');
+  const card = video.closest('.lesson-card') || video.closest('[data-lesson-id]');
   if (!cell || !card || !(video.currentTime > .5)) return;
   if (video.duration > 0 && (video.currentTime >= video.duration - 2 || video.currentTime / video.duration >= .98)) return clearVideoProgress(cell.dataset.assetId);
-  videoProgress = { assetId: cell.dataset.assetId, lessonId: card.dataset.lessonId, currentTime: video.currentTime, duration: video.duration || 0, updatedAt: new Date().toISOString() };
+  videoProgress = {
+    assetId: cell.dataset.assetId,
+    lessonId: card.dataset.lessonId || '',
+    postId: card.dataset.postId || '',
+    currentTime: video.currentTime,
+    duration: video.duration || 0,
+    updatedAt: new Date().toISOString()
+  };
   try { localStorage.setItem(videoProgressKey(), JSON.stringify(videoProgress)); } catch {}
   updateProgressUI();
 }
@@ -104,13 +126,17 @@ function clearVideoProgress(assetId = '') {
   updateProgressUI();
 }
 
-function markSeen(lessonId) {
-  if (!lessonId) return;
-  seen.add(String(lessonId));
-  lastSeen = String(lessonId);
+function markSeen(targetId) {
+  if (!targetId) return;
+  seen.add(String(targetId));
+  lastSeen = String(targetId);
   saveProgress();
   updateProgressUI();
-  document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.lessonId === String(lessonId)));
+  if (isTimelineMode()) {
+    document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.postId === String(targetId)));
+  } else {
+    document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.lessonId === String(targetId)));
+  }
 }
 
 function getResumeLesson() {
@@ -118,20 +144,68 @@ function getResumeLesson() {
   return lessons.find(lesson => String(lesson.id) === lastSeen) || lessons[0] || null;
 }
 
+function getResumeItem() {
+  if (isTimelineMode()) {
+    const outline = buildTimelineOutline(data);
+    if (!outline.length) return null;
+    let targetPostId = '';
+    if (unfinishedVideo(videoProgress)) {
+      targetPostId = String(videoProgress.postId || '');
+      if (!targetPostId && videoProgress.assetId) {
+        const match = data?.posts?.find(post => (data.post_assets || []).some(pa => String(pa.post_id) === String(post.id) && String(pa.asset_id) === String(videoProgress.assetId)));
+        if (match) targetPostId = String(match.id);
+      }
+    }
+    if (!targetPostId && lastSeen) {
+      targetPostId = lastSeen;
+    }
+    let outlineItem = targetPostId ? outline.find(item => String(item.postId) === targetPostId) : null;
+    if (!outlineItem) {
+      outlineItem = outline.find(item => !seen.has(String(item.postId))) || outline[0];
+    }
+    return outlineItem ? { id: outlineItem.postId, title: outlineItem.title, isTimeline: true } : null;
+  }
+  const lesson = getResumeLesson();
+  return lesson ? { id: lesson.id, title: lesson.title, isTimeline: false } : null;
+}
+
 function updateProgressUI() {
-  const realLessons = lessons.filter(lesson => lesson.id !== 'v5-loose-posts');
-  const completed = realLessons.filter(lesson => seen.has(String(lesson.id))).length;
-  const percent = realLessons.length ? Math.round(completed / realLessons.length * 100) : 0;
+  let completed = 0;
+  let total = 0;
+  if (isTimelineMode()) {
+    const outline = buildTimelineOutline(data);
+    total = outline.length;
+    completed = outline.filter(item => seen.has(String(item.postId))).length;
+  } else {
+    const realLessons = lessons.filter(lesson => lesson.id !== 'v5-loose-posts');
+    total = realLessons.length;
+    completed = realLessons.filter(lesson => seen.has(String(lesson.id))).length;
+  }
+  const percent = total ? Math.round(completed / total * 100) : 0;
   $('progressPct').textContent = `${percent}%`;
   $('progressFill').style.width = `${percent}%`;
   $('mobileProgress').style.width = `${percent}%`;
   $('outlineSeen').textContent = `${completed} đã xem`;
-  document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('seen', seen.has(item.dataset.lessonId)));
-  document.querySelectorAll('.seen-check').forEach(check => { check.hidden = !seen.has(check.closest('[data-lesson-id]')?.dataset.lessonId); });
-  const lesson = getResumeLesson();
-  if (lesson) {
-    $('resumeSideTitle').textContent = lesson.title;
-    $('resumeSideLabel').textContent = unfinishedVideo(videoProgress) ? 'Tiếp tục video đang xem' : (seen.has(String(lesson.id)) ? 'Xem lại bài gần nhất' : 'Tiếp tục học');
+
+  if (isTimelineMode()) {
+    document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('seen', seen.has(String(item.dataset.postId))));
+    document.querySelectorAll('.seen-check').forEach(check => {
+      const card = check.closest('.lesson-card');
+      check.hidden = !seen.has(String(card?.dataset.postId));
+    });
+  } else {
+    document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('seen', seen.has(item.dataset.lessonId)));
+    document.querySelectorAll('.seen-check').forEach(check => {
+      check.hidden = !seen.has(check.closest('[data-lesson-id]')?.dataset.lessonId);
+    });
+  }
+
+  const resumeItem = getResumeItem();
+  if (resumeItem) {
+    $('resumeSideTitle').textContent = resumeItem.title;
+    $('resumeSideLabel').textContent = unfinishedVideo(videoProgress)
+      ? 'Tiếp tục video đang xem'
+      : (seen.has(String(resumeItem.id)) ? 'Xem lại bài gần nhất' : 'Tiếp tục học');
   }
   const resumable = unfinishedVideo(videoProgress) && document.querySelector(`[data-asset-id="${CSS.escape(String(videoProgress.assetId))}"]`);
   $('resumeFloat').hidden = !resumable;
@@ -146,14 +220,30 @@ function iconFor(category) {
 }
 
 function renderOutline() {
-  const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
-  if (isTimeline) {
-    const postCount = data?.posts?.length || 0;
-    const html = `<section class="date-block"><div class="date-title"><span class="date-dot"></span>Dòng thời gian<span class="date-count">${postCount}</span></div><div style="padding:12px;font-size:13px;color:var(--muted)">Kênh bài học phát dạng dòng thời gian Telegram.</div></section>`;
+  if (isTimelineMode()) {
+    const outline = buildTimelineOutline(data);
+    const count = outline.length;
+    const itemHtml = item => `
+      <button class="outline-item${seen.has(String(item.postId)) ? ' seen' : ''}" data-post-id="${esc(item.postId)}" type="button">
+        <span class="outline-num">${item.ordinal}</span>
+        <span class="outline-icon">${esc(item.mediaIcon || '•')}</span>
+        <span class="outline-copy">
+          <span class="outline-title">${esc(item.title)}</span>
+          ${item.subtitle ? `<span class="outline-sub">${esc(item.subtitle)}</span>` : ''}
+        </span>
+        <span class="outline-seen"></span>
+      </button>
+    `.trim();
+
+    const html = `<section class="date-block"><div class="date-title"><span class="date-dot"></span>Phụ lục<span class="date-count">${count}</span></div>${outline.map(itemHtml).join('')}</section>`;
     $('outline').innerHTML = html;
     $('mobileOutline').innerHTML = html;
-    $('outlineCount').textContent = `${postCount} bài đăng`;
-    $('mobileOutlineCount').textContent = `${postCount} bài đăng · Dòng thời gian`;
+    $('outlineCount').textContent = `${count} bài đăng`;
+    $('mobileOutlineCount').textContent = `${count} bài đăng · chọn để chuyển nhanh`;
+    document.querySelectorAll('.outline-item[data-post-id]').forEach(button => button.addEventListener('click', () => {
+      closeOutline();
+      scrollToPost(button.dataset.postId);
+    }));
     return;
   }
   const itemHtml = lesson => `<button class="outline-item${seen.has(String(lesson.id)) ? ' seen' : ''}" data-lesson-id="${esc(lesson.id)}" type="button"><span class="outline-icon">${iconFor(lesson.category)}</span><span class="outline-text">${esc(lesson.title)}</span><span class="outline-time">${esc(timeLabel(lesson.date))}</span><span class="outline-seen"></span></button>`;
@@ -162,7 +252,7 @@ function renderOutline() {
   $('mobileOutline').innerHTML = html;
   $('outlineCount').textContent = `${lessons.length} bài học`;
   $('mobileOutlineCount').textContent = `${lessons.length} bài học · chọn để chuyển nhanh`;
-  document.querySelectorAll('.outline-item').forEach(button => button.addEventListener('click', () => { closeOutline(); scrollToLesson(button.dataset.lessonId); }));
+  document.querySelectorAll('.outline-item[data-lesson-id]').forEach(button => button.addEventListener('click', () => { closeOutline(); scrollToLesson(button.dataset.lessonId); }));
 }
 
 function assetHtml(asset, index, total) {
@@ -186,7 +276,8 @@ function postHtml(post, lesson, firstPost) {
   const source = post.sourceTitle || data.course?.title || 'Kênh bài học';
   const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
   const showLessonChip = !isTimeline && firstPost;
-  return `${showLessonChip ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${seen.has(String(lesson.id)) ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
+  const isSeen = isTimeline ? seen.has(String(post.id)) : seen.has(String(lesson.id));
+  return `${showLessonChip ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${isSeen ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
 }
 
 function renderFeed() {
@@ -212,6 +303,16 @@ function scrollToLesson(lessonId, flash = true) {
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   if (flash) { target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash'); }
   document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.lessonId === String(lessonId)));
+}
+
+function scrollToPost(postId, flash = true) {
+  const target = document.getElementById(`post-${postId}`) || document.querySelector(`[data-post-id="${CSS.escape(String(postId))}"]`);
+  if (!target) return;
+  lastSeen = String(postId);
+  saveProgress();
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (flash) { target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash'); }
+  document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.postId === String(postId)));
 }
 
 function highlight(text, query) {
@@ -240,10 +341,25 @@ function applyFilter(filter = activeFilter) {
   if (searching) {
     $('searchResultsTitle').textContent = `Tìm thấy ${results.length} kết quả`;
     $('searchResultList').innerHTML = results.map(({ lesson, post }, index) => `<button class="search-result" type="button" data-result="${index}"><span class="search-result-icon">${iconFor(post.category)}</span><span class="search-result-copy"><span class="search-result-title">${highlight(lesson.title, query)}</span><span class="search-result-snippet">${highlight(post.body.replace(/\s+/g, ' ').slice(0, 150), query)}</span></span><span class="search-result-meta">${esc(timeLabel(post.sourceDate))}</span></button>`).join('');
-    $('searchResultList').querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => { const result = results[Number(button.dataset.result)]; clearSearch(); requestAnimationFrame(() => { highlightPost(result.post.id, query); scrollToLesson(result.lesson.id, false); }); }));
+    $('searchResultList').querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => {
+      const result = results[Number(button.dataset.result)];
+      clearSearch();
+      requestAnimationFrame(() => {
+        highlightPost(result.post.id, query);
+        if (isTimelineMode()) {
+          scrollToPost(result.post.id, false);
+        } else {
+          scrollToLesson(result.lesson.id, false);
+        }
+      });
+    }));
     $('mobileSearchStatus').textContent = `Tìm thấy ${results.length} kết quả`;
   } else {
-    document.querySelectorAll('.lesson-card').forEach(card => { const visible = filter === 'all' || (filter === 'unread' ? !seen.has(card.dataset.lessonId) : card.dataset.category === filter); card.classList.toggle('filtered', !visible); });
+    document.querySelectorAll('.lesson-card').forEach(card => {
+      const isCardSeen = isTimelineMode() ? seen.has(card.dataset.postId) : seen.has(card.dataset.lessonId);
+      const visible = filter === 'all' || (filter === 'unread' ? !isCardSeen : card.dataset.category === filter);
+      card.classList.toggle('filtered', !visible);
+    });
     document.querySelectorAll('.lesson-chip').forEach(chip => {
       let node = chip.nextElementSibling;
       let visible = false;
@@ -334,14 +450,19 @@ async function startVideo(cell, { resume = false } = {}) {
     let lastSave = 0;
     video.addEventListener('timeupdate', () => { if (Date.now() - lastSave > 1000) { lastSave = Date.now(); saveVideoProgress(video); } });
     video.addEventListener('pause', () => saveVideoProgress(video));
-    video.addEventListener('ended', () => { clearVideoProgress(cell.dataset.assetId); markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId); });
+    video.addEventListener('ended', () => {
+      clearVideoProgress(cell.dataset.assetId);
+      const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
+      markSeen(targetId);
+    });
     video.addEventListener('playing', () => {
       cell.dataset.loading = '';
       if (!resume && unfinishedVideo(videoProgress) && String(videoProgress.assetId) === String(cell.dataset.assetId)) clearVideoProgress(cell.dataset.assetId);
     }, { once: true });
     cell.replaceChildren(video);
     activeVideo = video;
-    markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId);
+    const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
+    markSeen(targetId);
     video.src = mediaUrl(cell.dataset.assetId);
     const playAttempt = video.play();
     if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => { cell.dataset.loading = ''; });
@@ -353,8 +474,13 @@ async function startVideo(cell, { resume = false } = {}) {
 
 function resumeSavedVideo() {
   if (!unfinishedVideo(videoProgress)) {
-    const lesson = getResumeLesson();
-    if (lesson) scrollToLesson(lesson.id);
+    if (isTimelineMode()) {
+      const item = getResumeItem();
+      if (item) scrollToPost(item.id);
+    } else {
+      const lesson = getResumeLesson();
+      if (lesson) scrollToLesson(lesson.id);
+    }
     return;
   }
   const cell = document.querySelector(`[data-asset-id="${CSS.escape(String(videoProgress.assetId))}"]`);
@@ -376,7 +502,15 @@ function wireObservers() {
   observer?.disconnect();
   if (!('IntersectionObserver' in window)) return;
   const timers = new Map();
-  observer = new IntersectionObserver(entries => entries.forEach(entry => { const id = entry.target.dataset.lessonId; if (entry.isIntersecting && entry.intersectionRatio >= .45 && !timers.has(id)) timers.set(id, setTimeout(() => { markSeen(id); timers.delete(id); }, 900)); else if (!entry.isIntersecting && timers.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); } }), { threshold: [0, .45, .7] });
+  observer = new IntersectionObserver(entries => entries.forEach(entry => {
+    const id = isTimelineMode() ? entry.target.dataset.postId : entry.target.dataset.lessonId;
+    if (entry.isIntersecting && entry.intersectionRatio >= .45 && !timers.has(id)) {
+      timers.set(id, setTimeout(() => { markSeen(id); timers.delete(id); }, 900));
+    } else if (!entry.isIntersecting && timers.has(id)) {
+      clearTimeout(timers.get(id));
+      timers.delete(id);
+    }
+  }), { threshold: [0, .45, .7] });
   document.querySelectorAll('.lesson-card').forEach(card => observer.observe(card));
 }
 
@@ -398,8 +532,21 @@ function render(payload) {
   $('sideSub').textContent = subtitle; $('mobileSub').textContent = subtitle;
   if (payload.course?.imageUrl) for (const id of ['sideAvatar', 'mobileAvatar']) { $(id).classList.add('has-image'); $(id).style.backgroundImage = `url("${String(payload.course.imageUrl).replace(/["\\]/g, '')}")`; }
   renderOutline(); renderFeed(); updateProgressUI(); applyFilter();
-  const lead = lessons.find(lesson => lesson.posts.some(post => post.isPinned)) || lessons[0];
-  if (lead) { $('pinTitle').textContent = lead.title; $('pinAction').onclick = () => scrollToLesson(lead.id); } else $('pinStrip').hidden = true;
+  if (isTimeline) {
+    const pinnedPost = payload.posts?.find(p => p.isPinned || p.is_pinned);
+    const outline = buildTimelineOutline(payload);
+    const targetItem = pinnedPost ? outline.find(it => String(it.postId) === String(pinnedPost.id)) : outline[0];
+    if (targetItem) {
+      $('pinTitle').textContent = targetItem.title;
+      $('pinAction').onclick = () => scrollToPost(targetItem.postId);
+      $('pinStrip').hidden = false;
+    } else {
+      $('pinStrip').hidden = true;
+    }
+  } else {
+    const lead = lessons.find(lesson => lesson.posts.some(post => post.isPinned)) || lessons[0];
+    if (lead) { $('pinTitle').textContent = lead.title; $('pinAction').onclick = () => scrollToLesson(lead.id); $('pinStrip').hidden = false; } else $('pinStrip').hidden = true;
+  }
   $('state').hidden = true; $('app').hidden = false;
   hydrateProtectedImages().catch(() => {});
 }
@@ -425,7 +572,15 @@ function bind() {
   $('mobileSearchClear').addEventListener('click', clearSearch); $('searchCancel').addEventListener('click', clearSearch);
   $('mobileOutlineBtn').addEventListener('click', openOutline); $('mobileOutlineBackdrop').addEventListener('click', closeOutline); $('mobileOutlineClose').addEventListener('click', closeOutline);
   $('lightClose').addEventListener('click', closeLightbox); $('lightbox').addEventListener('click', event => { if (event.target === $('lightbox')) closeLightbox(); });
-  $('resumeSide').addEventListener('click', () => { if (unfinishedVideo(videoProgress)) resumeSavedVideo(); else { const lesson = getResumeLesson(); if (lesson) scrollToLesson(lesson.id); } });
+  $('resumeSide').addEventListener('click', () => { if (unfinishedVideo(videoProgress)) resumeSavedVideo(); else {
+    if (isTimelineMode()) {
+      const item = getResumeItem();
+      if (item) scrollToPost(item.id);
+    } else {
+      const lesson = getResumeLesson();
+      if (lesson) scrollToLesson(lesson.id);
+    }
+  } });
   $('resumeFloat').addEventListener('click', resumeSavedVideo);
   document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLightbox(); closeOutline(); setMobileSearch(false); } });
   addEventListener('pagehide', () => releaseVideo(activeVideo));
