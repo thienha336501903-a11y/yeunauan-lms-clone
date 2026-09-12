@@ -43,15 +43,35 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-      - name: Install PostgreSQL and GnuPG; use runner AWS CLI
+      - name: Install PostgreSQL 17 restore dependencies
+        shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes postgresql-client gnupg
+          sudo apt-get install --yes ca-certificates curl gnupg postgresql-common
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          arch="$(dpkg --print-architecture)"
+          sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: ${arch}
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "${GITHUB_PATH}"
+          export PATH="/usr/lib/postgresql/17/bin:${PATH}"
           command -v aws
           aws --version
-          command -v pg_restore
-          command -v psql
+          pg_restore --version
+          psql --version
+          [[ "$(pg_restore --version)" == "pg_restore (PostgreSQL) 17."* ]]
+          [[ "$(psql --version)" == "psql (PostgreSQL) 17."* ]]
           command -v gpg
           command -v node
       - name: Preflight required restore-drill secrets
