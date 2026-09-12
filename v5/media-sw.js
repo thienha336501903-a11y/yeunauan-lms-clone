@@ -2,7 +2,8 @@ const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
 const leaseRequests = new Map();
 const REFRESH_SKEW_MS = 45 * 1000;
-const INITIAL_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
+const STARTUP_VIDEO_RANGE_BYTES = 1 * 1024 * 1024;
+const STEADY_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 let proofIdentityPromise = null;
 
@@ -54,11 +55,12 @@ function playbackRange(rawRange, mimeType) {
     const openEnded = value.match(/^bytes=(\d+)-$/i);
     if (!openEnded) return value;
     const start = Number(openEnded[1]);
-    const end = start + INITIAL_VIDEO_RANGE_BYTES - 1;
+    const chunkBytes = start === 0 ? STARTUP_VIDEO_RANGE_BYTES : STEADY_VIDEO_RANGE_BYTES;
+    const end = start + chunkBytes - 1;
     if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(end)) return value;
     return `bytes=${start}-${end}`;
   }
-  return isVideo ? `bytes=0-${INITIAL_VIDEO_RANGE_BYTES - 1}` : "";
+  return isVideo ? `bytes=0-${STARTUP_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
 async function issueLease(course, assetId) {
