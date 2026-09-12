@@ -11,8 +11,8 @@ test('learning route resolves delivery_mode once per requested course', () => {
   assert.match(source, /const requestedV4 = deliveryMode === "v4"/);
 });
 
-test('explicit V5 and V4 course routes happen before legacy global routing', () => {
-  assert.match(source, /const target = requestedV5\s*\? "\/v5\/"\s*:\s*requestedV4\s*\? "\/v4-sw-refresh\.html"/);
+test('explicit V5 uses the worker bootstrap while V4 stays on its existing refresh route', () => {
+  assert.match(source, /const target = requestedV5\s*\? "\/v5-sw-bootstrap\.html"\s*:\s*requestedV4\s*\? "\/v4-sw-refresh\.html"/);
   assert.match(source, /isV4RoutingEnabled\(\) \? "\/v4-sw-refresh\.html" : "\/v3"/);
   assert.match(source, /: "\/lms\.html"/);
 });
