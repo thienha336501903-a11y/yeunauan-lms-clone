@@ -294,7 +294,11 @@ async function startVideo(cell) {
   const button = cell.querySelector('[data-v5-start]');
   if (button) button.disabled = true;
   try {
-    await ensureMediaWorker();
+    // Normal /learning entry activates the /v5/ Service Worker before the page
+    // is entered. On mobile, do not cross an async boundary before play() when
+    // a controller already exists, otherwise the browser can discard the tap's
+    // transient user activation and leave the player waiting indefinitely.
+    if (!navigator.serviceWorker?.controller) await ensureMediaWorker();
     if (activeVideo) releaseVideo(activeVideo);
     const video = document.createElement('video');
     video.controls = true; video.playsInline = true; video.preload = 'none';
@@ -305,11 +309,13 @@ async function startVideo(cell) {
     video.addEventListener('timeupdate', () => { if (Date.now() - lastSave > 1000) { lastSave = Date.now(); saveVideoProgress(video); } });
     video.addEventListener('pause', () => saveVideoProgress(video));
     video.addEventListener('ended', () => { clearVideoProgress(cell.dataset.assetId); markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId); });
+    video.addEventListener('playing', () => { cell.dataset.loading = ''; }, { once: true });
     cell.replaceChildren(video);
     activeVideo = video;
     markSeen(cell.closest('[data-lesson-id]')?.dataset.lessonId);
     video.src = mediaUrl(cell.dataset.assetId);
-    await video.play().catch(() => {});
+    const playAttempt = video.play();
+    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => { cell.dataset.loading = ''; });
   } catch (error) {
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
