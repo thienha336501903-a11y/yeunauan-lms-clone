@@ -50,11 +50,12 @@ export default async function handler(req, res) {
   const requestedV5 = deliveryMode === "v5";
   const requestedV4 = deliveryMode === "v4";
 
-  // V5 is an explicit per-course route and uses its own /v5/ Service Worker
-  // scope. V4 keeps the existing refresh bootstrap and worker unchanged;
-  // legacy LMS/V3 routing remains unchanged.
+  // V5 first passes through a tiny same-origin bootstrap outside the /v5/
+  // worker scope. It activates the protected-media worker before navigating
+  // into /v5/, avoiding a cold first-page reload while preserving the exact
+  // V2 media/security path. V4 and legacy routing remain unchanged.
   const target = requestedV5
-    ? "/v5/"
+    ? "/v5-sw-bootstrap.html"
     : requestedV4
       ? "/v4-sw-refresh.html"
       : mode === "v3"
