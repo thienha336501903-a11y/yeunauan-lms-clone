@@ -16,19 +16,20 @@ test('public shells revalidate while APIs and service workers remain no-store', 
   assert.doesNotMatch(vercel, /private-video|Cache API/);
 });
 
-test('daily backup encrypts before isolated R2 upload and enforces requested retention', () => {
+test('weekly backup encrypts before isolated R2 upload and retains weekly/manual snapshots', () => {
   assert.match(backup, /pg_dump[\s\S]*--format=custom/);
   assert.match(backup, /gpg[\s\S]*--encrypt/);
   assert.match(backup, /pg_dump[\s\S]*\| gpg[\s\S]*--encrypt/);
   assert.doesNotMatch(backup, /--file=/);
   assert.ok(backup.indexOf('--encrypt') < backup.indexOf('s3 cp "${encrypted_path}"'));
-  assert.match(backup, /system-b\/daily/);
+  assert.match(backup, /system-b\/manual/);
   assert.match(backup, /system-b\/weekly/);
-  assert.match(backup, /prune_prefix "system-b\/daily\/" 14/);
-  assert.match(backup, /prune_prefix "system-b\/weekly\/" 8/);
+  assert.match(backup, /retention_count=8/);
+  assert.match(backup, /prune_prefix "\$\{retention_prefix\}" "\$\{retention_count\}"/);
   assert.match(backup, /yeubep-v5-media-prod/);
   assert.match(backup, /yyiavtiwtekkocqpephr/);
-  assert.match(backupWorkflow, /schedule:[\s\S]*cron: '17 18 \* \* \*'/);
+  assert.match(backupWorkflow, /schedule:[\s\S]*cron: '17 18 \* \* 0'/);
+  assert.match(backupWorkflow, /SYSTEM_B_BACKUP_CLASS:[\s\S]*weekly[\s\S]*manual/);
   assert.match(backupWorkflow, /permissions:\s*\n\s*contents: read/);
 });
 
@@ -39,6 +40,7 @@ test('restore drill is manual and fails closed for Production System B', () => {
   assert.match(restore, /TEMPORARY_SYSTEM_B_RESTORE_ONLY/);
   assert.match(restore, /yyiavtiwtekkocqpephr/);
   assert.match(restore, /\^system_b_restore_/);
+  assert.match(restore, /\(manual\|weekly\)/);
   assert.match(restore, /sha256sum --check/);
   assert.match(restore, /gpg[\s\S]*--decrypt[\s\S]*\| pg_restore[\s\S]*--clean[\s\S]*--exit-on-error/);
 });

@@ -2,7 +2,7 @@ name: System B encrypted database backup
 
 on:
   schedule:
-    - cron: '17 18 * * *'
+    - cron: '17 18 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -14,11 +14,12 @@ concurrency:
 
 jobs:
   backup:
-    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone' && (github.event_name == 'workflow_dispatch' || vars.SYSTEM_B_BACKUP_ENABLED == 'true')
+    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       SYSTEM_ID: system-b
+      SYSTEM_B_BACKUP_CLASS: ${{ github.event_name == 'schedule' && 'weekly' || 'manual' }}
       SYSTEM_B_BACKUP_DATABASE_URL: ${{ secrets.SYSTEM_B_BACKUP_DATABASE_URL }}
       SYSTEM_B_BACKUP_GPG_PUBLIC_KEY_B64: ${{ secrets.SYSTEM_B_BACKUP_GPG_PUBLIC_KEY_B64 }}
       R2_BACKUP_ACCOUNT_ID: ${{ secrets.R2_BACKUP_ACCOUNT_ID }}
