@@ -42,18 +42,107 @@ export default async function adminV5CreateCourseHandler(req, res) {
   }
 
   let createdCourse = null;
+  let createdCourseWasInserted = false;
   try {
     const { data: existing, error: existingError } = await supabase
       .from("courses")
-      .select("id,slug,delivery_mode")
+      .select("id,slug,title,description,image_url,teacher_name,active,is_published,delivery_mode,raw_data,price,sort_order")
       .eq("slug", slug)
       .maybeSingle();
     if (existingError) throw existingError;
+
     if (existing) {
-      return res.status(409).json({
-        success: false,
-        code: "course_slug_exists",
-        error: `Slug ${slug} đã tồn tại. Hãy chọn slug khác.`
+      const existingMode = clean(existing.delivery_mode).toLowerCase();
+      if (existingMode !== "v5") {
+        return res.status(409).json({
+          success: false,
+          code: "mode_conflict",
+          error: `Slug này đã thuộc khóa ở chế độ ${existingMode || 'khác'}. Không thể tự chuyển sang V5.`
+        });
+      }
+
+      // Case 2: Commerce created the V5 course row first.
+      // Reuse the existing canonical course row without inserting a duplicate.
+      // Preserve Commerce data (price, image_url, description, teacher, raw_data, sale state active, is_published, orders, enrollments).
+      createdCourse = existing;
+
+      // Ensure v5_course_configs
+      const { data: existingConfig, error: cfgLookupErr } = await supabase
+        .from("v5_course_configs")
+        .select("*")
+        .eq("course_id", existing.id)
+        .maybeSingle();
+      if (cfgLookupErr) throw cfgLookupErr;
+
+      let config;
+      if (!existingConfig) {
+        const { data: newConfig, error: insCfgErr } = await supabase
+          .from("v5_course_configs")
+          .insert({
+            course_id: existing.id,
+            source_mode: "direct",
+            status: "draft",
+            settings: {
+              authoring_mode: "timeline"
+            },
+            updated_at: new Date().toISOString()
+          })
+          .select("*")
+          .single();
+        if (insCfgErr) throw insCfgErr;
+        config = newConfig;
+      } else {
+        const currentSettings = existingConfig.settings && typeof existingConfig.settings === "object" ? existingConfig.settings : {};
+        if (!currentSettings.authoring_mode) {
+          const { data: updConfig, error: updCfgErr } = await supabase
+            .from("v5_course_configs")
+            .update({
+              settings: {
+                ...currentSettings,
+                authoring_mode: "timeline"
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq("course_id", existing.id)
+            .select("*")
+            .single();
+          if (updCfgErr) throw updCfgErr;
+          config = updConfig;
+        } else {
+          config = existingConfig;
+        }
+      }
+
+      // Ensure hidden timeline lesson
+      const { data: lessons, error: lErr } = await supabase
+        .from("v5_lessons")
+        .select("id,metadata")
+        .eq("course_id", existing.id);
+      if (lErr) throw lErr;
+
+      const hasHiddenLesson = (lessons || []).some(l => l.metadata?.system_lesson === true);
+      if (!hasHiddenLesson) {
+        const { error: insLessonErr } = await supabase
+          .from("v5_lessons")
+          .insert({
+            course_id: existing.id,
+            title: "Timeline",
+            position: 1000,
+            status: "draft",
+            metadata: {
+              system_lesson: true
+            }
+          });
+        if (insLessonErr) throw insLessonErr;
+      }
+
+      return res.status(200).json({
+        success: true,
+        operation: "reused_existing_course",
+        course: existing,
+        config,
+        admin: admin.email,
+        message: "Khóa đã tồn tại trên Commerce. Đã mở/khởi tạo V5 Channel trên cùng khóa."
       });
     }
 
@@ -77,6 +166,7 @@ export default async function adminV5CreateCourseHandler(req, res) {
       .single();
     if (courseError) throw courseError;
     createdCourse = course;
+    createdCourseWasInserted = true;
 
     const { data: config, error: configError } = await supabase
       .from("v5_course_configs")
@@ -113,7 +203,7 @@ export default async function adminV5CreateCourseHandler(req, res) {
       admin: admin.email
     });
   } catch (error) {
-    if (createdCourse?.id) {
+    if (createdCourseWasInserted && createdCourse?.id) {
       const { error: cleanupError } = await supabase
         .from("courses")
         .delete()

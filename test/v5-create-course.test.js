@@ -16,7 +16,7 @@ test('V5 course creation is admin-only, draft, unpublished, and sale-disabled', 
   assert.match(handler, /v5CreatedFrom: "course_channel"/);
   assert.match(handler, /source_mode: "direct"/);
   assert.match(handler, /status: "draft"/);
-  assert.match(handler, /course_slug_exists/);
+  assert.match(handler, /mode_conflict/);
   assert.match(handler, /cleanup failed/);
   assert.match(router, /endpoint === "v5-create-course"/);
 });
