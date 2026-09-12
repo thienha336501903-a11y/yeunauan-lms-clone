@@ -28,6 +28,34 @@ async function loadCourse(courseSlug) {
   return data || null;
 }
 
+export async function ensureHiddenTimelineLesson(courseId) {
+  const { data: existing, error: findError } = await supabase
+    .from("v5_lessons")
+    .select("*")
+    .eq("course_id", courseId)
+    .order("position", { ascending: true });
+  if (findError) throw findError;
+  const systemLesson = (existing || []).find(l => l.metadata?.system_lesson === true);
+  if (systemLesson) return systemLesson;
+
+  const position = (existing && existing.length > 0)
+    ? Math.max(...existing.map(l => Number(l.position || 0))) + 1000
+    : 1000;
+  const { data: created, error: insertError } = await supabase
+    .from("v5_lessons")
+    .insert({
+      course_id: courseId,
+      title: "Timeline",
+      position,
+      status: "draft",
+      metadata: { system_lesson: true }
+    })
+    .select("*")
+    .single();
+  if (insertError) throw insertError;
+  return created;
+}
+
 async function ensureConfig(course) {
   const { data: existing, error: readError } = await supabase
     .from("v5_course_configs")
@@ -39,7 +67,7 @@ async function ensureConfig(course) {
 
   const { data, error } = await supabase
     .from("v5_course_configs")
-    .insert({ course_id: course.id, source_mode: "direct", status: "draft" })
+    .insert({ course_id: course.id, source_mode: "direct", status: "draft", settings: { authoring_mode: "timeline" } })
     .select("*")
     .single();
   if (error) throw error;
@@ -48,12 +76,21 @@ async function ensureConfig(course) {
 
 async function loadState(course) {
   const config = await ensureConfig(course);
+  const authoringMode = config.settings?.authoring_mode || "lesson";
+  let hiddenLessonId = null;
+  if (authoringMode === "timeline") {
+    const hiddenLesson = await ensureHiddenTimelineLesson(course.id);
+    hiddenLessonId = hiddenLesson.id;
+  }
+
   const [{ data: lessons, error: lessonError }, { data: posts, error: postError }] = await Promise.all([
     supabase.from("v5_lessons").select("*").eq("course_id", course.id).order("position", { ascending: true }),
     supabase.from("v5_posts").select("*").eq("course_id", course.id).order("position", { ascending: true })
   ]);
   if (lessonError) throw lessonError;
   if (postError) throw postError;
+
+  const uiLessons = (lessons || []).filter(l => !(authoringMode === "timeline" && l.metadata?.system_lesson === true));
 
   const postIds = (posts || []).map(item => item.id);
   let links = [];
@@ -77,7 +114,7 @@ async function loadState(course) {
     }
   }
 
-  return { course, config, lessons: lessons || [], posts: posts || [], links, assets };
+  return { course, config, authoringMode, hiddenLessonId, lessons: uiLessons, allLessons: lessons || [], posts: posts || [], links, assets };
 }
 
 async function nextPosition(table, filters = {}) {
@@ -101,7 +138,15 @@ async function createLesson(course, body) {
 }
 
 async function createPost(course, body) {
-  const lessonId = clean(body.lessonId) || null;
+  const config = await ensureConfig(course);
+  const authoringMode = config.settings?.authoring_mode || "lesson";
+  let lessonId = clean(body.lessonId) || null;
+
+  if (!lessonId && authoringMode === "timeline") {
+    const hiddenLesson = await ensureHiddenTimelineLesson(course.id);
+    lessonId = hiddenLesson.id;
+  }
+
   if (lessonId) {
     const { data: lesson, error } = await supabase
       .from("v5_lessons")
@@ -206,6 +251,36 @@ async function updateConfig(course, body) {
     if (!["direct", "telegram", "hybrid"].includes(sourceMode)) throw new Error("sourceMode không hợp lệ.");
     patch.source_mode = sourceMode;
   }
+
+  if (body.settings !== undefined || body.authoringMode !== undefined) {
+    const { data: currentConfig, error: readErr } = await supabase
+      .from("v5_course_configs")
+      .select("settings")
+      .eq("course_id", course.id)
+      .single();
+    if (readErr) throw readErr;
+    const currentSettings = (currentConfig?.settings && typeof currentConfig.settings === "object") ? currentConfig.settings : {};
+    const updatedSettings = { ...currentSettings };
+    if (body.settings && typeof body.settings === "object") {
+      Object.assign(updatedSettings, body.settings);
+    }
+    if (body.authoringMode !== undefined) {
+      const mode = clean(body.authoringMode);
+      if (!["timeline", "lesson"].includes(mode)) throw new Error("authoringMode không hợp lệ (timeline | lesson).");
+      updatedSettings.authoring_mode = mode;
+    }
+    patch.settings = updatedSettings;
+
+    if (updatedSettings.authoring_mode === "timeline") {
+      const hiddenLesson = await ensureHiddenTimelineLesson(course.id);
+      await supabase
+        .from("v5_posts")
+        .update({ lesson_id: hiddenLesson.id })
+        .eq("course_id", course.id)
+        .is("lesson_id", null);
+    }
+  }
+
   const { data, error } = await supabase.from("v5_course_configs").update(patch).eq("course_id", course.id).select("*").single();
   if (error) throw error;
   return data;

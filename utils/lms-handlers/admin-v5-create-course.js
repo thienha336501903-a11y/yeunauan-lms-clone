@@ -84,11 +84,27 @@ export default async function adminV5CreateCourseHandler(req, res) {
         course_id: course.id,
         source_mode: "direct",
         status: "draft",
+        settings: {
+          authoring_mode: "timeline"
+        },
         updated_at: new Date().toISOString()
       }, { onConflict: "course_id" })
       .select("*")
       .single();
     if (configError) throw configError;
+
+    const { error: lessonError } = await supabase
+      .from("v5_lessons")
+      .insert({
+        course_id: course.id,
+        title: "Timeline",
+        position: 1000,
+        status: "draft",
+        metadata: {
+          system_lesson: true
+        }
+      });
+    if (lessonError) throw lessonError;
 
     return res.status(201).json({
       success: true,

@@ -146,6 +146,16 @@ function iconFor(category) {
 }
 
 function renderOutline() {
+  const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
+  if (isTimeline) {
+    const postCount = data?.posts?.length || 0;
+    const html = `<section class="date-block"><div class="date-title"><span class="date-dot"></span>Dòng thời gian<span class="date-count">${postCount}</span></div><div style="padding:12px;font-size:13px;color:var(--muted)">Kênh bài học phát dạng dòng thời gian Telegram.</div></section>`;
+    $('outline').innerHTML = html;
+    $('mobileOutline').innerHTML = html;
+    $('outlineCount').textContent = `${postCount} bài đăng`;
+    $('mobileOutlineCount').textContent = `${postCount} bài đăng · Dòng thời gian`;
+    return;
+  }
   const itemHtml = lesson => `<button class="outline-item${seen.has(String(lesson.id)) ? ' seen' : ''}" data-lesson-id="${esc(lesson.id)}" type="button"><span class="outline-icon">${iconFor(lesson.category)}</span><span class="outline-text">${esc(lesson.title)}</span><span class="outline-time">${esc(timeLabel(lesson.date))}</span><span class="outline-seen"></span></button>`;
   const html = `<section class="date-block"><div class="date-title"><span class="date-dot"></span>Phụ lục<span class="date-count">${lessons.length}</span></div>${lessons.map(itemHtml).join('')}</section>`;
   $('outline').innerHTML = html;
@@ -174,7 +184,9 @@ function postHtml(post, lesson, firstPost) {
   const visualHtml = visuals.length ? `<div class="media-grid ${post.mosaic}">${visuals.map((asset, index) => assetHtml(asset, index, post.visualAssets.length)).join('')}</div>` : '';
   const filesHtml = post.fileAssets.map(asset => assetHtml(asset, 0, 1)).join('');
   const source = post.sourceTitle || data.course?.title || 'Kênh bài học';
-  return `${firstPost ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${seen.has(String(lesson.id)) ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
+  const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
+  const showLessonChip = !isTimeline && firstPost;
+  return `${showLessonChip ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${seen.has(String(lesson.id)) ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
 }
 
 function renderFeed() {
@@ -376,10 +388,13 @@ function render(payload) {
   data = payload;
   lessons = buildV5ViewModel(payload);
   loadProgress();
+  const isTimeline = payload.settings?.authoring_mode === 'timeline' || payload.authoringMode === 'timeline';
   const title = payload.course?.title || activeCourse;
   document.title = title;
   $('sideTitle').textContent = title; $('mobileTitle').textContent = title;
-  const subtitle = `${lessons.length} bài học · ${payload.course?.slug || activeCourse}`;
+  const subtitle = isTimeline
+    ? `${payload.posts?.length || 0} bài đăng · ${payload.course?.slug || activeCourse}`
+    : `${lessons.length} bài học · ${payload.course?.slug || activeCourse}`;
   $('sideSub').textContent = subtitle; $('mobileSub').textContent = subtitle;
   if (payload.course?.imageUrl) for (const id of ['sideAvatar', 'mobileAvatar']) { $(id).classList.add('has-image'); $(id).style.backgroundImage = `url("${String(payload.course.imageUrl).replace(/["\\]/g, '')}")`; }
   renderOutline(); renderFeed(); updateProgressUI(); applyFilter();
