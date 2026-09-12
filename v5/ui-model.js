@@ -92,3 +92,96 @@ export function buildV5ViewModel(payload) {
   }
   return lessonViews;
 }
+
+export function buildTimelineOutline(payload) {
+  const posts = [...(Array.isArray(payload?.posts) ? payload.posts : [])].sort(byPosition);
+  const rawLinks = Array.isArray(payload?.links) ? payload.links : (Array.isArray(payload?.post_assets) ? payload.post_assets : []);
+  const links = [...rawLinks].sort(byPosition);
+  const assets = new Map((Array.isArray(payload?.assets) ? payload.assets : []).map(asset => [String(asset.id), asset]));
+  const linksByPost = new Map();
+  for (const link of links) {
+    const key = String(link.post_id || '');
+    if (!linksByPost.has(key)) linksByPost.set(key, []);
+    linksByPost.get(key).push(link);
+  }
+
+  return posts.map((post, index) => {
+    const postAssets = (Array.isArray(post.visualAssets) || Array.isArray(post.fileAssets))
+      ? [...(post.visualAssets || []), ...(post.fileAssets || [])]
+      : (linksByPost.get(String(post.id)) || [])
+          .map(link => assets.get(String(link.asset_id)))
+          .filter(Boolean);
+
+    const hasVideo = postAssets.some(asset => VIDEO_TYPES.has(asset.type));
+    const hasImage = postAssets.some(asset => IMAGE_TYPES.has(asset.type));
+    const hasDoc = postAssets.some(asset => !VIDEO_TYPES.has(asset.type) && !IMAGE_TYPES.has(asset.type));
+
+    let mediaIcon = '•';
+    let category = 'text';
+    if (hasVideo) {
+      mediaIcon = '▶';
+      category = 'video';
+    } else if (hasDoc) {
+      mediaIcon = '📄';
+      category = 'file';
+    } else if (hasImage) {
+      mediaIcon = '📷';
+      category = 'photo';
+    }
+
+    const primaryAsset = postAssets[0] || null;
+    const assetFilename = String(primaryAsset?.original_filename || '').trim();
+
+    const body = uniqueText(post.body || post.text_content, post.caption).trim();
+    const lines = body ? body.split(/\r?\n/).map(line => line.trim()).filter(Boolean) : [];
+
+    let title = '';
+    let subtitle = '';
+
+    if (lines.length > 0) {
+      title = lines[0];
+      if (title.length > 65) {
+        title = title.slice(0, 60).trim() + '…';
+      }
+
+      if (assetFilename) {
+        subtitle = assetFilename;
+      } else if (lines.length > 1) {
+        let secondLine = lines[1];
+        if (secondLine.length > 70) {
+          secondLine = secondLine.slice(0, 65).trim() + '…';
+        }
+        subtitle = secondLine;
+      }
+    } else {
+      if (hasVideo) {
+        title = 'Video';
+      } else if (hasDoc) {
+        title = 'Tài liệu';
+      } else if (hasImage) {
+        title = 'Hình ảnh';
+      } else {
+        title = 'Bài đăng';
+      }
+
+      if (assetFilename) {
+        subtitle = assetFilename;
+      }
+    }
+
+    const display = post.display && typeof post.display === 'object' ? post.display : {};
+    const sourceDate = String(display.source_date || post.created_at || '').trim();
+
+    return {
+      postId: String(post.id),
+      ordinal: index + 1,
+      title,
+      subtitle,
+      mediaIcon,
+      category,
+      position: Number(post.position || 0),
+      sourceDate
+    };
+  });
+}
+
