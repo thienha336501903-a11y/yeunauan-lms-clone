@@ -9,6 +9,8 @@ let seen = new Set();
 let lastSeen = '';
 let activeFilter = 'all';
 let searchQuery = '';
+let searchResultsList = [];
+let activeSearchResultIndex = -1;
 let activeVideo = null;
 let videoProgress = null;
 let observer = null;
@@ -329,32 +331,108 @@ function searchResults(query) {
   return results;
 }
 
+function updateSearchNavigatorUI() {
+  const total = searchResultsList.length;
+  if (!total || activeSearchResultIndex < 0) {
+    $('searchNavigator').hidden = true;
+    return;
+  }
+  $('searchNavigator').hidden = false;
+  $('searchNavQuery').textContent = `“${searchQuery}”`;
+  $('searchNavCount').textContent = `${activeSearchResultIndex + 1} / ${total}`;
+  $('searchNavPrev').disabled = activeSearchResultIndex <= 0;
+  $('searchNavNext').disabled = activeSearchResultIndex >= total - 1;
+  document.querySelectorAll('#searchResultList [data-result]').forEach((btn, i) => {
+    btn.classList.toggle('active', i === activeSearchResultIndex);
+  });
+}
+
+function navigateSearchResult(index) {
+  if (!searchResultsList.length || index < 0 || index >= searchResultsList.length) return;
+  activeSearchResultIndex = index;
+  const result = searchResultsList[index];
+  const query = normalizeSearch(searchQuery);
+
+  $('feed').hidden = false;
+  $('searchResults').hidden = true;
+  $('searchEmpty').hidden = true;
+  updateSearchNavigatorUI();
+  setMobileSearch(false);
+
+  requestAnimationFrame(() => {
+    highlightPost(result.post.id, query);
+    if (isTimelineMode()) {
+      scrollToPost(result.post.id, false);
+    } else {
+      scrollToLesson(result.lesson.id, false);
+    }
+  });
+}
+
+function nextSearchResult() {
+  if (activeSearchResultIndex < searchResultsList.length - 1) {
+    navigateSearchResult(activeSearchResultIndex + 1);
+  }
+}
+
+function previousSearchResult() {
+  if (activeSearchResultIndex > 0) {
+    navigateSearchResult(activeSearchResultIndex - 1);
+  }
+}
+
+function toggleSearchResultsList() {
+  if ($('searchResults').hidden) {
+    $('searchResults').hidden = false;
+    $('feed').hidden = true;
+  } else {
+    $('searchResults').hidden = true;
+    $('feed').hidden = false;
+  }
+}
+
 function applyFilter(filter = activeFilter) {
   activeFilter = filter;
   document.querySelectorAll('[data-filter]').forEach(button => button.classList.toggle('active', button.dataset.filter === filter));
   const query = normalizeSearch(searchQuery);
   const searching = query.length >= 2;
   const results = searching ? searchResults(query) : [];
-  $('feed').hidden = searching;
-  $('searchResults').hidden = !searching;
-  $('searchEmpty').hidden = !searching || results.length > 0;
+  searchResultsList = results;
+
   if (searching) {
+    if (activeSearchResultIndex < 0) {
+      $('feed').hidden = true;
+      $('searchResults').hidden = false;
+      $('searchNavigator').hidden = true;
+    } else {
+      $('feed').hidden = false;
+      $('searchResults').hidden = true;
+      updateSearchNavigatorUI();
+    }
+    $('searchEmpty').hidden = results.length > 0;
     $('searchResultsTitle').textContent = `Tìm thấy ${results.length} kết quả`;
-    $('searchResultList').innerHTML = results.map(({ lesson, post }, index) => `<button class="search-result" type="button" data-result="${index}"><span class="search-result-icon">${iconFor(post.category)}</span><span class="search-result-copy"><span class="search-result-title">${highlight(lesson.title, query)}</span><span class="search-result-snippet">${highlight(post.body.replace(/\s+/g, ' ').slice(0, 150), query)}</span></span><span class="search-result-meta">${esc(timeLabel(post.sourceDate))}</span></button>`).join('');
-    $('searchResultList').querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => {
-      const result = results[Number(button.dataset.result)];
-      clearSearch();
-      requestAnimationFrame(() => {
-        highlightPost(result.post.id, query);
-        if (isTimelineMode()) {
-          scrollToPost(result.post.id, false);
-        } else {
-          scrollToLesson(result.lesson.id, false);
-        }
+    $('searchResultList').innerHTML = results.map(({ lesson, post }, index) => `
+      <button class="search-result${index === activeSearchResultIndex ? ' active' : ''}" type="button" data-result="${index}">
+        <span class="search-result-icon">${iconFor(post.category)}</span>
+        <span class="search-result-copy">
+          <span class="search-result-title">${highlight(lesson.title, query)}</span>
+          <span class="search-result-snippet">${highlight(post.body.replace(/\s+/g, ' ').slice(0, 150), query)}</span>
+        </span>
+        <span class="search-result-meta">${esc(timeLabel(post.sourceDate))}</span>
+      </button>
+    `.trim()).join('');
+
+    $('searchResultList').querySelectorAll('[data-result]').forEach(button => {
+      button.addEventListener('click', () => {
+        navigateSearchResult(Number(button.dataset.result));
       });
-    }));
+    });
     $('mobileSearchStatus').textContent = `Tìm thấy ${results.length} kết quả`;
   } else {
+    $('feed').hidden = false;
+    $('searchResults').hidden = true;
+    $('searchNavigator').hidden = true;
+    $('searchEmpty').hidden = true;
     document.querySelectorAll('.lesson-card').forEach(card => {
       const isCardSeen = isTimelineMode() ? seen.has(card.dataset.postId) : seen.has(card.dataset.lessonId);
       const visible = filter === 'all' || (filter === 'unread' ? !isCardSeen : card.dataset.category === filter);
@@ -392,9 +470,13 @@ function highlightPost(postId, query) {
 
 function clearSearch() {
   searchQuery = '';
+  searchResultsList = [];
+  activeSearchResultIndex = -1;
   $('searchInput').value = '';
   $('mobileSearchInput').value = '';
   $('mobileSearchClear').hidden = true;
+  $('searchNavigator').hidden = true;
+  document.querySelectorAll('.search-hit').forEach(mark => mark.replaceWith(mark.textContent));
   applyFilter('all');
   setMobileSearch(false);
 }
@@ -564,14 +646,55 @@ async function load() {
 }
 
 function bind() {
-  const syncSearch = value => { searchQuery = value; $('searchInput').value = value; $('mobileSearchInput').value = value; $('mobileSearchClear').hidden = !value; applyFilter(); };
+  const syncSearch = value => {
+    if (searchQuery !== value) {
+      activeSearchResultIndex = -1;
+    }
+    searchQuery = value;
+    $('searchInput').value = value;
+    $('mobileSearchInput').value = value;
+    $('mobileSearchClear').hidden = !value;
+    applyFilter();
+  };
   $('searchInput').addEventListener('input', event => syncSearch(event.target.value));
   $('mobileSearchInput').addEventListener('input', event => syncSearch(event.target.value));
+  $('searchInput').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && searchResultsList.length > 0) {
+      event.preventDefault();
+      navigateSearchResult(0);
+    }
+  });
+  $('mobileSearchInput').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && searchResultsList.length > 0) {
+      event.preventDefault();
+      navigateSearchResult(0);
+    }
+  });
+  $('searchInput').addEventListener('focus', () => {
+    if (searchQuery && searchResultsList.length > 0 && $('searchResults').hidden) {
+      $('searchResults').hidden = false;
+      $('feed').hidden = true;
+    }
+  });
+  $('mobileSearchInput').addEventListener('focus', () => {
+    if (searchQuery && searchResultsList.length > 0 && $('searchResults').hidden) {
+      $('searchResults').hidden = false;
+      $('feed').hidden = true;
+    }
+  });
   document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => applyFilter(button.dataset.filter)));
   $('mobileSearchBtn').addEventListener('click', () => setMobileSearch(!$('mobileSearch').classList.contains('show')));
-  $('mobileSearchClear').addEventListener('click', clearSearch); $('searchCancel').addEventListener('click', clearSearch);
-  $('mobileOutlineBtn').addEventListener('click', openOutline); $('mobileOutlineBackdrop').addEventListener('click', closeOutline); $('mobileOutlineClose').addEventListener('click', closeOutline);
-  $('lightClose').addEventListener('click', closeLightbox); $('lightbox').addEventListener('click', event => { if (event.target === $('lightbox')) closeLightbox(); });
+  $('mobileSearchClear').addEventListener('click', clearSearch);
+  $('searchCancel').addEventListener('click', clearSearch);
+  $('searchNavPrev').addEventListener('click', previousSearchResult);
+  $('searchNavNext').addEventListener('click', nextSearchResult);
+  $('searchNavListBtn').addEventListener('click', toggleSearchResultsList);
+  $('searchNavClose').addEventListener('click', clearSearch);
+  $('mobileOutlineBtn').addEventListener('click', openOutline);
+  $('mobileOutlineBackdrop').addEventListener('click', closeOutline);
+  $('mobileOutlineClose').addEventListener('click', closeOutline);
+  $('lightClose').addEventListener('click', closeLightbox);
+  $('lightbox').addEventListener('click', event => { if (event.target === $('lightbox')) closeLightbox(); });
   $('resumeSide').addEventListener('click', () => { if (unfinishedVideo(videoProgress)) resumeSavedVideo(); else {
     if (isTimelineMode()) {
       const item = getResumeItem();
@@ -582,7 +705,10 @@ function bind() {
     }
   } });
   $('resumeFloat').addEventListener('click', resumeSavedVideo);
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeLightbox(); closeOutline(); setMobileSearch(false); } });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && (activeSearchResultIndex >= 0 || (searchQuery && !$('searchResults').hidden))) clearSearch();
+    if (event.key === 'Escape') { closeLightbox(); closeOutline(); setMobileSearch(false); }
+  });
   addEventListener('pagehide', () => releaseVideo(activeVideo));
 }
 

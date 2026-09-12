@@ -20,4 +20,16 @@
 .outline-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .outline-sub{font-size:11px;color:#8a9490;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
 .outline-media-icon{font-size:10px;color:var(--green)}
+.search-navigator{position:sticky;top:76px;z-index:22;width:min(760px,100%);margin:0 auto 12px;padding:6px 10px;border:1px solid #cfe0d2;border-radius:14px;background:rgba(255,255,255,.98);box-shadow:var(--shadow);backdrop-filter:blur(12px)}
+.search-nav-bar{display:flex;align-items:center;gap:8px}
+.search-nav-query{min-width:0;flex:1;font-size:13px;font-weight:700;color:var(--green-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.search-nav-count{font-size:12px;font-weight:700;color:var(--ink);padding:0 4px;white-space:nowrap}
+.search-nav-btn{display:grid;place-items:center;min-width:36px;height:36px;border:1px solid #dde6e0;border-radius:9px;background:#fff;color:var(--ink);font-size:16px;font-weight:700;cursor:pointer;padding:0 8px;touch-action:manipulation}
+.search-nav-btn:hover:not(:disabled){background:var(--green-soft);color:var(--green-dark);border-color:#b4d6b0}
+.search-nav-btn:disabled{opacity:.35;cursor:not-allowed}
+.search-nav-btn.close{color:#889590;font-size:18px}
+.search-nav-btn.close:hover{color:#d32f2f;background:#fde8e8;border-color:#f5c2c2}
+.search-result.active{border-color:var(--green);background:var(--green-soft)}
+@media(max-width:760px){.search-navigator{top:82px;margin:0 4px 10px;padding:5px 8px}.search-nav-btn{min-width:40px;height:40px;font-size:18px}}
+
 
