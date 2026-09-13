@@ -76,7 +76,7 @@ async function ensureConfig(course) {
 
 async function loadState(course) {
   const config = await ensureConfig(course);
-  const authoringMode = config.settings?.authoring_mode || "lesson";
+  const authoringMode = config.settings?.authoring_mode === "lesson" ? "lesson" : "timeline";
   let hiddenLessonId = null;
   if (authoringMode === "timeline") {
     const hiddenLesson = await ensureHiddenTimelineLesson(course.id);
