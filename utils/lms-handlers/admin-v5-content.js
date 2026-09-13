@@ -286,6 +286,223 @@ async function updateConfig(course, body) {
   return data;
 }
 
+export async function replaceTelegramMedia(course, body) {
+  let postId = clean(body?.postId);
+  const oldAssetId = clean(body?.oldAssetId);
+  let newAssetId = clean(body?.newAssetId);
+  const r2ObjectKey = clean(body?.r2ObjectKey);
+  const bytes = Number(body?.bytes);
+
+  if (!oldAssetId) throw new Error("Thiếu oldAssetId.");
+
+  if (!postId) {
+    const { data: links, error: lErr } = await supabase
+      .from("v5_post_assets")
+      .select("post_id")
+      .eq("asset_id", oldAssetId);
+    if (lErr) throw lErr;
+    const postIds = (links || []).map(l => l.post_id).filter(Boolean);
+    if (postIds.length) {
+      const { data: posts } = await supabase
+        .from("v5_posts")
+        .select("id")
+        .in("id", postIds)
+        .eq("course_id", course.id);
+      if (posts?.length === 1) {
+        postId = posts[0].id;
+      }
+    }
+  }
+
+  if (!postId) throw new Error("Thiếu postId.");
+
+  // 1. Validate Post belongs to this course
+  const { data: post, error: postErr } = await supabase
+    .from("v5_posts")
+    .select("id,course_id,status,metadata")
+    .eq("id", postId)
+    .eq("course_id", course.id)
+    .maybeSingle();
+  if (postErr) throw postErr;
+  if (!post) throw new Error("Post không thuộc khóa học này.");
+
+  // 2. Validate Old Asset exists and belongs to post
+  const { data: oldAsset, error: oldErr } = await supabase
+    .from("v5_media_assets")
+    .select("id,type,provider,origin,r2_object_key,telegram_source_id,telegram_message_row_id,mime_type,original_filename,bytes,width,height,duration_ms,thumbnail_asset_id,metadata")
+    .eq("id", oldAssetId)
+    .maybeSingle();
+  if (oldErr) throw oldErr;
+  if (!oldAsset) throw new Error("Old media asset không tồn tại.");
+  if (oldAsset.origin !== "telegram") throw new Error("Chỉ hỗ trợ replaceTelegramMedia cho asset có origin telegram.");
+
+  const { data: link, error: linkErr } = await supabase
+    .from("v5_post_assets")
+    .select("post_id,asset_id,position,role,metadata")
+    .eq("post_id", postId)
+    .eq("asset_id", oldAssetId)
+    .maybeSingle();
+  if (linkErr) throw linkErr;
+  if (!link) throw new Error("Old media asset không được gắn vào Post này.");
+
+  // 3. Handle or validate New Asset
+  if (!newAssetId && r2ObjectKey && Number.isSafeInteger(bytes) && bytes > 0) {
+    newAssetId = crypto.randomUUID();
+    const checksum = clean(body?.checksumSha256).toLowerCase();
+    const now = new Date().toISOString();
+    const { data: createdAsset, error: createErr } = await supabase
+      .from("v5_media_assets")
+      .insert({
+        id: newAssetId,
+        type: oldAsset.type,
+        provider: "r2",
+        origin: "telegram",
+        telegram_source_id: oldAsset.telegram_source_id,
+        telegram_message_row_id: oldAsset.telegram_message_row_id,
+        r2_object_key: r2ObjectKey,
+        mime_type: oldAsset.mime_type,
+        original_filename: oldAsset.original_filename,
+        bytes,
+        checksum_sha256: /^[0-9a-f]{64}$/.test(checksum) ? checksum : null,
+        duration_ms: body?.durationMs !== undefined ? Number(body.durationMs) : oldAsset.duration_ms,
+        width: body?.width !== undefined ? Number(body.width) : oldAsset.width,
+        height: body?.height !== undefined ? Number(body.height) : oldAsset.height,
+        thumbnail_asset_id: oldAsset.thumbnail_asset_id,
+        status: "ready",
+        metadata: {
+          ...(oldAsset.metadata || {}),
+          replaced_from_asset_id: oldAsset.id,
+          replaced_at: now
+        },
+        uploaded_at: now,
+        last_verified_at: now,
+        updated_at: now
+      })
+      .select("*")
+      .single();
+    if (createErr) throw createErr;
+  }
+
+  if (!newAssetId) throw new Error("Thiếu newAssetId hoặc thông tin R2 object mới.");
+  if (newAssetId === oldAssetId) throw new Error("newAssetId không được trùng với oldAssetId.");
+
+  const { data: newAsset, error: newErr } = await supabase
+    .from("v5_media_assets")
+    .select("id,type,provider,origin,r2_object_key,status,bytes")
+    .eq("id", newAssetId)
+    .maybeSingle();
+  if (newErr) throw newErr;
+  if (!newAsset) throw new Error("New media asset không tồn tại.");
+  if (newAsset.status !== "ready" || newAsset.provider !== "r2" || !newAsset.r2_object_key) {
+    throw new Error("New media asset chưa READY trên R2.");
+  }
+
+  // 4. Atomic swap via RPC if available
+  const rpcResult = await supabase.rpc("v5_replace_telegram_media_atomic", {
+    p_course_id: course.id,
+    p_post_id: postId,
+    p_old_asset_id: oldAssetId,
+    p_new_asset_id: newAssetId
+  });
+
+  if (!rpcResult.error) {
+    return rpcResult.data;
+  }
+
+  if (rpcResult.error.message && rpcResult.error.message.startsWith("v5_")) {
+    throw new Error(rpcResult.error.message);
+  }
+
+  // 5. Fallback client execution if RPC is not installed in current environment
+  const now = new Date().toISOString();
+
+  // 5a. Ensure Telegram provenance on new asset
+  const { error: provErr } = await supabase
+    .from("v5_media_assets")
+    .update({
+      origin: "telegram",
+      telegram_source_id: oldAsset.telegram_source_id,
+      telegram_message_row_id: oldAsset.telegram_message_row_id,
+      mime_type: oldAsset.mime_type,
+      original_filename: oldAsset.original_filename,
+      thumbnail_asset_id: oldAsset.thumbnail_asset_id,
+      updated_at: now
+    })
+    .eq("id", newAssetId);
+  if (provErr) throw provErr;
+
+  // 5b. Swap link in v5_post_assets
+  const { error: delLinkErr } = await supabase
+    .from("v5_post_assets")
+    .delete()
+    .eq("post_id", postId)
+    .eq("asset_id", oldAssetId);
+  if (delLinkErr) throw delLinkErr;
+
+  const { error: insLinkErr } = await supabase
+    .from("v5_post_assets")
+    .insert({
+      post_id: postId,
+      asset_id: newAssetId,
+      position: link.position,
+      role: link.role || "attachment",
+      metadata: link.metadata || {}
+    });
+  if (insLinkErr) {
+    await supabase.from("v5_post_assets").insert(link).catch(() => {});
+    throw insLinkErr;
+  }
+
+  // 5c. Update v5_source_mappings
+  const { error: mapErr } = await supabase
+    .from("v5_source_mappings")
+    .update({ asset_id: newAssetId, updated_at: now })
+    .eq("course_id", course.id)
+    .eq("post_id", postId)
+    .eq("asset_id", oldAssetId);
+  if (mapErr) {
+    await supabase.from("v5_post_assets").delete().eq("post_id", postId).eq("asset_id", newAssetId).catch(() => {});
+    await supabase.from("v5_post_assets").insert(link).catch(() => {});
+    throw mapErr;
+  }
+
+  // 5d. Refresh post readiness
+  const { data: remainingLinks } = await supabase
+    .from("v5_post_assets")
+    .select("asset_id")
+    .eq("post_id", postId);
+  const remainingAssetIds = (remainingLinks || []).map(l => l.asset_id).filter(Boolean);
+  let postReady = true;
+  if (remainingAssetIds.length) {
+    const { data: checkAssets } = await supabase
+      .from("v5_media_assets")
+      .select("id,status")
+      .in("id", remainingAssetIds);
+    if ((checkAssets || []).some(a => !["ready", "archived"].includes(a.status))) {
+      postReady = false;
+    }
+  }
+
+  await supabase
+    .from("v5_posts")
+    .update({
+      status: postReady ? "ready" : "processing",
+      metadata: { pending_attachments: !postReady },
+      updated_at: now
+    })
+    .eq("id", postId);
+
+  return {
+    success: true,
+    course_id: course.id,
+    post_id: postId,
+    old_asset_id: oldAssetId,
+    new_asset_id: newAssetId,
+    position: link.position,
+    role: link.role
+  };
+}
+
 export default async function adminV5ContentHandler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   const admin = await requireAdmin(req, res);
@@ -308,6 +525,7 @@ export default async function adminV5ContentHandler(req, res) {
     else if (action === "reorderLessons") { await reorder("v5_lessons", course, req.body?.ids); result = { reordered: true }; }
     else if (action === "reorderPosts") { await reorder("v5_posts", course, req.body?.ids); result = { reordered: true }; }
     else if (action === "updateConfig") result = await updateConfig(course, req.body || {});
+    else if (action === "replaceTelegramMedia") result = await replaceTelegramMedia(course, req.body || {});
     else return res.status(400).json({ success: false, error: "V5 action không hợp lệ." });
 
     return res.status(200).json({ success: true, result, state: await loadState(course), admin: admin.email });

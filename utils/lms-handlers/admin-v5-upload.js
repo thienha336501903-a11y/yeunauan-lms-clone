@@ -10,6 +10,7 @@ import {
   presignDownloadObject,
   presignUploadPart
 } from "../v5-r2.js";
+import { replaceTelegramMedia } from "./admin-v5-content.js";
 
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_PART_SIZE = 16 * 1024 * 1024;
@@ -191,7 +192,7 @@ async function thumbnailSource(course, body) {
   return { url: presignDownloadObject({ key: asset.r2_object_key, expiresSeconds: 300 }), filename: asset.original_filename || "video", expiresIn: 300 };
 }
 
-async function tryChecksumDedupe(course, body, meta) {
+async function tryChecksumDedupe(course, body, meta, replaceAssetId = null) {
   const checksum = clean(body?.checksumSha256).toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(checksum)) return null;
   const { data, error } = await supabase
@@ -207,7 +208,11 @@ async function tryChecksumDedupe(course, body, meta) {
   if (!asset) return null;
 
   const postId = clean(body?.postId);
-  if (postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
+  if (replaceAssetId) {
+    await replaceTelegramMedia(course, { postId, oldAssetId: replaceAssetId, newAssetId: asset.id });
+  } else if (postId) {
+    await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
+  }
   return asset;
 }
 
@@ -218,11 +223,42 @@ async function initUpload(course, admin, body) {
     throw error;
   }
   const meta = validateUploadMetadata(body);
-  const duplicate = await tryChecksumDedupe(course, body, meta);
+  const replaceAssetId = clean(body?.replaceAssetId);
+  let oldAsset = null;
+  let oldLink = null;
+  if (replaceAssetId) {
+    const { data: a, error: aErr } = await supabase
+      .from("v5_media_assets")
+      .select("id,origin,telegram_source_id,telegram_message_row_id,mime_type,original_filename,type,thumbnail_asset_id")
+      .eq("id", replaceAssetId)
+      .maybeSingle();
+    if (aErr) throw aErr;
+    if (!a) throw new Error("Media asset cần thay thế không tồn tại.");
+    if (a.origin !== "telegram") throw new Error("Chỉ hỗ trợ thay thế media có origin=telegram.");
+    oldAsset = a;
+
+    const { data: links, error: lErr } = await supabase
+      .from("v5_post_assets")
+      .select("post_id,position,role")
+      .eq("asset_id", replaceAssetId);
+    if (lErr) throw lErr;
+    const postIds = (links || []).map(l => l.post_id).filter(Boolean);
+    if (!postIds.length) throw new Error("Media cũ không gắn vào post nào.");
+    const { data: posts, error: pErr } = await supabase
+      .from("v5_posts")
+      .select("id,course_id")
+      .in("id", postIds)
+      .eq("course_id", course.id);
+    if (pErr) throw pErr;
+    if (!posts?.length) throw new Error("Media cũ không thuộc khóa học này.");
+    oldLink = (links || []).find(l => l.post_id === posts[0].id);
+  }
+
+  const duplicate = await tryChecksumDedupe(course, body, meta, replaceAssetId);
   if (duplicate) return { deduplicated: true, asset: duplicate };
 
-  const postId = clean(body?.postId);
-  if (postId) await requirePost(course.id, postId);
+  const postId = oldLink?.post_id || clean(body?.postId);
+  if (postId && !oldLink) await requirePost(course.id, postId);
 
   const assetId = crypto.randomUUID();
   const objectKey = `media/v5/${course.id}/${assetId}/${meta.filename}`;
@@ -234,7 +270,10 @@ async function initUpload(course, admin, body) {
       id: assetId,
       type: meta.type,
       provider: "r2",
-      origin: "direct",
+      origin: oldAsset ? "telegram" : "direct",
+      telegram_source_id: oldAsset?.telegram_source_id || null,
+      telegram_message_row_id: oldAsset?.telegram_message_row_id || null,
+      thumbnail_asset_id: oldAsset?.thumbnail_asset_id || null,
       r2_object_key: objectKey,
       mime_type: meta.mimeType,
       original_filename: meta.filename,
@@ -248,14 +287,14 @@ async function initUpload(course, admin, body) {
     .single();
   if (assetError) throw assetError;
 
-  if (postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
+  if (!replaceAssetId && postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
 
   let multipart;
   try {
     multipart = await createMultipartUpload({ key: objectKey, contentType: meta.mimeType });
   } catch (error) {
     await supabase.from("v5_media_assets").update({ status: "failed", last_error: error.message, updated_at: new Date().toISOString() }).eq("id", assetId);
-    if (postId) await refreshPostReadiness(course.id, postId).catch(() => {});
+    if (!replaceAssetId && postId) await refreshPostReadiness(course.id, postId).catch(() => {});
     throw error;
   }
 
@@ -273,14 +312,19 @@ async function initUpload(course, admin, body) {
       part_size: partSize,
       expected_bytes: meta.bytes,
       expires_at: expiresAt,
-      metadata: { postId: postId || null, role: clean(body?.role) || "attachment", position: Number(body?.position || 0) }
+      metadata: {
+        postId: postId || null,
+        role: clean(oldLink?.role || body?.role) || "attachment",
+        position: Number(oldLink?.position ?? body?.position ?? 0),
+        replaceAssetId: replaceAssetId || null
+      }
     })
     .select("*")
     .single();
   if (sessionError) {
     await abortMultipartUpload({ key: objectKey, uploadId: multipart.uploadId }).catch(() => {});
     await supabase.from("v5_media_assets").update({ status: "failed", last_error: sessionError.message, updated_at: new Date().toISOString() }).eq("id", assetId);
-    if (postId) await refreshPostReadiness(course.id, postId).catch(() => {});
+    if (!replaceAssetId && postId) await refreshPostReadiness(course.id, postId).catch(() => {});
     throw sessionError;
   }
 
@@ -350,8 +394,15 @@ async function complete(course, body) {
     .single();
   if (assetError) throw assetError;
 
+  const replaceAssetId = clean(session.metadata?.replaceAssetId || body?.replaceAssetId);
   const postId = clean(session.metadata?.postId || body?.postId);
-  if (postId) {
+  if (replaceAssetId) {
+    await replaceTelegramMedia(course, {
+      postId,
+      oldAssetId: replaceAssetId,
+      newAssetId: asset.id
+    });
+  } else if (postId) {
     await linkAssetToPost(course, postId, asset.id, session.metadata?.position, session.metadata?.role);
     await refreshPostReadiness(course.id, postId);
   }
