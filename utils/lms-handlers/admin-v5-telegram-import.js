@@ -535,7 +535,7 @@ export default async function adminV5TelegramImportHandler(req, res) {
     try {
       const { data: sources, error } = await supabase
         .from("tgcloner_sources")
-        .select("id,title,username,chat_id,indexed_message_count,last_synced_at,created_at")
+        .select("id,title,username,chat_id,indexed_message_count,created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return res.status(200).json({ success: true, sources: sources || [], admin: admin.email });
