@@ -289,11 +289,11 @@ async function updateConfig(course, body) {
 export async function replaceTelegramMedia(course, body) {
   let postId = clean(body?.postId);
   const oldAssetId = clean(body?.oldAssetId);
-  let newAssetId = clean(body?.newAssetId);
-  const r2ObjectKey = clean(body?.r2ObjectKey);
-  const bytes = Number(body?.bytes);
+  const newAssetId = clean(body?.newAssetId);
 
   if (!oldAssetId) throw new Error("Thiếu oldAssetId.");
+  if (!newAssetId) throw new Error("Thiếu newAssetId.");
+  if (newAssetId === oldAssetId) throw new Error("newAssetId không được trùng với oldAssetId.");
 
   if (!postId) {
     const { data: links, error: lErr } = await supabase
@@ -345,47 +345,7 @@ export async function replaceTelegramMedia(course, body) {
   if (linkErr) throw linkErr;
   if (!link) throw new Error("Old media asset không được gắn vào Post này.");
 
-  // 3. Handle or validate New Asset
-  if (!newAssetId && r2ObjectKey && Number.isSafeInteger(bytes) && bytes > 0) {
-    newAssetId = crypto.randomUUID();
-    const checksum = clean(body?.checksumSha256).toLowerCase();
-    const now = new Date().toISOString();
-    const { data: createdAsset, error: createErr } = await supabase
-      .from("v5_media_assets")
-      .insert({
-        id: newAssetId,
-        type: oldAsset.type,
-        provider: "r2",
-        origin: "telegram",
-        telegram_source_id: oldAsset.telegram_source_id,
-        telegram_message_row_id: oldAsset.telegram_message_row_id,
-        r2_object_key: r2ObjectKey,
-        mime_type: oldAsset.mime_type,
-        original_filename: oldAsset.original_filename,
-        bytes,
-        checksum_sha256: /^[0-9a-f]{64}$/.test(checksum) ? checksum : null,
-        duration_ms: body?.durationMs !== undefined ? Number(body.durationMs) : oldAsset.duration_ms,
-        width: body?.width !== undefined ? Number(body.width) : oldAsset.width,
-        height: body?.height !== undefined ? Number(body.height) : oldAsset.height,
-        thumbnail_asset_id: oldAsset.thumbnail_asset_id,
-        status: "ready",
-        metadata: {
-          ...(oldAsset.metadata || {}),
-          replaced_from_asset_id: oldAsset.id,
-          replaced_at: now
-        },
-        uploaded_at: now,
-        last_verified_at: now,
-        updated_at: now
-      })
-      .select("*")
-      .single();
-    if (createErr) throw createErr;
-  }
-
-  if (!newAssetId) throw new Error("Thiếu newAssetId hoặc thông tin R2 object mới.");
-  if (newAssetId === oldAssetId) throw new Error("newAssetId không được trùng với oldAssetId.");
-
+  // 3. Validate New Asset exists and is ready on R2 (must be created via official verified upload pipeline)
   const { data: newAsset, error: newErr } = await supabase
     .from("v5_media_assets")
     .select("id,type,provider,origin,r2_object_key,status,bytes")
