@@ -525,10 +525,183 @@ async function previewSource(course, sourceIdInput) {
   };
 }
 
+export function formatBytes(n) {
+  n = Number(n || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
+  return `${(n / 1073741824).toFixed(2)} GB`;
+}
+
+export function sanitizeSafeError(errorStr) {
+  if (!errorStr) return "";
+  let text = String(errorStr).trim();
+  text = text.replace(/https?:\/\/[^\s]+/gi, "[URL]");
+  text = text.replace(/[A-Za-z]:\\[^\s:;,]+/g, "[PATH]");
+  text = text.replace(/\/(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+/g, "[PATH]");
+  text = text.replace(/[A-Fa-f0-9_-]{24,}/g, "***");
+  return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
+
+export function sanitizeFilename(name) {
+  if (!name) return "Tệp media";
+  const base = String(name).split(/[/\\]/).pop().trim();
+  return base.length > 60 ? base.slice(0, 57) + "..." : base;
+}
+
+export function computeMirrorProgress({ jobs = [], assets = [] }) {
+  const telegramJobs = (jobs || []).filter(j => j.job_type === "telegram_mirror");
+  const totalJobs = telegramJobs.length;
+  const queued = telegramJobs.filter(j => j.status === "queued").length;
+  const running = telegramJobs.filter(j => j.status === "running").length;
+  const success = telegramJobs.filter(j => j.status === "success").length;
+  const failed = telegramJobs.filter(j => j.status === "failed").length;
+  const completedJobs = success;
+  const jobPercent = totalJobs > 0 ? Math.round((success / totalJobs) * 100) : 100;
+
+  const assetMap = new Map((assets || []).map(a => [a.id, a]));
+  const jobAssetIds = new Set(telegramJobs.map(j => j.asset_id).filter(Boolean));
+  const targetAssets = jobAssetIds.size > 0
+    ? (assets || []).filter(a => jobAssetIds.has(a.id))
+    : [];
+
+  const assetsTotal = targetAssets.length;
+  const assetsReady = targetAssets.filter(a => a.status === "ready").length;
+  const assetsProcessing = targetAssets.filter(a => a.status === "processing" || a.status === "queued").length;
+  const assetsFailed = targetAssets.filter(a => a.status === "failed").length;
+  const readyPercent = assetsTotal > 0 ? Math.round((assetsReady / assetsTotal) * 100) : 100;
+
+  const bytesTotal = targetAssets.reduce((sum, a) => sum + Number(a.bytes || 0), 0);
+  let bytesCompleted = 0;
+
+  const runningJobByAsset = new Map();
+  for (const j of telegramJobs) {
+    if (j.status === "running" && j.asset_id) {
+      runningJobByAsset.set(j.asset_id, j);
+    }
+  }
+
+  for (const a of targetAssets) {
+    if (a.status === "ready") {
+      bytesCompleted += Number(a.bytes || 0);
+    } else {
+      const runningJob = runningJobByAsset.get(a.id);
+      if (runningJob && Number(runningJob.progress_current || 0) > 0) {
+        const cur = Number(runningJob.progress_current || 0);
+        const max = Number(a.bytes || runningJob.progress_total || cur);
+        bytesCompleted += Math.min(cur, max);
+      }
+    }
+  }
+
+  const bytePercent = bytesTotal > 0
+    ? Math.min(100, Math.round((bytesCompleted / bytesTotal) * 100))
+    : null;
+
+  const currentJobs = telegramJobs
+    .filter(j => j.status === "running")
+    .slice(0, 3)
+    .map(j => {
+      const asset = assetMap.get(j.asset_id);
+      const filename = sanitizeFilename(asset?.original_filename);
+      const progressCurrent = Number(j.progress_current || 0);
+      const progressTotal = Number(j.progress_total || 0);
+      const hasByteProgress = progressTotal > 0;
+      return {
+        id: j.id,
+        assetId: j.asset_id,
+        filename,
+        status: j.status,
+        progressCurrent,
+        progressTotal,
+        progressPercent: hasByteProgress ? Math.round((progressCurrent / progressTotal) * 100) : null,
+        detail: hasByteProgress
+          ? `${formatBytes(progressCurrent)} / ${formatBytes(progressTotal)}`
+          : "Đang tải Telegram / upload R2"
+      };
+    });
+
+  const failedJobs = telegramJobs
+    .filter(j => j.status === "failed")
+    .slice(0, 5)
+    .map(j => {
+      const asset = assetMap.get(j.asset_id);
+      const filename = sanitizeFilename(asset?.original_filename);
+      return {
+        id: j.id,
+        assetId: j.asset_id,
+        filename,
+        status: "failed",
+        error: sanitizeSafeError(j.last_error || asset?.last_error || "Lỗi mirror media sang R2")
+      };
+    });
+
+  const allReady = totalJobs > 0 &&
+    failed === 0 &&
+    success === totalJobs &&
+    assetsReady === assetsTotal &&
+    assetsProcessing === 0;
+
+  return {
+    totalJobs,
+    queued,
+    running,
+    success,
+    failed,
+    completedJobs,
+    jobPercent,
+    assetsTotal,
+    assetsReady,
+    assetsProcessing,
+    assetsFailed,
+    readyPercent,
+    bytesTotal,
+    bytesCompleted,
+    bytePercent,
+    currentJobs,
+    failedJobs,
+    allReady,
+    hasJobs: totalJobs > 0
+  };
+}
+
+export async function getTelegramMirrorStatus(courseId) {
+  const { data: jobs, error: jobsErr } = await supabase
+    .from("v5_jobs")
+    .select("id,asset_id,job_type,status,progress_current,progress_total,last_error,started_at,finished_at,created_at,updated_at")
+    .eq("course_id", courseId)
+    .eq("job_type", "telegram_mirror")
+    .order("created_at", { ascending: true });
+  if (jobsErr) throw jobsErr;
+
+  const { data: assets, error: assetsErr } = await supabase
+    .from("v5_media_assets")
+    .select("id,status,bytes,original_filename,last_error,r2_object_key")
+    .eq("course_id", courseId);
+  if (assetsErr) throw assetsErr;
+
+  return computeMirrorProgress({ jobs: jobs || [], assets: assets || [] });
+}
+
 export default async function adminV5TelegramImportHandler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   const admin = await requireAdmin(req, res);
   if (!admin) return;
+
+  const action = clean(req.query?.action || req.body?.action);
+
+  // Status check (GET or POST)
+  if (action === "mirror_status" || action === "status" || action === "telegramMirrorStatus") {
+    try {
+      const course = await loadCourse(req.query?.course || req.body?.course);
+      if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+      const result = await getTelegramMirrorStatus(course.id);
+      return res.status(200).json({ success: true, result, ...result, admin: admin.email });
+    } catch (err) {
+      console.error("[admin-v5-telegram-mirror-status]", err);
+      return res.status(500).json({ success: false, error: err?.message || "Lỗi lấy trạng thái mirror Telegram." });
+    }
+  }
 
   // List Telegram sources for admin selector
   if (req.method === "GET" || req.body?.action === "sources") {
@@ -551,7 +724,6 @@ export default async function adminV5TelegramImportHandler(req, res) {
     const course = await loadCourse(req.query?.course || req.body?.course);
     if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
 
-    const action = clean(req.body?.action);
     const sourceId = clean(req.body?.sourceId);
 
     if (action === "preview") {
@@ -564,7 +736,7 @@ export default async function adminV5TelegramImportHandler(req, res) {
       return res.status(200).json({ success: true, result, admin: admin.email });
     }
 
-    return res.status(400).json({ success: false, error: "V5 Telegram action không hợp lệ. Hỗ trợ 'preview' hoặc 'import'." });
+    return res.status(400).json({ success: false, error: "V5 Telegram action không hợp lệ. Hỗ trợ 'preview', 'import' hoặc 'mirror_status'." });
   } catch (error) {
     console.error("[admin-v5-telegram-import]", error);
     const isConflict = error.code === "source_conflict" || error.message?.includes("nguồn Telegram khác");
