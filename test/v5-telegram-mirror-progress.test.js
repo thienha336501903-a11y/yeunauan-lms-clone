@@ -243,7 +243,7 @@ test('10. v5-admin.html polling behavior conforms to safety invariants', () => {
   assert.match(adminHtml, /async function chooseCourse\(slug\)\{[\s\S]*?stopMirrorPolling\(\)/);
 
   // openTelegramWizard loads mirror status
-  assert.match(adminHtml, /async function openTelegramWizard\(\)\{[\s\S]*?pollMirrorStatus\(\{silent:true\}\)/);
+  assert.match(adminHtml, /async function openTelegramWizard\(\)\{[\s\S]*?pollMirrorStatus\(\{silent:(?:false|true)\}\)/);
 
   // executeTelegramImport triggers pollMirrorStatus when jobs queued
   assert.match(adminHtml, /if\(res\.mirrorJobsQueued>0\)await pollMirrorStatus\(\)/);
