@@ -57,3 +57,22 @@ test('7. Button label dynamically switches between Nhập and Đồng bộ based
 test('8. When newUnits === 0, confirmTelegramImportBtn is disabled to prevent unnecessary syncs', () => {
   assert.match(adminHtml, /if\s*\(res\.newUnits\s*===\s*0\)\s*\{\s*confirmBtn\.disabled\s*=\s*true/);
 });
+
+test('9. Source dropdown renders title with 32 indexed messages without last_synced_at dependency', () => {
+  // Verify UI uses title || username and indexed_message_count
+  assert.match(adminHtml, /\$\{s\.title\|\|s\.username\|\|'Kênh Telegram'\}\s*\(\$\{s\.indexed_message_count\|\|0\}\s*tin\)/);
+  assert.doesNotMatch(adminHtml, /last_synced_at/);
+
+  // Simulate source option mapping logic exactly as in loadTelegramSources
+  const sampleSource = {
+    id: 'src-banh-khoai-mo',
+    title: "Bánh khoai mỡ chiên giòn Labon's Quỳnh",
+    username: 'banhkhoaimo_quynh',
+    chat_id: -1001234567890,
+    indexed_message_count: 32,
+    created_at: '2026-09-13T00:00:00.000Z'
+  };
+
+  const label = `${sampleSource.title || sampleSource.username || 'Kênh Telegram'} (${sampleSource.indexed_message_count || 0} tin)`;
+  assert.equal(label, "Bánh khoai mỡ chiên giòn Labon's Quỳnh (32 tin)");
+});

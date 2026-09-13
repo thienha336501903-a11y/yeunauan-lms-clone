@@ -291,10 +291,14 @@ test('13. Preview dry-run contract: action === "preview" is strictly read-only',
   assert.doesNotMatch(previewFnMatch[0], /\.delete\(/);
 });
 
-test('14. Sources listing endpoint supports GET and action: "sources"', async () => {
+test('14. Sources listing endpoint supports GET and action: "sources" without non-existent columns', async () => {
   const handlerCode = fs.readFileSync(new URL('../utils/lms-handlers/admin-v5-telegram-import.js', import.meta.url), 'utf8');
   assert.match(handlerCode, /tgcloner_sources/);
   assert.match(handlerCode, /req\.method\s*===\s*"GET"\s*\|\|\s*req\.body\?\.action\s*===\s*"sources"/);
+  // Must NOT query last_synced_at (column does not exist in tgcloner_sources)
+  assert.doesNotMatch(handlerCode, /last_synced_at/);
+  // Must select valid production columns
+  assert.match(handlerCode, /\.select\("id,title,username,chat_id,indexed_message_count,created_at"\)/);
 });
 
 test('15. Single source of truth for mode: v5_course_configs.settings.authoring_mode', async () => {
