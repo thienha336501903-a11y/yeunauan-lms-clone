@@ -674,13 +674,20 @@ export async function getTelegramMirrorStatus(courseId) {
     .order("created_at", { ascending: true });
   if (jobsErr) throw jobsErr;
 
+  const safeJobs = jobs || [];
+  const assetIds = [...new Set(safeJobs.map(j => j.asset_id).filter(Boolean))];
+
+  if (assetIds.length === 0) {
+    return computeMirrorProgress({ jobs: safeJobs, assets: [] });
+  }
+
   const { data: assets, error: assetsErr } = await supabase
     .from("v5_media_assets")
     .select("id,status,bytes,original_filename,last_error,r2_object_key")
-    .eq("course_id", courseId);
+    .in("id", assetIds);
   if (assetsErr) throw assetsErr;
 
-  return computeMirrorProgress({ jobs: jobs || [], assets: assets || [] });
+  return computeMirrorProgress({ jobs: safeJobs, assets: assets || [] });
 }
 
 export async function retryFailedTelegramMedia(courseId) {
@@ -698,12 +705,14 @@ export async function retryFailedTelegramMedia(courseId) {
     return { retried: 0, jobIds: [], assetIds: [] };
   }
 
-  const assetIds = failedJobs.map(j => j.asset_id).filter(Boolean);
+  const assetIds = [...new Set(failedJobs.map(j => j.asset_id).filter(Boolean))];
+  if (assetIds.length === 0) {
+    return { retried: 0, jobIds: [], assetIds: [] };
+  }
 
   const { data: failedAssets, error: assetsErr } = await supabase
     .from("v5_media_assets")
     .select("id,origin,status")
-    .eq("course_id", courseId)
     .in("id", assetIds)
     .eq("origin", "telegram")
     .eq("status", "failed");
@@ -728,7 +737,6 @@ export async function retryFailedTelegramMedia(courseId) {
       last_error: null,
       updated_at: nowIso
     })
-    .eq("course_id", courseId)
     .in("id", targetAssetIdList);
 
   if (updateAssetsErr) throw updateAssetsErr;
