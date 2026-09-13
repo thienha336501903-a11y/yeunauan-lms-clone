@@ -1,5 +1,5 @@
 const MEDIA_TYPES = new Set(["photo", "video", "animation", "video_note", "document", "audio", "voice"]);
-const LESSON_RE = /^\s*(?:bài|bai)\s*(\d{1,3})\s*(?:[:.\-–—]\s*)?(.*)$/i;
+const LESSON_LINE_RE = /^\s*(?:bài|bai)\s*(\d{1,3})(?:[\s:.\-–—]+(.*))?$/i;
 
 export function clean(value) {
   return String(value || "").trim();
@@ -7,7 +7,9 @@ export function clean(value) {
 
 export function parseLessonMarker(textInput) {
   const text = clean(textInput);
-  const match = text.match(LESSON_RE);
+  if (!text) return { isMarker: false };
+  const firstLine = text.split(/\r?\n/)[0];
+  const match = firstLine.match(LESSON_LINE_RE);
   if (!match) return { isMarker: false };
   const number = Number(match[1]);
   const suffix = clean(match[2]);
