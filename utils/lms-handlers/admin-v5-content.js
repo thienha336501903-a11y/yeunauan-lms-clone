@@ -397,7 +397,7 @@ export async function replaceTelegramMedia(course, body) {
     throw new Error("New media asset chưa READY trên R2.");
   }
 
-  // 4. Atomic swap via RPC if available
+  // 4. Atomic swap via PostgreSQL RPC (fail closed if RPC is missing or fails)
   const rpcResult = await supabase.rpc("v5_replace_telegram_media_atomic", {
     p_course_id: course.id,
     p_post_id: postId,
@@ -405,102 +405,19 @@ export async function replaceTelegramMedia(course, body) {
     p_new_asset_id: newAssetId
   });
 
-  if (!rpcResult.error) {
-    return rpcResult.data;
-  }
-
-  if (rpcResult.error.message && rpcResult.error.message.startsWith("v5_")) {
-    throw new Error(rpcResult.error.message);
-  }
-
-  // 5. Fallback client execution if RPC is not installed in current environment
-  const now = new Date().toISOString();
-
-  // 5a. Ensure Telegram provenance on new asset
-  const { error: provErr } = await supabase
-    .from("v5_media_assets")
-    .update({
-      origin: "telegram",
-      telegram_source_id: oldAsset.telegram_source_id,
-      telegram_message_row_id: oldAsset.telegram_message_row_id,
-      mime_type: oldAsset.mime_type,
-      original_filename: oldAsset.original_filename,
-      thumbnail_asset_id: oldAsset.thumbnail_asset_id,
-      updated_at: now
-    })
-    .eq("id", newAssetId);
-  if (provErr) throw provErr;
-
-  // 5b. Swap link in v5_post_assets
-  const { error: delLinkErr } = await supabase
-    .from("v5_post_assets")
-    .delete()
-    .eq("post_id", postId)
-    .eq("asset_id", oldAssetId);
-  if (delLinkErr) throw delLinkErr;
-
-  const { error: insLinkErr } = await supabase
-    .from("v5_post_assets")
-    .insert({
-      post_id: postId,
-      asset_id: newAssetId,
-      position: link.position,
-      role: link.role || "attachment",
-      metadata: link.metadata || {}
-    });
-  if (insLinkErr) {
-    await supabase.from("v5_post_assets").insert(link).catch(() => {});
-    throw insLinkErr;
-  }
-
-  // 5c. Update v5_source_mappings
-  const { error: mapErr } = await supabase
-    .from("v5_source_mappings")
-    .update({ asset_id: newAssetId, updated_at: now })
-    .eq("course_id", course.id)
-    .eq("post_id", postId)
-    .eq("asset_id", oldAssetId);
-  if (mapErr) {
-    await supabase.from("v5_post_assets").delete().eq("post_id", postId).eq("asset_id", newAssetId).catch(() => {});
-    await supabase.from("v5_post_assets").insert(link).catch(() => {});
-    throw mapErr;
-  }
-
-  // 5d. Refresh post readiness
-  const { data: remainingLinks } = await supabase
-    .from("v5_post_assets")
-    .select("asset_id")
-    .eq("post_id", postId);
-  const remainingAssetIds = (remainingLinks || []).map(l => l.asset_id).filter(Boolean);
-  let postReady = true;
-  if (remainingAssetIds.length) {
-    const { data: checkAssets } = await supabase
-      .from("v5_media_assets")
-      .select("id,status")
-      .in("id", remainingAssetIds);
-    if ((checkAssets || []).some(a => !["ready", "archived"].includes(a.status))) {
-      postReady = false;
+  if (rpcResult.error) {
+    const msg = clean(rpcResult.error.message);
+    if (msg.startsWith("v5_")) {
+      const err = new Error(msg);
+      err.code = msg;
+      throw err;
     }
+    const err = new Error(`Lỗi atomic replacement RPC: ${msg || "RPC không khả dụng."}`);
+    err.code = "v5_replace_rpc_unavailable";
+    throw err;
   }
 
-  await supabase
-    .from("v5_posts")
-    .update({
-      status: postReady ? "ready" : "processing",
-      metadata: { pending_attachments: !postReady },
-      updated_at: now
-    })
-    .eq("id", postId);
-
-  return {
-    success: true,
-    course_id: course.id,
-    post_id: postId,
-    old_asset_id: oldAssetId,
-    new_asset_id: newAssetId,
-    position: link.position,
-    role: link.role
-  };
+  return rpcResult.data;
 }
 
 export default async function adminV5ContentHandler(req, res) {
