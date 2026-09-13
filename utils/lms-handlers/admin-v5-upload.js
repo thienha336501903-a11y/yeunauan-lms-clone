@@ -192,7 +192,7 @@ async function thumbnailSource(course, body) {
   return { url: presignDownloadObject({ key: asset.r2_object_key, expiresSeconds: 300 }), filename: asset.original_filename || "video", expiresIn: 300 };
 }
 
-async function tryChecksumDedupe(course, body, meta, replaceAssetId = null) {
+async function tryChecksumDedupe(course, body, meta) {
   const checksum = clean(body?.checksumSha256).toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(checksum)) return null;
   const { data, error } = await supabase
@@ -208,11 +208,7 @@ async function tryChecksumDedupe(course, body, meta, replaceAssetId = null) {
   if (!asset) return null;
 
   const postId = clean(body?.postId);
-  if (replaceAssetId) {
-    await replaceTelegramMedia(course, { postId, oldAssetId: replaceAssetId, newAssetId: asset.id });
-  } else if (postId) {
-    await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
-  }
+  if (postId) await linkAssetToPost(course, postId, asset.id, body?.position, body?.role);
   return asset;
 }
 
@@ -252,10 +248,10 @@ async function initUpload(course, admin, body) {
     if (pErr) throw pErr;
     if (!posts?.length) throw new Error("Media cũ không thuộc khóa học này.");
     oldLink = (links || []).find(l => l.post_id === posts[0].id);
+  } else {
+    const duplicate = await tryChecksumDedupe(course, body, meta);
+    if (duplicate) return { deduplicated: true, asset: duplicate };
   }
-
-  const duplicate = await tryChecksumDedupe(course, body, meta, replaceAssetId);
-  if (duplicate) return { deduplicated: true, asset: duplicate };
 
   const postId = oldLink?.post_id || clean(body?.postId);
   if (postId && !oldLink) await requirePost(course.id, postId);
