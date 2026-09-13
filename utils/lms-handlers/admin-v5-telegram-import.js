@@ -683,12 +683,100 @@ export async function getTelegramMirrorStatus(courseId) {
   return computeMirrorProgress({ jobs: jobs || [], assets: assets || [] });
 }
 
+export async function retryFailedTelegramMedia(courseId) {
+  if (!courseId) throw new Error("course_id_required");
+
+  const { data: failedJobs, error: jobsErr } = await supabase
+    .from("v5_jobs")
+    .select("id,asset_id,status,job_type,attempts,max_attempts")
+    .eq("course_id", courseId)
+    .eq("job_type", "telegram_mirror")
+    .eq("status", "failed");
+
+  if (jobsErr) throw jobsErr;
+  if (!failedJobs || failedJobs.length === 0) {
+    return { retried: 0, jobIds: [], assetIds: [] };
+  }
+
+  const assetIds = failedJobs.map(j => j.asset_id).filter(Boolean);
+
+  const { data: failedAssets, error: assetsErr } = await supabase
+    .from("v5_media_assets")
+    .select("id,origin,status")
+    .eq("course_id", courseId)
+    .in("id", assetIds)
+    .eq("origin", "telegram")
+    .eq("status", "failed");
+
+  if (assetsErr) throw assetsErr;
+
+  const validAssetIds = new Set((failedAssets || []).map(a => a.id));
+  const targetJobs = failedJobs.filter(j => validAssetIds.has(j.asset_id));
+
+  if (targetJobs.length === 0) {
+    return { retried: 0, jobIds: [], assetIds: [] };
+  }
+
+  const targetJobIds = targetJobs.map(j => j.id);
+  const targetAssetIdList = Array.from(validAssetIds);
+  const nowIso = new Date().toISOString();
+
+  const { error: updateAssetsErr } = await supabase
+    .from("v5_media_assets")
+    .update({
+      status: "processing",
+      last_error: null,
+      updated_at: nowIso
+    })
+    .eq("course_id", courseId)
+    .in("id", targetAssetIdList);
+
+  if (updateAssetsErr) throw updateAssetsErr;
+
+  const { error: updateJobsErr } = await supabase
+    .from("v5_jobs")
+    .update({
+      status: "queued",
+      attempts: 0,
+      last_error: null,
+      locked_at: null,
+      locked_by: null,
+      started_at: null,
+      finished_at: null,
+      available_at: nowIso,
+      updated_at: nowIso
+    })
+    .eq("course_id", courseId)
+    .in("id", targetJobIds);
+
+  if (updateJobsErr) throw updateJobsErr;
+
+  return {
+    retried: targetJobs.length,
+    jobIds: targetJobIds,
+    assetIds: targetAssetIdList
+  };
+}
+
 export default async function adminV5TelegramImportHandler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
   const action = clean(req.query?.action || req.body?.action);
+
+  // Retry failed media (POST)
+  if (action === "retry_failed_media" || action === "retry_failed") {
+    try {
+      const course = await loadCourse(req.query?.course || req.body?.course);
+      if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+      const result = await retryFailedTelegramMedia(course.id);
+      return res.status(200).json({ success: true, result, retried: result.retried, admin: admin.email });
+    } catch (err) {
+      console.error("[admin-v5-telegram-retry-failed]", err);
+      return res.status(500).json({ success: false, error: err?.message || "Lỗi thử lại media thất bại." });
+    }
+  }
 
   // Status check (GET or POST)
   if (action === "mirror_status" || action === "status" || action === "telegramMirrorStatus") {
