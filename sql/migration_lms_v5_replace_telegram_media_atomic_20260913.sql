@@ -88,14 +88,16 @@ begin
     raise exception 'v5_new_asset_not_telegram';
   end if;
 
-  -- 7. Validate Telegram provenance matches exactly (no coalesce fallback)
-  if coalesce(v_new_asset.telegram_source_id, '') <> coalesce(v_old_asset.telegram_source_id, '')
-     or nullif(btrim(coalesce(v_new_asset.telegram_source_id, '')), '') is null then
+  -- 7. Validate Telegram provenance matches exactly using UUID-safe comparisons
+  if v_new_asset.telegram_source_id is null
+     or v_old_asset.telegram_source_id is null
+     or v_new_asset.telegram_source_id is distinct from v_old_asset.telegram_source_id then
     raise exception 'v5_telegram_source_id_mismatch';
   end if;
 
-  if coalesce(v_new_asset.telegram_message_row_id, '') <> coalesce(v_old_asset.telegram_message_row_id, '')
-     or nullif(btrim(coalesce(v_new_asset.telegram_message_row_id, '')), '') is null then
+  if v_new_asset.telegram_message_row_id is null
+     or v_old_asset.telegram_message_row_id is null
+     or v_new_asset.telegram_message_row_id is distinct from v_old_asset.telegram_message_row_id then
     raise exception 'v5_telegram_message_row_id_mismatch';
   end if;
 
