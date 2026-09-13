@@ -36,7 +36,12 @@ function uniqueText(...values) {
 }
 
 export function buildV5ViewModel(payload) {
-  const lessons = [...(Array.isArray(payload?.lessons) ? payload.lessons : [])].sort(byPosition);
+  const isTimeline = payload?.settings?.authoring_mode === 'timeline' || payload?.authoringMode === 'timeline';
+  const rawLessons = Array.isArray(payload?.lessons) ? payload.lessons : [];
+  const lessons = rawLessons
+    .filter(lesson => lesson?.metadata?.system_lesson !== true)
+    .sort(byPosition);
+  const knownLessonIds = new Set(lessons.map(lesson => String(lesson.id)));
   const posts = [...(Array.isArray(payload?.posts) ? payload.posts : [])].sort(byPosition);
   const links = [...(Array.isArray(payload?.links) ? payload.links : [])].sort(byPosition);
   const assets = new Map((Array.isArray(payload?.assets) ? payload.assets : []).map(asset => [String(asset.id), asset]));
@@ -47,6 +52,7 @@ export function buildV5ViewModel(payload) {
     linksByPost.get(key).push(link);
   }
   const postsByLesson = new Map();
+  const unassignedPosts = [];
   for (const post of posts) {
     const key = String(post.lesson_id || '');
     const postAssets = (linksByPost.get(String(post.id)) || [])
@@ -70,8 +76,12 @@ export function buildV5ViewModel(payload) {
       category: categoryFor(postAssets, body),
       search: normalizeSearch(body)
     };
-    if (!postsByLesson.has(key)) postsByLesson.set(key, []);
-    postsByLesson.get(key).push(item);
+    if (knownLessonIds.has(key)) {
+      if (!postsByLesson.has(key)) postsByLesson.set(key, []);
+      postsByLesson.get(key).push(item);
+    } else {
+      unassignedPosts.push(item);
+    }
   }
   const lessonViews = lessons.map(lesson => {
     const lessonPosts = postsByLesson.get(String(lesson.id)) || [];
@@ -86,9 +96,17 @@ export function buildV5ViewModel(payload) {
       search: normalizeSearch([lesson.title, ...lessonPosts.map(post => post.body)].join(' '))
     };
   });
-  const loosePosts = postsByLesson.get('') || [];
-  if (loosePosts.length) {
-    lessonViews.push({ id: 'v5-loose-posts', title: 'Nội dung bổ sung', position: Number.MAX_SAFE_INTEGER, posts: loosePosts, date: loosePosts[0]?.sourceDate || '', category: 'all', search: normalizeSearch(loosePosts.map(post => post.body).join(' ')) });
+  if (unassignedPosts.length) {
+    const fallbackTitle = isTimeline ? 'Dòng thời gian' : 'Nội dung bổ sung';
+    lessonViews.push({
+      id: isTimeline ? 'v5-timeline-feed' : 'v5-loose-posts',
+      title: fallbackTitle,
+      position: Number.MAX_SAFE_INTEGER,
+      posts: unassignedPosts,
+      date: unassignedPosts[0]?.sourceDate || '',
+      category: 'all',
+      search: normalizeSearch(unassignedPosts.map(post => post.body).join(' '))
+    });
   }
   return lessonViews;
 }
