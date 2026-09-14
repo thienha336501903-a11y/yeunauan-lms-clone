@@ -39,11 +39,11 @@ test('V5 media service worker preserves byte-range playback on mobile browsers',
   assert.match(sw, /\[401, 403, 410\]\.includes\(upstream\.status\)/);
 });
 
-test('Unified My Courses exposes V5 and routes ready students through learning', () => {
+test('Unified My Courses exposes V5 and routes ready students through legacy-post intro', () => {
   const html = read('my-courses.html');
   assert.match(html, /\['lms','v4','v5'\]\.includes/);
   assert.match(html, /mode==='v5'\?'LMS V5'/);
-  assert.match(html, /mode==='v5'\?`\/learning\?course=\$\{encodeURIComponent\(c\.slug\)\}`/);
+  assert.match(html, /`\/legacy-post\.html\?course=\$\{encodeURIComponent\(c\.slug\)\}`/);
   assert.match(html, /@media\(max-width:420px\)/);
 });
 
