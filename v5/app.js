@@ -254,7 +254,11 @@ function renderOutline() {
   $('mobileOutline').innerHTML = html;
   $('outlineCount').textContent = `${lessons.length} bài học`;
   $('mobileOutlineCount').textContent = `${lessons.length} bài học · chọn để chuyển nhanh`;
-  document.querySelectorAll('.outline-item[data-lesson-id]').forEach(button => button.addEventListener('click', () => { closeOutline(); scrollToLesson(button.dataset.lessonId); }));
+  document.querySelectorAll('.outline-item[data-lesson-id]').forEach(button => button.addEventListener('click', () => {
+    const lessonId = button.dataset.lessonId;
+    closeOutline();
+    requestAnimationFrame(() => scrollToLesson(lessonId));
+  }));
 }
 
 function assetHtml(asset, index, total) {
@@ -298,12 +302,14 @@ function renderFeed() {
 }
 
 function scrollToLesson(lessonId, flash = true) {
-  const target = document.querySelector(`[data-lesson-id="${CSS.escape(String(lessonId))}"]`);
+  const escapedLessonId = CSS.escape(String(lessonId));
+  const card = document.querySelector(`#feed .lesson-card[data-lesson-id="${escapedLessonId}"]`);
+  const target = document.querySelector(`#feed .lesson-chip[data-for-lesson="${escapedLessonId}"]`) || card;
   if (!target) return;
   lastSeen = String(lessonId);
   saveProgress();
-  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (flash) { target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash'); }
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (flash && card) { card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash'); }
   document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.lessonId === String(lessonId)));
 }
 

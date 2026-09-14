@@ -27,6 +27,10 @@ function learnerPostDisplay(metadata) {
   return display;
 }
 
+function learnerLessonMetadata(metadata) {
+  return metadata?.system_lesson === true ? { system_lesson: true } : undefined;
+}
+
 export function v5ReleaseContent(snapshot) {
   if (!isV5ReleaseSnapshot(snapshot)) return null;
   const lessons = Array.isArray(snapshot.lessons) ? snapshot.lessons.map(item => ({ ...item, metadata: item?.metadata || {} })).sort(byPosition) : [];
@@ -54,7 +58,10 @@ export function v5LearnerReleaseContent(snapshot) {
   }
   return {
     config,
-    lessons: content.lessons.map(({ id, title, position }) => ({ id, title, position })),
+    lessons: content.lessons.map(({ id, title, position, metadata }) => {
+      const safeMetadata = learnerLessonMetadata(metadata);
+      return safeMetadata ? { id, title, position, metadata: safeMetadata } : { id, title, position };
+    }),
     posts: content.posts.map(({ id, lesson_id, position, text_content, caption, metadata }) => ({
       id,
       lesson_id: lesson_id || null,

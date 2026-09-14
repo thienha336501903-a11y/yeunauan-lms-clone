@@ -205,9 +205,9 @@ test('15. Non-timeline courses retain standard lesson outline and behavior', () 
   assert.equal(viewModel[0].title, 'Bài 1: Giới thiệu');
   assert.equal(viewModel[1].title, 'Bài 2: Thực hành');
 
-  // Verify learnerApp retains lesson-mode branch
+  // Verify learnerApp retains lesson-mode branch while mobile sheet close defers the scroll by one frame.
   assert.match(learnerApp, /data-lesson-id="\$\{esc\(lesson\.id\)\}"/);
-  assert.match(learnerApp, /scrollToLesson\(button\.dataset\.lessonId\)/);
+  assert.match(learnerApp, /const lessonId\s*=\s*button\.dataset\.lessonId;[\s\S]*?requestAnimationFrame\(\(\)\s*=>\s*scrollToLesson\(lessonId\)\)/);
   assert.match(learnerApp, /`v5_progress_\$\{activeCourse/);
 });
 
