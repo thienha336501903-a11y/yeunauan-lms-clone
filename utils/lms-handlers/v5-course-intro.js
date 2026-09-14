@@ -2,16 +2,27 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { v5LearnerReleaseContent } from "../v5-release-snapshot.js";
 import { buildV5IntroItems } from "../v5-intro-content.js";
+import { applySameOriginCors } from "../lms-request-origin.js";
 
 function clean(value) {
   return String(value || "").trim();
 }
 
 export default async function v5CourseIntroHandler(req, res) {
+  const originAllowed = applySameOriginCors(req, res, {
+    methods: "GET, OPTIONS",
+    headers: "Content-Type, X-LMS-Session-Id, X-LMS-Device-Id"
+  });
   res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-LMS-Session-Id, X-LMS-Device-Id");
+
+  if (!originAllowed) {
+    return res.status(403).json({
+      success: false,
+      code: "origin_not_allowed",
+      error: "Origin not allowed"
+    });
+  }
+
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ success: false, error: "Method not allowed" });
 

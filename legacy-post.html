@@ -49,8 +49,8 @@
   async function loadV5Intro(){
     const response=await fetch(`/api/lms/portal?endpoint=v5-course-intro&course=${encodeURIComponent(slug)}`,{method:'GET',credentials:'same-origin',cache:'no-store'});
     const data=await response.json().catch(()=>({}));
-    if(!response.ok||!data.success)throw new Error(data.error||'Không tải được nội dung giới thiệu V5');
-    return data.intro||null;
+    if(!response.ok||!data.success||!data.intro||!Array.isArray(data.intro.items))throw new Error(data.error||'Không tải được nội dung giới thiệu V5');
+    return data.intro;
   }
 
   async function dashboard(){
@@ -110,16 +110,36 @@
     if(!course||course.state!=='ready'){location.replace('/my-courses.html');return}
     const mode=String(course.deliveryMode||'lms').trim().toLowerCase();
     let v4Intro=null;
+    let v5IntroStatus=null;
     if(mode==='v4'){
       try{v4Intro=await loadV4Intro()}catch(error){console.warn('[legacy-post] V4 intro fallback',error?.message||error)}
     }else if(mode==='v5'){
-      try{v4Intro=await loadV5Intro()}catch(error){console.warn('[legacy-post] V5 intro fallback',error?.message||error)}
+      try{
+        v4Intro=await loadV5Intro();
+        v5IntroStatus='success';
+      }catch(error){
+        console.warn('[legacy-post] V5 intro fetch failed',error?.message||error);
+        v5IntroStatus='error';
+      }
     }
     const image=course.imageUrl?`<img src="${esc(course.imageUrl)}" alt="${esc(course.title||course.slug)}">`:'<div class="placeholder">📖</div>';
     const dateLabel=formatDate(course.createdAt||course.expectedStartDate||course.updatedAt)||'Khóa học trực tuyến';
     app.className='';
     const entryContent=course.originalLessonEntryVisible!==false?`<div class="entry-wrap"><button id="enter" class="entry">${icon('graduate')}<span>Ấn để xem Bài học gốc phục vụ giảng dạy</span></button><p id="err" class="error" role="alert"></p></div>`:'';
-    const recipeContent=['v4','v5'].includes(mode)?v4IntroHtml(v4Intro,course.description):introHtml(course.description);
+    let recipeContent='';
+    if(mode==='v5'){
+      if(v5IntroStatus==='error'){
+        recipeContent='<p class="error" role="alert">Không tải được nội dung lớp học. Vui lòng tải lại trang.</p>';
+      }else if(Array.isArray(v4Intro?.items)&&v4Intro.items.length>0){
+        recipeContent=v4IntroHtml(v4Intro,'');
+      }else{
+        recipeContent=introHtml(course.description);
+      }
+    }else if(mode==='v4'){
+      recipeContent=v4IntroHtml(v4Intro,course.description);
+    }else{
+      recipeContent=introHtml(course.description);
+    }
     app.innerHTML=`<div class="nav"><a href="${esc(myCoursesUrl)}">← Quay lại Khóa học của tôi</a></div><div class="grid"><div class="media">${image}</div><section class="info"><header class="header"><div class="meta">${icon('calendar')}<span>${esc(dateLabel)}</span></div><h1 class="title">${esc(course.title||course.slug)}</h1>${entryContent}</header><div class="recipe"><div class="recipe-head"><h2 class="recipe-title">Công Thức &amp; Hướng Dẫn</h2></div><div class="recipe-content">${recipeContent}</div></div></section></div>`;
     const enterButton=document.getElementById('enter');
     if(enterButton)enterButton.addEventListener('click',()=>enterCourse(mode));
