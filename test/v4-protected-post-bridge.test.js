@@ -10,12 +10,10 @@ const tokenHandler = read('utils/lms-handlers/legacy-entry-token.js');
 const tokenEntry = read('v4-token-entry.html');
 const verifier = read('utils/lms-handlers/verify-entry-token.js');
 
-// Legacy LMS and V4 still share the protected legacy-post bridge; V5 bypasses it
-// and enters the explicit /learning route instead.
-assert.match(manager, /mode==='v5'\?`\/learning\?course=/);
-assert.match(manager, /:`\/legacy-post\.html\?course=/);
+// Legacy LMS, V4, and V5 now share the protected legacy-post bridge.
+assert.match(manager, /`\/legacy-post\.html\?course=\$\{encodeURIComponent\(c\.slug\)\}`/);
 assert.doesNotMatch(manager, /mode==='v4'\?`\/learning\?course=/);
-assert.match(post, /\['lms','v4'\]\.includes\(mode\)/);
+assert.match(post, /\['lms','v4','v5'\]\.includes\(mode\)/);
 assert.equal((post.match(/Ấn để xem Bài học gốc phục vụ giảng dạy/g)||[]).length,2);
 assert.match(post, /endpoint=legacy-entry-token/);
 assert.match(post, /#FCF8F2/i);
