@@ -24,7 +24,7 @@ import adminV4PrepublishHandler from "../../utils/lms-handlers/admin-v4-prepubli
 import adminV5ContentHandler from "../../utils/lms-handlers/admin-v5-content.js";
 import adminV5UploadHandler from "../../utils/lms-handlers/admin-v5-upload.js";
 import adminV5ReleaseHandler from "../../utils/lms-handlers/admin-v5-release.js";
-import adminV5TelegramImportHandler from "../../utils/lms-handlers/admin-v5-telegram-import.js";
+import adminV5TelegramImportHandler from "../../utils/lms-handlers/admin-v5-telegram-import-scoped.js";
 import adminV5CapabilitiesHandler from "../../utils/lms-handlers/admin-v5-capabilities.js";
 import adminV5CreateCourseHandler from "../../utils/lms-handlers/admin-v5-create-course.js";
 import adminV5TestCleanupHandler from "../../utils/lms-handlers/admin-v5-test-cleanup.js";
