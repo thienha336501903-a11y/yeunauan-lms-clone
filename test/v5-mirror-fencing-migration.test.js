@@ -6,8 +6,10 @@ const migration = fs.readFileSync(new URL('../sql/migration_lms_v5_mirror_fencin
 
 test('V5 Telegram mirror lease fencing migration pins p_attempt and search_path', () => {
   assert.match(migration, /create or replace function public\.finish_v5_telegram_mirror_job/);
-  assert.match(migration, /p_attempt integer default null/);
+  assert.match(migration, /p_attempt integer\s*\)/);
+  assert.doesNotMatch(migration, /p_attempt integer default/);
   assert.match(migration, /set search_path = pg_catalog, public/);
+  assert.match(migration, /v5_mirror_attempt_required/);
   assert.match(migration, /v5_mirror_lease_fenced:expected_attempt_%_got_%/);
   assert.match(migration, /grant execute on function public\.finish_v5_telegram_mirror_job/);
 });
