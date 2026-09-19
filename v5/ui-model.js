@@ -147,8 +147,8 @@ export function buildTimelineOutline(payload) {
       category = 'photo';
     }
 
-    const primaryAsset = postAssets[0] || null;
-    const assetFilename = String(primaryAsset?.original_filename || '').trim();
+    const docAsset = postAssets.find(asset => !VIDEO_TYPES.has(asset.type) && !IMAGE_TYPES.has(asset.type));
+    const docFilename = String(docAsset?.original_filename || '').trim();
 
     const body = uniqueText(post.body || post.text_content, post.caption).trim();
     const lines = body ? body.split(/\r?\n/).map(line => line.trim()).filter(Boolean) : [];
@@ -156,34 +156,50 @@ export function buildTimelineOutline(payload) {
     let title = '';
     let subtitle = '';
 
-    if (lines.length > 0) {
-      title = lines[0];
-      if (title.length > 65) {
-        title = title.slice(0, 60).trim() + '…';
-      }
-
-      if (assetFilename) {
-        subtitle = assetFilename;
-      } else if (lines.length > 1) {
-        let secondLine = lines[1];
-        if (secondLine.length > 70) {
-          secondLine = secondLine.slice(0, 65).trim() + '…';
+    if (category === 'file') {
+      if (lines.length > 0) {
+        title = lines[0];
+        if (title.length > 65) {
+          title = title.slice(0, 60).trim() + '…';
         }
-        subtitle = secondLine;
+
+        if (docFilename) {
+          subtitle = docFilename;
+        } else if (lines.length > 1) {
+          let secondLine = lines[1];
+          if (secondLine.length > 70) {
+            secondLine = secondLine.slice(0, 65).trim() + '…';
+          }
+          subtitle = secondLine;
+        }
+      } else {
+        title = 'Tài liệu';
+        if (docFilename) {
+          subtitle = docFilename;
+        }
       }
     } else {
-      if (hasVideo) {
-        title = 'Video';
-      } else if (hasDoc) {
-        title = 'Tài liệu';
-      } else if (hasImage) {
-        title = 'Hình ảnh';
-      } else {
-        title = 'Bài đăng';
-      }
+      if (lines.length > 0) {
+        title = lines[0];
+        if (title.length > 65) {
+          title = title.slice(0, 60).trim() + '…';
+        }
 
-      if (assetFilename) {
-        subtitle = assetFilename;
+        if (lines.length > 1) {
+          let secondLine = lines[1];
+          if (secondLine.length > 70) {
+            secondLine = secondLine.slice(0, 65).trim() + '…';
+          }
+          subtitle = secondLine;
+        }
+      } else {
+        if (hasVideo) {
+          title = 'Video';
+        } else if (hasImage) {
+          title = 'Hình ảnh';
+        } else {
+          title = 'Bài đăng';
+        }
       }
     }
 
