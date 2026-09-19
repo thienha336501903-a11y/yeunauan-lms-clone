@@ -91,8 +91,8 @@ test('4. Text post extracts first line as title and second line or media as subt
   assert.equal(outline[4].subtitle, 'Lưu ý độ ẩm và nhiệt độ...');
 });
 
-// 5. Post chỉ có video: title fallback 'Video' và mediaIcon là ▶.
-test('5. Video-only post falls back to title "Video", icon "▶", and filename subtitle', () => {
+// 5. Post chỉ có video: title fallback 'Video', mediaIcon là ▶, subtitle rỗng (không dùng filename).
+test('5. Video-only post falls back to title "Video", icon "▶", and empty subtitle', () => {
   const payload = makeMockTimelinePayload();
   const outline = buildTimelineOutline(payload);
   const videoItem = outline.find(item => item.postId === 'p2');
@@ -100,11 +100,11 @@ test('5. Video-only post falls back to title "Video", icon "▶", and filename s
   assert.equal(videoItem.title, 'Video');
   assert.equal(videoItem.mediaIcon, '▶');
   assert.equal(videoItem.category, 'video');
-  assert.equal(videoItem.subtitle, 'Video_Can_Bot.mp4');
+  assert.equal(videoItem.subtitle, '');
 });
 
-// 6. Post chỉ có hình ảnh: title fallback 'Hình ảnh' và mediaIcon là 📷.
-test('6. Photo-only post falls back to title "Hình ảnh", icon "📷", and filename subtitle', () => {
+// 6. Post chỉ có hình ảnh: title fallback 'Hình ảnh', mediaIcon là 📷, subtitle rỗng (không dùng filename).
+test('6. Photo-only post falls back to title "Hình ảnh", icon "📷", and empty subtitle', () => {
   const payload = makeMockTimelinePayload();
   const outline = buildTimelineOutline(payload);
   const photoItem = outline.find(item => item.postId === 'p4');
@@ -112,7 +112,7 @@ test('6. Photo-only post falls back to title "Hình ảnh", icon "📷", and fil
   assert.equal(photoItem.title, 'Hình ảnh');
   assert.equal(photoItem.mediaIcon, '📷');
   assert.equal(photoItem.category, 'photo');
-  assert.equal(photoItem.subtitle, 'Thanh_Pham.jpg');
+  assert.equal(photoItem.subtitle, '');
 });
 
 // 7. Post chỉ có document/file: title fallback 'Tài liệu' và mediaIcon là 📄.
@@ -219,4 +219,154 @@ test('16. Search results in timeline mode scroll to specific post', () => {
 // 17. Unread filter in timeline mode filters cards by postId
 test('17. Unread filter in timeline mode filters cards by postId', () => {
   assert.match(learnerApp, /const isCardSeen\s*=\s*isTimelineMode\(\)\s*\?\s*seen\.has\(card\.dataset\.postId\)\s*:\s*seen\.has\(card\.dataset\.lessonId\)/);
+});
+
+// 18. Required test 1 & 2: video-only and image-only have empty subtitle, no filename
+test('18. Video-only has title "Video" and subtitle "", image-only has title "Hình ảnh" and subtitle ""', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p_vid', position: 1000, body: '' },
+      { id: 'p_img', position: 2000, body: '' }
+    ],
+    links: [
+      { post_id: 'p_vid', asset_id: 'a_vid' },
+      { post_id: 'p_img', asset_id: 'a_img' }
+    ],
+    assets: [
+      { id: 'a_vid', type: 'video', original_filename: 'Mo_rong_66.mp4' },
+      { id: 'a_img', type: 'image', original_filename: 'telegram-47.jpg' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'Video');
+  assert.equal(outline[0].subtitle, '');
+  assert.equal(outline[0].mediaIcon, '▶');
+  assert.equal(outline[1].title, 'Hình ảnh');
+  assert.equal(outline[1].subtitle, '');
+  assert.equal(outline[1].mediaIcon, '📷');
+});
+
+// 19. Required test 3: text 1 dòng + video -> subtitle = "", không chứa .mp4
+test('19. 1-line text + video has title = line 1, subtitle = "" (does not contain .mp4)', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p1', position: 1000, body: 'DECOR BÁNH\n' }
+    ],
+    links: [
+      { post_id: 'p1', asset_id: 'a_vid' }
+    ],
+    assets: [
+      { id: 'a_vid', type: 'video', original_filename: 'Mo_rong_71.mp4' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'DECOR BÁNH');
+  assert.equal(outline[0].subtitle, '');
+  assert.ok(!outline[0].subtitle.includes('.mp4'));
+  assert.ok(!outline[0].title.includes('.mp4'));
+});
+
+// 20. Required test 4: text 1 dòng + image -> subtitle = "", không chứa .jpg/.png/.webp
+test('20. 1-line text + image has title = line 1, subtitle = "" (does not contain .jpg/.png/.webp)', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p1', position: 1000, body: 'DECOR BÁNH' }
+    ],
+    links: [
+      { post_id: 'p1', asset_id: 'a_img' }
+    ],
+    assets: [
+      { id: 'a_img', type: 'photo', original_filename: 'Mo_rong_71.jpg' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'DECOR BÁNH');
+  assert.equal(outline[0].subtitle, '');
+  assert.ok(!outline[0].subtitle.includes('.jpg'));
+  assert.ok(!outline[0].subtitle.includes('.png'));
+  assert.ok(!outline[0].subtitle.includes('.webp'));
+  assert.ok(!outline[0].title.includes('Mo_rong_71'));
+});
+
+// 21. Required test 5: text 2 dòng + video -> subtitle = dòng 2, không phải filename
+test('21. 2-line text + video has title = line 1, subtitle = line 2, not filename', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p1', position: 1000, body: 'DECOR BÁNH\nNội dung hướng dẫn trang trí' }
+    ],
+    links: [
+      { post_id: 'p1', asset_id: 'a_vid' }
+    ],
+    assets: [
+      { id: 'a_vid', type: 'video', original_filename: 'Mo_rong_71.mp4' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'DECOR BÁNH');
+  assert.equal(outline[0].subtitle, 'Nội dung hướng dẫn trang trí');
+  assert.ok(!outline[0].subtitle.includes('.mp4'));
+  assert.ok(!outline[0].subtitle.includes('Mo_rong_71'));
+});
+
+// 22. Required test 6: text 2 dòng + image -> subtitle = dòng 2, không phải filename
+test('22. 2-line text + image has title = line 1, subtitle = line 2, not filename', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p1', position: 1000, body: 'DECOR BÁNH\nNội dung hướng dẫn trang trí' }
+    ],
+    links: [
+      { post_id: 'p1', asset_id: 'a_img' }
+    ],
+    assets: [
+      { id: 'a_img', type: 'image', original_filename: 'telegram-47.webp' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'DECOR BÁNH');
+  assert.equal(outline[0].subtitle, 'Nội dung hướng dẫn trang trí');
+  assert.ok(!outline[0].subtitle.includes('.webp'));
+  assert.ok(!outline[0].subtitle.includes('telegram-47'));
+});
+
+// 23. Required test 7: document-only retains filename (PDF/document)
+test('23. Document-only post retains document filename as subtitle', () => {
+  const payload = {
+    settings: { authoring_mode: 'timeline' },
+    posts: [
+      { id: 'p_doc_empty', position: 1000, body: '' },
+      { id: 'p_doc_text', position: 2000, body: 'Tài liệu hướng dẫn pha chế' }
+    ],
+    links: [
+      { post_id: 'p_doc_empty', asset_id: 'a_doc1' },
+      { post_id: 'p_doc_text', asset_id: 'a_doc2' }
+    ],
+    assets: [
+      { id: 'a_doc1', type: 'document', original_filename: 'Cong_Thuc_Chuan.pdf' },
+      { id: 'a_doc2', type: 'file', original_filename: 'Huong_Dan_Pha_Che.docx' }
+    ]
+  };
+  const outline = buildTimelineOutline(payload);
+  assert.equal(outline[0].title, 'Tài liệu');
+  assert.equal(outline[0].subtitle, 'Cong_Thuc_Chuan.pdf');
+  assert.equal(outline[0].mediaIcon, '📄');
+  assert.equal(outline[1].title, 'Tài liệu hướng dẫn pha chế');
+  assert.equal(outline[1].subtitle, 'Huong_Dan_Pha_Che.docx');
+  assert.equal(outline[1].mediaIcon, '📄');
+});
+
+// 24. General safety: absolutely no video or image filename leaks into outline
+test('24. Strict guarantee: no video or image filename ever leaks into outline titles or subtitles', () => {
+  const mockPayload = makeMockTimelinePayload();
+  const outline = buildTimelineOutline(mockPayload);
+  for (const item of outline) {
+    assert.ok(!item.title.endsWith('.mp4'), `Title must not be .mp4: ${item.title}`);
+    assert.ok(!item.subtitle.endsWith('.mp4'), `Subtitle must not be .mp4: ${item.subtitle}`);
+    assert.ok(!item.title.endsWith('.jpg'), `Title must not be .jpg: ${item.title}`);
+    assert.ok(!item.subtitle.endsWith('.jpg'), `Subtitle must not be .jpg: ${item.subtitle}`);
+  }
 });
