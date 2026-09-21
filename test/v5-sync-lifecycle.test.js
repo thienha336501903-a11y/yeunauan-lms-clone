@@ -22,8 +22,8 @@ test('existing Published V5 metadata sync never mutates canonical lifecycle fiel
   assert.doesNotMatch(ensureBlock, /\.upsert\(/);
 });
 
-test('V5 enrollment create requires active, published config and a published release', () => {
-  assert.match(source, /course\.active !== true/);
+test('V5 enrollment create does not block on course.active and validates canonical release when published', () => {
+  assert.doesNotMatch(source, /course\.active !== true/);
   assert.match(source, /course\.is_published !== true/);
   assert.match(source, /config\.status !== "published"/);
   assert.match(source, /!config\.published_release_id/);
