@@ -18,11 +18,16 @@ test('V5 readiness gate guards content publish (is_published) but not sale activ
   assert.doesNotMatch(migration, /if new\.active is true then\s*new\.is_published := true;/);
 });
 
-test('canonical V5 failclosed flags trigger only clears is_published, never mutates active', () => {
+test('canonical V5 failclosed flags trigger handles DELETE fail-closed and only clears is_published', () => {
   assert.match(migration, /sync_v5_course_failclosed_flags/);
+  // Trigger must fire on INSERT OR UPDATE OR DELETE
+  assert.match(migration, /after insert or update or delete on public\.v5_course_configs/i);
+  // DELETE path uses old.course_id and returns old
+  assert.match(migration, /if tg_op = 'DELETE' then\s*v_course_id := old\.course_id;\s*else\s*v_course_id := new\.course_id;/);
+  assert.match(migration, /if tg_op = 'DELETE' then\s*return old;\s*end if;\s*return new;/);
+  // Failclosed path clears is_published without mutating active
   assert.match(migration, /set is_published = false,\s*updated_at = now\(\)/);
   assert.match(migration, /and is_published is true;/);
-  // active = false must NOT appear in failclosed update
   assert.doesNotMatch(migration, /set is_published = false,\s*active = false/);
 });
 

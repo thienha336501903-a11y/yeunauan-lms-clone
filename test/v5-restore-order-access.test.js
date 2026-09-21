@@ -10,9 +10,9 @@ test('restoreEnrollment is a distinct authenticated sync action', () => {
   assert.match(source, /\["create", "restore", "revoke"\]/);
 });
 
-test('new V5 enrollment still requires sale active while restore ignores sale switch', () => {
+test('V5 enrollment create and restore ignore sale switch to prevent order orphaning', () => {
   assert.match(source, /requireV5PublishedForExistingAccess/);
-  assert.match(source, /if \(course\.active !== true\).*v5_course_inactive/);
+  assert.doesNotMatch(source, /if \(course\.active !== true\).*v5_course_inactive/);
   assert.match(source, /action === "restore"[\s\S]*requireV5PublishedForExistingAccess/);
   assert.match(source, /requireV5PublishedForExistingAccess[\s\S]*course\.is_published !== true/);
   assert.match(source, /requireCanonicalPublishedRelease\(course\)/);

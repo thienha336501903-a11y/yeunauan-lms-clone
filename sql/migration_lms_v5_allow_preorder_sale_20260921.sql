@@ -118,19 +118,27 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
+  v_course_id uuid;
   v_mode text := '';
   v_ready boolean := false;
 begin
+  if tg_op = 'DELETE' then
+    v_course_id := old.course_id;
+  else
+    v_course_id := new.course_id;
+  end if;
+
   select lower(coalesce(c.delivery_mode, ''))
     into v_mode
   from public.courses c
-  where c.id = new.course_id;
+  where c.id = v_course_id;
 
   if v_mode <> 'v5' then
+    if tg_op = 'DELETE' then return old; end if;
     return new;
   end if;
 
-  if new.status = 'published' and new.published_release_id is not null then
+  if tg_op <> 'DELETE' and new.status = 'published' and new.published_release_id is not null then
     select exists (
       select 1
       from public.v5_releases r
@@ -140,16 +148,20 @@ begin
     ) into v_ready;
   end if;
 
-  -- If content is not ready, fail closed learner-visible content access (is_published = false).
-  -- Do NOT mutate active (Commerce sales switch remains owned by Commerce/Admin).
+  -- If canonical config is deleted, unpublished, or missing published release:
+  -- fail-close learner-visible content access (is_published = false)
+  -- while preserving courses.active (Commerce sales switch).
   if not v_ready then
     update public.courses
        set is_published = false,
            updated_at = now()
-     where id = new.course_id
+     where id = v_course_id
        and is_published is true;
   end if;
 
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
   return new;
 end;
 $$;
@@ -160,5 +172,6 @@ revoke all on function public.sync_v5_course_failclosed_flags() from authenticat
 
 drop trigger if exists trg_sync_v5_course_failclosed_flags on public.v5_course_configs;
 create trigger trg_sync_v5_course_failclosed_flags
-after insert or update on public.v5_course_configs
+after insert or update or delete on public.v5_course_configs
 for each row execute function public.sync_v5_course_failclosed_flags();
+

@@ -63,9 +63,7 @@ async function requireV5PublishedForExistingAccess(courseSlug, { requirePublishe
 }
 
 async function requireV5ReadyForEnrollment(courseSlug, { requirePublished = false } = {}) {
-  const course = await requireV5PublishedForExistingAccess(courseSlug, { requirePublished });
-  if (course.active !== true) throw conflict("Khóa V5 chưa mở bán.", "v5_course_inactive");
-  return course;
+  return requireV5PublishedForExistingAccess(courseSlug, { requirePublished });
 }
 
 async function upsertStudent(email) {
