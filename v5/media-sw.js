@@ -47,18 +47,40 @@ function cacheKey(course, assetId) {
   return `${course}:${assetId}`;
 }
 
-function playbackRange(rawRange, mimeType) {
+function playbackRange(rawRange, mimeType, method = "GET") {
   const value = clean(rawRange);
+  if (clean(method).toUpperCase() === "HEAD") return value;
   const isVideo = clean(mimeType).toLowerCase().startsWith("video/");
   if (value) {
     if (!isVideo) return value;
     const openEnded = value.match(/^bytes=(\d+)-$/i);
-    if (!openEnded) return value;
-    const start = Number(openEnded[1]);
-    const chunkBytes = start === 0 ? STARTUP_VIDEO_RANGE_BYTES : STEADY_VIDEO_RANGE_BYTES;
-    const end = start + chunkBytes - 1;
-    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(end)) return value;
-    return `bytes=${start}-${end}`;
+    if (openEnded) {
+      const start = Number(openEnded[1]);
+      const chunkBytes = start === 0 ? STARTUP_VIDEO_RANGE_BYTES : STEADY_VIDEO_RANGE_BYTES;
+      const end = start + chunkBytes - 1;
+      if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(end)) return value;
+      return `bytes=${start}-${end}`;
+    }
+    const explicitBounded = value.match(/^bytes=(\d+)-(\d+)$/i);
+    if (explicitBounded) {
+      const start = Number(explicitBounded[1]);
+      const originalEnd = Number(explicitBounded[2]);
+      if (
+        !Number.isSafeInteger(start) ||
+        start < 0 ||
+        !Number.isSafeInteger(originalEnd) ||
+        originalEnd < start
+      ) {
+        return value;
+      }
+      const limit = start === 0 ? STARTUP_VIDEO_RANGE_BYTES : STEADY_VIDEO_RANGE_BYTES;
+      const maxEnd = start + limit - 1;
+      if (!Number.isSafeInteger(maxEnd)) return value;
+      if (originalEnd <= maxEnd) return value;
+      const newEnd = Math.min(originalEnd, maxEnd);
+      return `bytes=${start}-${newEnd}`;
+    }
+    return value;
   }
   return isVideo ? `bytes=0-${STARTUP_VIDEO_RANGE_BYTES - 1}` : "";
 }
@@ -126,7 +148,7 @@ function copyHeaders(upstream) {
 
 async function upstreamRequest(request, lease) {
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const range = playbackRange(request.headers.get("range"), lease.mimeType);
+  const range = method === "HEAD" ? clean(request.headers.get("range")) : playbackRange(request.headers.get("range"), lease.mimeType);
   const timestamp = String(Date.now());
   const nonce = randomNonce();
   const canonical = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
