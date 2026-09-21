@@ -53,15 +53,17 @@ async function requireCanonicalPublishedRelease(course) {
   return { config, release };
 }
 
-async function requireV5PublishedForExistingAccess(courseSlug) {
+async function requireV5PublishedForExistingAccess(courseSlug, { requirePublished = false } = {}) {
   const course = await requireV5Course(courseSlug);
-  if (course.is_published !== true) throw conflict("Khóa V5 chưa Publish.", "v5_course_unpublished");
-  await requireCanonicalPublishedRelease(course);
+  if (requirePublished && course.is_published !== true) throw conflict("Khóa V5 chưa Publish.", "v5_course_unpublished");
+  if (course.is_published === true) {
+    await requireCanonicalPublishedRelease(course);
+  }
   return course;
 }
 
-async function requireV5ReadyForEnrollment(courseSlug) {
-  const course = await requireV5PublishedForExistingAccess(courseSlug);
+async function requireV5ReadyForEnrollment(courseSlug, { requirePublished = false } = {}) {
+  const course = await requireV5PublishedForExistingAccess(courseSlug, { requirePublished });
   if (course.active !== true) throw conflict("Khóa V5 chưa mở bán.", "v5_course_inactive");
   return course;
 }
@@ -277,9 +279,6 @@ async function syncCourse(body) {
   let course;
   if (existing) {
     if (body.active !== undefined) {
-      if (body.active === true && !(await canActivateExistingV5(existing))) {
-        throw conflict("Không thể bật bán khóa V5 trước khi có release Published hợp lệ.", "v5_not_ready_for_sale");
-      }
       patch.active = body.active === true;
     }
     const { data, error } = await supabase.from("courses").update(patch).eq("id", existing.id).select("id,slug,title,delivery_mode,active,is_published").single();
@@ -290,7 +289,7 @@ async function syncCourse(body) {
     const { data, error } = await supabase.from("courses").insert({
       id: crypto.randomUUID(),
       ...patch,
-      active: false,
+      active: body.active === true,
       is_published: false,
       sort_order: 999
     }).select("id,slug,title,delivery_mode,active,is_published").single();
