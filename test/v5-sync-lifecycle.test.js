@@ -5,7 +5,6 @@ import test from 'node:test';
 const source = fs.readFileSync(new URL('../api/v5-sync.js', import.meta.url), 'utf8');
 
 test('new/shared-shell V5 sync is fail-closed and only bootstraps a missing Draft config', () => {
-  assert.match(source, /active:\s*false/);
   assert.match(source, /is_published:\s*false/);
   assert.match(source, /async function ensureDraftConfigIfMissing\(courseId\)/);
   assert.match(source, /if \(existingConfig\) return existingConfig/);
@@ -39,9 +38,9 @@ test('V5 revoke remains available after unpublish or deactivation', () => {
   assert.match(revokeBlock, /status:\s*"revoked"/);
 });
 
-test('sale activation is rejected until the existing V5 has a canonical published release', () => {
-  assert.match(source, /body\.active === true && !\(await canActivateExistingV5\(existing\)\)/);
-  assert.match(source, /v5_not_ready_for_sale/);
+test('sale activation allows pre-order before canonical published release', () => {
+  assert.match(source, /patch\.active = body\.active === true;/);
+  assert.doesNotMatch(source, /body\.active === true && !\(await canActivateExistingV5\(existing\)\)/);
 });
 
 test('sync errors expose a stable code instead of collapsing readiness conflicts into generic 500s', () => {
