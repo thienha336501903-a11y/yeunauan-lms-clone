@@ -8,7 +8,12 @@ const handler = fs.readFileSync(new URL('../utils/lms-handlers/admin-v4-source.j
 const courses = fs.readFileSync(new URL('../utils/lms-handlers/admin-courses.js', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../v4-admin.html', import.meta.url), 'utf8');
 const adminPage = fs.readFileSync(new URL('../admin.html', import.meta.url), 'utf8');
-const ingestMigration = fs.readFileSync(new URL('../supabase/migrations/20260819_add_v4_source_ingest_activity.sql', import.meta.url), 'utf8');
+const ingestMigration = fs.readFileSync(
+  fs.existsSync(new URL('../supabase/migrations/20260819165934_add_v4_source_ingest_activity.sql', import.meta.url))
+    ? new URL('../supabase/migrations/20260819165934_add_v4_source_ingest_activity.sql', import.meta.url)
+    : new URL('../supabase/migrations/20260819_add_v4_source_ingest_activity.sql', import.meta.url),
+  'utf8'
+);
 
 test('admin router exposes V4 Telegram source endpoint', () => {
   assert.match(router, /admin-v4-source\.js/);
