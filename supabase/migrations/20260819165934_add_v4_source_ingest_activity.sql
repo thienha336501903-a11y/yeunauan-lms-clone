@@ -41,4 +41,4 @@ $$;
 drop trigger if exists tgcloner_source_message_ingest_activity on public.tgcloner_source_messages;
 create trigger tgcloner_source_message_ingest_activity
 after insert or update of updated_at, source_date on public.tgcloner_source_messages
-for each row execute function public.tgcloner_update_source_ingest_activity();
+for each row execute function public.tgcloner_update_source_ingest_activity();;
