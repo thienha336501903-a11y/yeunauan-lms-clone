@@ -142,6 +142,11 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
   if (lessonsRes.error) throw lessonsRes.error;
   if (mappingsRes.error) throw mappingsRes.error;
   if (allDbAssetsRes.error) throw allDbAssetsRes.error;
+  if (postAssetsRes.error) throw postAssetsRes.error;
+  if (allSourceMappingsRes.error) throw allSourceMappingsRes.error;
+  if (allJobsRes.error) throw allJobsRes.error;
+  if (allUploadsRes.error) throw allUploadsRes.error;
+  if (allReleasesRes.error) throw allReleasesRes.error;
 
   // Deduplicate orders and enrollments
   const orderMap = new Map();
