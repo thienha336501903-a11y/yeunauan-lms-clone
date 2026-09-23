@@ -171,6 +171,20 @@ test("4. XML entity unescaping in keys: unescapes HTML/XML entities correctly", 
   assert.equal(result.objects[0].key, 'media/v5/test&folder<1>"quote"\'apostrophe.mp4');
 });
 
+test("4b. XML entity unescaping decodes exactly one level", () => {
+  const xml = `<ListBucketResult>
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>media/v5/double&amp;lt;encoded&amp;amp;value.mp4</Key>
+    <Size>1</Size>
+    <ETag>&quot;e&quot;</ETag>
+  </Contents>
+</ListBucketResult>`;
+
+  const result = parseListBucketResult(xml);
+  assert.equal(result.objects[0].key, "media/v5/double&lt;encoded&amp;value.mp4");
+});
+
 test("5. bucket total calculation: aggregates total bucket bytes and object counts", async () => {
   const origFrom = supabase.from;
   const origFetch = globalThis.fetch;
