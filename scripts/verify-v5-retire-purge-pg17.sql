@@ -220,9 +220,13 @@ values (
 );
 set role service_role;
 do $$
+declare v_op uuid;
 begin
+  select id into v_op
+    from public.v5_course_retire_operations
+   where course_id='11111111-1111-4111-8111-111111111111';
   begin
-    perform public.validate_v5_retire_purge_r2_delete_safe(:'r2_validation_operation_id'::uuid);
+    perform public.validate_v5_retire_purge_r2_delete_safe(v_op);
     raise exception 'shared physical R2 key unexpectedly allowed';
   exception when others then
     if sqlerrm not like '%v5_retire_r2_delete_shared_r2_key%' then raise; end if;
