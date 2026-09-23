@@ -71,8 +71,17 @@ export default async function handler(req, res) {
         if (!config[`${slug}_qrImage`] && rawData.qrImageUrl) {
           config[`${slug}_qrImage`] = rawData.qrImageUrl;
         }
-        if (rawData.studentDisplayTitle) {
-          config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+        const isV5 = String(course.delivery_mode || "").trim().toLowerCase() === "v5";
+        if (isV5) {
+          if (rawData.studentDisplayTitle) {
+            config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+          } else {
+            delete config[`${slug}_studentDisplayTitle`];
+          }
+        } else {
+          if (rawData.studentDisplayTitle) {
+            config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+          }
         }
       }
 

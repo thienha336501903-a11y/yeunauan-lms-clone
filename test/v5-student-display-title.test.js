@@ -127,12 +127,13 @@ test("13. V5-ONLY GUARD: setStudentDisplayTitle rejects non-V5 courses and prese
   assert.deepEqual(checkV5Guard({}), { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." });
 });
 
-test("14. SITE_CONFIG FALLBACK PRESERVATION: GET logic and clear semantics", () => {
+test("14. V5 AUTHORITATIVE PRECEDENCE & LEGACY FALLBACK: GET normalization and clear semantics", () => {
   const code = read("utils/lms-handlers/admin-courses.js");
-  // Verification: GET logic does NOT delete config when rawData has no studentDisplayTitle
   const getLoop = code.slice(code.indexOf('for (const course of courseRows || [])'), code.indexOf('return res.status(200).json({ success: true, courses'));
-  assert.match(getLoop, /if\s*\(rawData\.studentDisplayTitle\)\s*\{\s*config\[`\$\{slug\}_studentDisplayTitle`\]\s*=\s*rawData\.studentDisplayTitle;\s*\}/);
-  assert.doesNotMatch(getLoop, /delete\s+config\[`\$\{slug\}_studentDisplayTitle`\]/);
+
+  // Verify V5 branch isolates raw_data authority and deletes stale site_config key when empty
+  assert.match(getLoop, /const\s+isV5\s*=\s*String\(course\.delivery_mode\s*\|\|\s*""\)\.trim\(\)\.toLowerCase\(\)\s*===\s*"v5";/);
+  assert.match(getLoop, /if\s*\(isV5\)\s*\{\s*if\s*\(rawData\.studentDisplayTitle\)\s*\{\s*config\[`\$\{slug\}_studentDisplayTitle`\]\s*=\s*rawData\.studentDisplayTitle;\s*\}\s*else\s*\{\s*delete\s+config\[`\$\{slug\}_studentDisplayTitle`\];\s*\}\s*\}\s*else\s*\{/);
 
   // Logic simulation of GET config merging
   function simulateGetConfig(siteConfigRows, courseRows) {
@@ -148,40 +149,77 @@ test("14. SITE_CONFIG FALLBACK PRESERVATION: GET logic and clear semantics", () 
       const slug = course.slug;
       const rawData = course.raw_data || {};
       if (!slug) continue;
-      if (rawData.studentDisplayTitle) {
-        config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+      if (course.title) {
+        config[`${slug}_title`] = course.title;
+      }
+      const isV5 = String(course.delivery_mode || "").trim().toLowerCase() === "v5";
+      if (isV5) {
+        if (rawData.studentDisplayTitle) {
+          config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+        } else {
+          delete config[`${slug}_studentDisplayTitle`];
+        }
+      } else {
+        if (rawData.studentDisplayTitle) {
+          config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+        }
       }
     }
     return config;
   }
 
-  // A. raw_data value exists + site_config old value -> raw_data wins
-  const resA = simulateGetConfig(
-    [{ key: "course-1_studentDisplayTitle", value: { val: "Tên Cũ site_config" } }],
-    [{ slug: "course-1", title: "Tên Gốc", raw_data: { studentDisplayTitle: "Tên Mới raw_data" } }]
-  );
-  assert.equal(resA["course-1_studentDisplayTitle"], "Tên Mới raw_data");
-
-  // B. raw_data absent + legacy site_config value exists -> legacy site_config fallback remains available
-  const resB = simulateGetConfig(
-    [{ key: "course-2_studentDisplayTitle", value: { val: "Tên Cũ Legacy Fallback" } }],
-    [{ slug: "course-2", title: "Tên Gốc", raw_data: {} }]
-  );
-  assert.equal(resB["course-2_studentDisplayTitle"], "Tên Cũ Legacy Fallback");
-
-  // C. Explicit Clear through setStudentDisplayTitle:
-  // raw_data key removed AND site_config compatibility value becomes empty string
-  const resC = simulateGetConfig(
-    [{ key: "course-3_studentDisplayTitle", value: { val: "" } }],
-    [{ slug: "course-3", title: "Tên Gốc", raw_data: {} }]
-  );
-  assert.equal(resC["course-3_studentDisplayTitle"], "");
-  // In v5-admin titleForSlug or learner resolution, empty string falls back to canonical title:
   function titleForSlug(slug, config) {
     return String(config?.[`${slug}_studentDisplayTitle`] || config?.[`${slug}_title`] || slug);
   }
-  const effectiveInAdmin = titleForSlug("course-3", { "course-3_title": "Tên Gốc", ...resC });
-  assert.equal(effectiveInAdmin, "Tên Gốc");
+
+  // A. V5: raw_data has title + site_config old value -> raw_data wins
+  const resA = simulateGetConfig(
+    [{ key: "v5-course-a_studentDisplayTitle", value: { val: "Tên Cũ site_config" } }],
+    [{ slug: "v5-course-a", title: "Tên Gốc Canonical", delivery_mode: "v5", raw_data: { studentDisplayTitle: "Tên Mới raw_data" } }]
+  );
+  assert.equal(resA["v5-course-a_studentDisplayTitle"], "Tên Mới raw_data");
+  assert.equal(titleForSlug("v5-course-a", resA), "Tên Mới raw_data");
+
+  // B. V5: raw_data absent + stale site_config title -> stale site_config ignored -> canonical title wins
+  const resB = simulateGetConfig(
+    [{ key: "v5-course-b_studentDisplayTitle", value: { val: "Tên Cũ Stale Trong site_config" } }],
+    [{ slug: "v5-course-b", title: "Tên Gốc Canonical", delivery_mode: "v5", raw_data: {} }]
+  );
+  assert.equal(resB["v5-course-b_studentDisplayTitle"], undefined);
+  assert.equal(titleForSlug("v5-course-b", resB), "Tên Gốc Canonical");
+
+  // C. V4/LMS: raw_data absent + site_config legacy title -> site_config fallback preserved
+  const resC = simulateGetConfig(
+    [{ key: "v4-course-c_studentDisplayTitle", value: { val: "Tên V4 Legacy Fallback" } }],
+    [{ slug: "v4-course-c", title: "Tên Gốc Canonical", delivery_mode: "v4", raw_data: {} }]
+  );
+  assert.equal(resC["v4-course-c_studentDisplayTitle"], "Tên V4 Legacy Fallback");
+  assert.equal(titleForSlug("v4-course-c", resC), "Tên V4 Legacy Fallback");
+
+  const resCLms = simulateGetConfig(
+    [{ key: "lms-course-c_studentDisplayTitle", value: { val: "Tên LMS Legacy Fallback" } }],
+    [{ slug: "lms-course-c", title: "Tên Gốc Canonical", delivery_mode: "lms", raw_data: {} }]
+  );
+  assert.equal(resCLms["lms-course-c_studentDisplayTitle"], "Tên LMS Legacy Fallback");
+  assert.equal(titleForSlug("lms-course-c", resCLms), "Tên LMS Legacy Fallback");
+
+  // D. Explicit V5 Clear:
+  // raw_data key removed. Even if site_config still contains stale value (e.g. secondary sync failed),
+  // GET effective V5 title resolves canonical
+  const resDStaleSync = simulateGetConfig(
+    [{ key: "v5-course-d_studentDisplayTitle", value: { val: "Stale Value Do Secondary Sync Lỗi" } }],
+    [{ slug: "v5-course-d", title: "Tên Gốc Canonical V5", delivery_mode: "v5", raw_data: {} }]
+  );
+  assert.equal(resDStaleSync["v5-course-d_studentDisplayTitle"], undefined);
+  assert.equal(titleForSlug("v5-course-d", resDStaleSync), "Tên Gốc Canonical V5");
+
+  // And when secondary sync succeeded (val: ""):
+  const resDCleanSync = simulateGetConfig(
+    [{ key: "v5-course-d_studentDisplayTitle", value: { val: "" } }],
+    [{ slug: "v5-course-d", title: "Tên Gốc Canonical V5", delivery_mode: "v5", raw_data: {} }]
+  );
+  assert.equal(resDCleanSync["v5-course-d_studentDisplayTitle"], undefined);
+  assert.equal(titleForSlug("v5-course-d", resDCleanSync), "Tên Gốc Canonical V5");
 });
 
 test("15. HARDENED SYNC & FAIL-CLOSED: site_config inspection and fail-closed courses update", () => {
