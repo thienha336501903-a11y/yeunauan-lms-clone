@@ -45,6 +45,9 @@ function rfc3986(value) {
 }
 
 function objectPath(bucket, key) {
+  if (key === undefined || key === null || key === "") {
+    return `/${rfc3986(bucket)}`;
+  }
   return `/${rfc3986(bucket)}/${String(key).split("/").map(rfc3986).join("/")}`;
 }
 
@@ -241,4 +244,79 @@ export async function deleteR2Object({ key }) {
     throw new Error(`R2 delete failed (${response.status}): ${text.slice(0, 300)}`);
   }
   return { deleted: response.status !== 404, notFound: response.status === 404 };
+}
+
+function xmlUnescape(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+export function parseListBucketResult(xml) {
+  const isTruncated = xmlValue(xml, "IsTruncated").toLowerCase() === "true";
+  const nextContinuationToken = xmlValue(xml, "NextContinuationToken") || null;
+  const keyCount = Number(xmlValue(xml, "KeyCount") || 0);
+
+  const objects = [];
+  const contentsRegex = /<Contents>([\s\S]*?)<\/Contents>/gi;
+  let match;
+  while ((match = contentsRegex.exec(xml)) !== null) {
+    const block = match[1];
+    const rawKey = xmlValue(block, "Key");
+    const key = xmlUnescape(rawKey);
+    const size = Number(xmlValue(block, "Size") || 0);
+    const lastModified = xmlValue(block, "LastModified");
+    const rawEtag = xmlValue(block, "ETag");
+    const etag = xmlUnescape(rawEtag).replace(/^"|"$/g, "");
+    const storageClass = xmlValue(block, "StorageClass") || "STANDARD";
+    objects.push({ key, size, lastModified, etag, storageClass });
+  }
+
+  return {
+    isTruncated,
+    nextContinuationToken,
+    keyCount: keyCount || objects.length,
+    objects
+  };
+}
+
+export async function listR2Objects({ prefix = "", continuationToken, maxKeys = 1000 } = {}) {
+  const query = new URLSearchParams();
+  query.set("list-type", "2");
+  if (prefix) query.set("prefix", String(prefix));
+  if (continuationToken) query.set("continuation-token", String(continuationToken));
+  if (maxKeys) query.set("max-keys", String(Math.min(1000, Math.max(1, Number(maxKeys) || 1000))));
+
+  const request = signedRequest({ method: "GET", key: "", query });
+  const response = await fetch(request.url, { method: "GET", headers: request.headers });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`R2 list failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  return parseListBucketResult(text);
+}
+
+export async function listAllR2Objects({ prefix = "", maxTotalObjects = 50000 } = {}) {
+  let continuationToken = null;
+  const allObjects = [];
+  let pages = 0;
+  const MAX_PAGES = 100;
+
+  do {
+    pages++;
+    if (pages > MAX_PAGES) {
+      throw new Error(`R2 list vượt quá số trang tối đa (${MAX_PAGES}).`);
+    }
+    const result = await listR2Objects({ prefix, continuationToken, maxKeys: 1000 });
+    allObjects.push(...result.objects);
+    if (allObjects.length > maxTotalObjects) {
+      throw new Error(`R2 list vượt quá số object tối đa (${maxTotalObjects}).`);
+    }
+    continuationToken = result.isTruncated ? result.nextContinuationToken : null;
+  } while (continuationToken);
+
+  return allObjects;
 }

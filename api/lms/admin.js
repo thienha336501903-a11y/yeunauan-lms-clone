@@ -29,6 +29,8 @@ import adminV5CapabilitiesHandler from "../../utils/lms-handlers/admin-v5-capabi
 import adminV5CreateCourseHandler from "../../utils/lms-handlers/admin-v5-create-course.js";
 import adminV5TestCleanupHandler from "../../utils/lms-handlers/admin-v5-test-cleanup.js";
 import adminV5PreviewAccessHandler from "../../utils/lms-handlers/admin-v5-preview-access.js";
+import adminV5StorageHandler from "../../utils/lms-handlers/admin-v5-storage.js";
+import adminV5CourseDeleteHandler from "../../utils/lms-handlers/admin-v5-course-delete.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
@@ -65,5 +67,7 @@ export default async function handler(req, res) {
   if (endpoint === "v5-create-course") return adminV5CreateCourseHandler(req, res);
   if (endpoint === "v5-test-cleanup") return adminV5TestCleanupHandler(req, res);
   if (endpoint === "v5-preview-access") return adminV5PreviewAccessHandler(req, res);
+  if (endpoint === "v5-storage") return adminV5StorageHandler(req, res);
+  if (endpoint === "v5-course-delete") return adminV5CourseDeleteHandler(req, res);
   return res.status(404).json({ success: false, error: "LMS Admin Endpoint not found" });
 }
