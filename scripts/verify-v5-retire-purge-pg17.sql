@@ -120,7 +120,7 @@ begin
      or not has_function_privilege('service_' || 'role','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE') then
     raise exception 'R2 delete validation function permission assertion failed';
   end if;
-end $;
+end $$;
 
 -- Published course fixture with approved order + active enrollment.
 insert into public.courses(id,slug,delivery_mode,active,is_published)
@@ -168,11 +168,11 @@ begin
   if (select count(*) from public.student_enrollments where course_id='11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'enrollment changed'; end if;
   if (select count(*) from public.v5_releases where course_id='11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'release changed during retire'; end if;
   if (select count(*) from public.v5_media_assets where id='31111111-1111-4111-8111-111111111111') <> 1 then raise exception 'media changed during retire'; end if;
-end $;
+end $$;
 
 -- Archived state is one-way in this feature. Direct sale reactivation,
 -- config reactivation, or config deletion must fail closed.
-do $
+do $$
 begin
   begin
     update public.courses
@@ -199,7 +199,7 @@ begin
   exception when others then
     if sqlerrm not like '%v5_archived_config_delete_forbidden%' then raise; end if;
   end;
-end $;
+end $$;
 
 -- Fresh DB-side ownership validation must pass immediately before R2 deletion.
 set role service_role;
@@ -219,7 +219,7 @@ values (
   null
 );
 set role service_role;
-do $
+do $$
 begin
   begin
     perform public.validate_v5_retire_purge_r2_delete_safe(:'r2_validation_operation_id'::uuid);
@@ -227,7 +227,7 @@ begin
   exception when others then
     if sqlerrm not like '%v5_retire_r2_delete_shared_r2_key%' then raise; end if;
   end;
-end $;
+end $$;
 reset role;
 delete from public.v5_media_assets where id='32111111-1111-4111-8111-111111111111';
 
