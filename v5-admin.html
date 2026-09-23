@@ -244,11 +244,12 @@ function renderStorageSummary(summary){
   $('storageFreeTier').textContent=`${percent}% / 10 GB-month`;
 }
 function updateCourseStorageUi(){
-  const card=$('courseStorageCard'),topBtn=$('topCleanCourseBtn');
+  const card=$('courseStorageCard'),topBtn=$('topCleanCourseBtn'),retireBtn=$('retirePurgeCourseBtn');
   if(!card)return;
   if(!state.courseSlug){
     card.style.display='none';
     if(topBtn)topBtn.style.display='none';
+    if(retireBtn)retireBtn.style.display='none';
     return;
   }
   const courseStorage=state.storageSnapshot?.courses?.find(c=>c.slug===state.courseSlug);
@@ -261,6 +262,7 @@ function updateCourseStorageUi(){
     $('courseDeleteEligibilityBadge').style.color='#666';
     $('cleanCourseBtn').disabled=true;
     if(topBtn)topBtn.style.display='none';
+    if(retireBtn)retireBtn.style.display='none';
     $('courseBlockedReasonsList').style.display='none';
     return;
   }
@@ -271,6 +273,9 @@ function updateCourseStorageUi(){
     $('courseStorageStats').textContent=`${formatBytes(courseStorage.actualR2Bytes)} · ${(courseStorage.actualR2Objects||0).toLocaleString()} objects`;
     $('courseReclaimable').textContent=formatBytes(courseStorage.reclaimableBytes);
   }
+  const archived=String(courseStorage.configStatus||'').toLowerCase()==='archived';
+  const purged=Boolean(state.data?.config?.settings?.content_purged_at);
+  const usedCourse=archived||courseStorage.isPublished===true||(courseStorage.releaseCount||0)>0||(courseStorage.orderCount||0)>0||(courseStorage.enrollmentCount||0)>0;
   if(courseStorage.canDelete){
     $('courseDeleteEligibilityBadge').textContent='✅ Safe Draft — có thể dọn';
     $('courseDeleteEligibilityBadge').style.background='#e2f0e6';
@@ -278,7 +283,20 @@ function updateCourseStorageUi(){
     $('cleanCourseBtn').disabled=false;
     $('cleanCourseBtn').style.display='block';
     if(topBtn)topBtn.style.display='inline-block';
+    if(retireBtn)retireBtn.style.display='none';
     $('courseBlockedReasonsList').style.display='none';
+  }else if(archived){
+    $('courseDeleteEligibilityBadge').textContent=purged?'✓ Archived / Retired — đã dọn nội dung':'⏸ Archived / Retired — cleanup chưa hoàn tất';
+    $('courseDeleteEligibilityBadge').style.background=purged?'#e2f0e6':'#fff3d4';
+    $('courseDeleteEligibilityBadge').style.color=purged?'#187c40':'#986900';
+    $('cleanCourseBtn').disabled=true;
+    if(topBtn)topBtn.style.display='none';
+    $('courseBlockedReasonsList').style.display='none';
+    if(retireBtn){
+      retireBtn.style.display='block';
+      retireBtn.disabled=purged;
+      retireBtn.textContent=purged?'✓ Đã Retire & Purge':'↻ Tiếp tục dọn nội dung';
+    }
   }else{
     $('courseDeleteEligibilityBadge').textContent='🔒 Không thể xóa';
     $('courseDeleteEligibilityBadge').style.background='#f0f4f7';
@@ -287,6 +305,11 @@ function updateCourseStorageUi(){
     if(topBtn)topBtn.style.display='none';
     $('courseBlockedReasonsList').style.display='block';
     $('courseBlockedReasonsList').innerHTML=(courseStorage.blockedReasons||[]).map(r=>`• ${esc(r)}`).join('<br>');
+    if(retireBtn){
+      retireBtn.style.display=usedCourse?'block':'none';
+      retireBtn.disabled=false;
+      retireBtn.textContent='⏸ Ngừng khóa & dọn nội dung';
+    }
   }
 }
 function openStorageModal(){
