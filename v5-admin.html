@@ -30,10 +30,30 @@
     <button id="newLessonBtn" class="new-lesson">＋ Bài học mới</button>
     <div id="lessonList" class="lesson-list"></div>
     <div class="cap"><div class="tiny" style="font-weight:850;margin-bottom:5px">Hạ tầng V5</div><div class="cap-row"><span>R2 Upload</span><span id="r2Cap">—</span></div><div class="cap-row"><span>Playback signing</span><span id="signCap">—</span></div><div class="cap-row"><span>Media Worker URL</span><span id="mediaCap">—</span></div></div>
+    <div id="r2StorageCard" class="cap" style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <span class="tiny" style="font-weight:850">R2 Storage</span>
+        <button id="refreshStorageBtn" type="button" class="ghost" style="padding:2px 6px;font-size:10px;border-radius:4px" title="Làm mới thống kê dung lượng">🔄</button>
+      </div>
+      <div id="storageTotalRow" style="font-weight:850;font-size:12px;color:#184a77;margin-bottom:4px">Đang tải…</div>
+      <div class="cap-row"><span>DB tracked</span><span id="storageDbTracked">—</span></div>
+      <div class="cap-row"><span>Orphan candidate</span><span id="storageOrphans">—</span></div>
+      <div class="cap-row"><span>Missing</span><span id="storageMissing">—</span></div>
+      <div class="cap-row"><span>Free-tier ref</span><span id="storageFreeTier">—</span></div>
+      <button id="openStorageModalBtn" type="button" class="ghost" style="width:100%;font-size:11px;padding:6px 8px;margin-top:8px;border-radius:8px;text-align:center">Quản lý dung lượng</button>
+    </div>
+    <div id="courseStorageCard" class="cap" style="display:none;margin-top:10px;border-color:#d4e3f2">
+      <div class="tiny" style="font-weight:850;margin-bottom:4px;color:#184a77">Dung lượng khóa này</div>
+      <div id="courseStorageStats" style="font-weight:700;font-size:12px;margin-bottom:2px">—</div>
+      <div class="tiny" style="margin-bottom:4px">Có thể thu hồi: <strong id="courseReclaimable">—</strong></div>
+      <div id="courseDeleteEligibilityBadge" style="font-size:11px;padding:3px 6px;border-radius:6px;display:inline-block;margin-bottom:6px">—</div>
+      <div id="courseBlockedReasonsList" class="tiny" style="color:#b42e3a;line-height:1.35;margin-bottom:6px;display:none"></div>
+      <button id="cleanCourseBtn" type="button" class="ghost" style="width:100%;font-size:11px;padding:6px;border-radius:8px;color:var(--danger);border-color:#fecdd3" disabled>🗑 Dọn khóa này</button>
+    </div>
     <div style="margin-top:auto" class="tiny">📎 file thường · 📁 chọn cả thư mục và tự chia bài.</div>
   </aside>
   <main class="main">
-    <header class="top"><div><h1 id="channelTitle">Chọn khóa V5</h1><div id="channelMeta" class="meta">V5 Telegram-like Composer</div></div><div class="actions"><button id="newCourseTopBtn" class="ghost new-course-action">＋ Khóa mới</button><button id="telegramWizardBtn" class="ghost" style="color:var(--telegram);border-color:#b5d4f4">✈ Nhập từ Telegram</button><span id="statusPill" class="status">Draft</span><button id="previewBtn" class="ghost">Xem trước</button><button id="publishBtn" class="primary">Preflight / Publish</button></div></header>
+    <header class="top"><div><h1 id="channelTitle">Chọn khóa V5</h1><div id="channelMeta" class="meta">V5 Telegram-like Composer</div></div><div class="actions"><button id="newCourseTopBtn" class="ghost new-course-action">＋ Khóa mới</button><button id="telegramWizardBtn" class="ghost" style="color:var(--telegram);border-color:#b5d4f4">✈ Nhập từ Telegram</button><span id="statusPill" class="status">Draft</span><button id="previewBtn" class="ghost">Xem trước</button><button id="publishBtn" class="primary">Preflight / Publish</button><button id="topCleanCourseBtn" class="ghost" style="display:none;color:var(--danger);border-color:#fecdd3" title="Dọn dẹp khóa học Safe Draft">🗑 Dọn khóa</button></div></header>
     <section id="channel" class="channel">
       <div id="feed" class="feed"><div class="empty">Chọn một khóa V5 để bắt đầu.</div></div>
       <div class="composer-wrap"><div id="pendingFiles" class="pending"></div><div class="composer"><div class="compose-box"><button id="attachBtn" class="attach" title="Chọn file">📎</button><button id="folderBtn" class="attach folder" title="Chọn cả thư mục, V5 tự chia bài">📁</button><textarea id="composerInput" rows="1" placeholder="Nhập nội dung như Telegram…"></textarea><input id="fileInput" type="file" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden></div><button id="sendBtn" class="send" disabled>➤</button></div></div>
@@ -46,10 +66,46 @@
 <div id="editModal" class="modal"><div class="dialog"><h3>Sửa Post</h3><textarea id="editTextInput" rows="7"></textarea><div class="row"><button id="deletePostBtn" class="ghost" style="color:var(--danger);margin-right:auto">Xóa</button><button class="ghost" data-close="editModal">Hủy</button><button id="savePostBtn" class="primary">Lưu</button></div></div></div>
 <div id="preflightModal" class="modal"><div class="dialog"><h3>Preflight V5</h3><div id="preflightBody" class="preflight"></div><div class="row"><button class="ghost" data-close="preflightModal">Đóng</button><button id="confirmPublishBtn" class="primary">Publish</button></div></div></div>
 <div id="telegramModal" class="modal"><div class="dialog" style="width:min(620px,100%);max-height:90vh;overflow-y:auto"><h3>✈ Nhập / Đồng bộ nội dung từ Telegram</h3><div class="tiny" style="margin-bottom:12px">Nhập hoặc đồng bộ bài học, video và tài liệu từ Telegram channel đã index vào khóa V5 hiện tại.</div><div class="field" style="background:#f0f5fa;padding:10px 12px;border-radius:10px;border:1px solid #d4e3f2"><div style="font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>Kiểu khóa học: <strong id="wizardModeTitle" style="color:var(--telegram)">Timeline</strong></span><span class="tiny" id="wizardModeDesc">Dòng thời gian liên tục</span></div></div><div class="field" style="margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><label style="margin:0;font-size:12px;font-weight:850;color:#52616c">Nguồn Telegram đã index *</label><div style="display:flex;gap:10px;align-items:center"><button id="refreshTelegramSourcesBtn" type="button" class="ghost" style="padding:4px 8px;font-size:11px;border-radius:6px">🔄 Làm mới</button><a href="https://reader.yeubep.shop" target="_blank" rel="noopener" style="font-size:11px;color:var(--telegram);text-decoration:none;font-weight:700">Mở Telegram Reader ↗</a></div></div><select id="telegramSourceSelect"><option value="">Đang tải nguồn Telegram…</option></select></div><div id="telegramPreviewContainer" style="display:none;margin-top:14px;background:#f8faf9;border:1px solid var(--line);border-radius:12px;padding:12px"><div style="font-weight:850;font-size:13px;margin-bottom:8px;color:#243e30;display:flex;justify-content:space-between"><span>Xem trước kế hoạch Import / Sync</span><span id="previewSummaryTag" style="font-size:11px;padding:2px 8px;border-radius:999px;background:#e2f0e6;color:#187c40">Sẵn sàng</span></div><div id="telegramPreviewStats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px"></div><div id="telegramMarkersBox" style="margin-top:10px;display:none;font-size:11px;color:#556b5e;background:#fff;padding:8px;border-radius:8px;border:1px dashed #c0d8c8"></div></div><div id="telegramResultContainer" style="display:none;margin-top:14px;background:#f5fff8;border:1px solid #9ac9aa;border-radius:12px;padding:12px;font-size:12px;color:#187c40"><div style="font-weight:850;font-size:13px;margin-bottom:6px">✓ Kết quả đồng bộ</div><div id="telegramResultBody"></div></div><div id="telegramMirrorProgressContainer" style="display:none;margin-top:14px;background:#f0f5fa;border:1px solid #b5d4f4;border-radius:12px;padding:12px;font-size:12px"><div style="display:flex;justify-content:space-between;align-items:center;font-weight:850;font-size:13px;margin-bottom:8px;color:#184a77"><span id="mirrorProgressTitle">Đang đưa media sang R2</span><span id="mirrorProgressPercentTag" style="background:#d4e8fa;color:#125287;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800">0%</span></div><div style="height:8px;background:#dceaf7;border-radius:999px;overflow:hidden;margin-bottom:10px"><div id="mirrorProgressBar" style="height:100%;background:var(--telegram);width:0%;transition:width .3s ease"></div></div><div id="mirrorProgressStats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:12px;color:#2c4c6a"></div><div id="mirrorProgressCurrent" style="margin-top:8px;display:none;background:#fff;padding:8px;border-radius:8px;border:1px solid #d4e3f2"></div><div id="mirrorProgressErrors" style="margin-top:8px;display:none;background:#fff1f2;color:#b42e3a;padding:8px;border-radius:8px;border:1px solid #fecdd3"></div><div id="mirrorProgressComplete" style="margin-top:8px;display:none;background:#f5fff8;color:#187c40;padding:8px;border-radius:8px;border:1px solid #9ac9aa;font-weight:700"></div><div id="mirrorProgressNote" style="margin-top:8px;display:none;font-size:11px;color:#8a5314;background:#fff8e6;border:1px solid #f2dfb1;padding:6px 10px;border-radius:8px"></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:#6b8296"><span id="mirrorPollingIndicator">⟳ Tự cập nhật…</span><button id="refreshMirrorStatusBtn" type="button" class="ghost" style="padding:2px 8px;font-size:11px;border-radius:6px">🔄 Làm mới</button></div></div><div class="row" style="margin-top:16px;gap:8px"><button class="ghost" data-close="telegramModal">Đóng</button><button id="telegramPreviewBtn" class="ghost" style="color:var(--telegram);border-color:#b5d4f4">Xem trước</button><button id="confirmTelegramImportBtn" class="primary" style="display:none">Nhập nội dung</button></div></div></div>
+<div id="storageModal" class="modal"><div class="dialog" style="width:min(900px,100%);max-height:90vh;display:flex;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">Quản lý dung lượng R2 V5</h3><button id="refreshModalStorageBtn" class="ghost" style="padding:4px 8px;font-size:11px;border-radius:6px">🔄 Làm mới</button></div>
+  <div class="tiny" style="margin-bottom:8px;line-height:1.4">R2 Standard free-tier reference: <strong>10 GB-month/tháng</strong>.<br><span style="color:#6b8296">Ước tính theo snapshot hiện tại. Cloudflare tính storage theo GB-month, không phải quota ổ đĩa cố định.</span></div>
+  <div id="storageModalSummaryBar" style="display:flex;gap:12px;background:#f0f5fa;padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;flex-wrap:wrap"></div>
+  <div style="flex:1;overflow:auto;border:1px solid var(--line);border-radius:10px">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left">
+      <thead><tr style="background:#f8faf9;border-bottom:1px solid var(--line);font-size:11px;color:#52616c"><th style="padding:8px 10px">Khóa học</th><th style="padding:8px 6px">Trạng thái</th><th style="padding:8px 6px;text-align:right">Actual R2</th><th style="padding:8px 6px;text-align:right">Objects</th><th style="padding:8px 6px;text-align:right">DB Tracked</th><th style="padding:8px 6px;text-align:center">Đơn</th><th style="padding:8px 6px;text-align:center">Ghi danh</th><th style="padding:8px 6px;text-align:center">Releases</th><th style="padding:8px 10px;text-align:center">Dọn dẹp</th></tr></thead>
+      <tbody id="storageModalTableBody"></tbody>
+    </table>
+  </div>
+  <div class="row" style="margin-top:12px"><button class="ghost" data-close="storageModal">Đóng</button></div>
+</div></div>
+
+<div id="deleteCourseModal" class="modal"><div class="dialog" style="width:min(540px,100%);max-height:90vh;overflow-y:auto">
+  <h3 style="color:#b42e3a;margin-top:0">⚠️ XÓA VĨNH VIỄN KHÓA V5</h3>
+  <div style="background:#fff1f2;color:#b42e3a;border:1px solid #fecdd3;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.45;margin-bottom:12px">
+    <strong>Thao tác này sẽ xóa vĩnh viễn media R2 và nội dung khóa học.</strong><br>
+    Backup Git/DB không khôi phục được các file R2 đã xóa. Khóa chỉ được xóa khi là Safe Draft chưa phát hành, không có đơn hàng hay học viên.
+  </div>
+  <div id="deleteCourseDetails" style="background:#f8faf9;border:1px solid var(--line);border-radius:10px;padding:11px;font-size:12px;line-height:1.5;margin-bottom:12px"></div>
+  <div class="field">
+    <label>Nhập chính xác slug khóa học để xác nhận: <strong id="deleteExpectedSlugText" style="color:#17212b"></strong></label>
+    <input id="deleteConfirmationSlugInput" placeholder="Nhập đúng slug khóa học...">
+  </div>
+  <div style="margin-top:10px;display:flex;align-items:flex-start;gap:8px">
+    <input type="checkbox" id="deleteConfirmCheckbox" style="margin-top:3px;cursor:pointer">
+    <label for="deleteConfirmCheckbox" style="font-size:12px;line-height:1.4;cursor:pointer">
+      Tôi hiểu nội dung V5 và R2 media của khóa này sẽ bị xóa vĩnh viễn không thể khôi phục.
+    </label>
+  </div>
+  <div id="deleteProgressBox" style="display:none;margin-top:12px;padding:8px 10px;background:#f0f5fa;border-radius:8px;font-size:12px;color:#184a77"></div>
+  <div class="row" style="margin-top:14px;gap:8px">
+    <button class="ghost" data-close="deleteCourseModal">Hủy</button>
+    <button id="confirmExecuteDeleteBtn" type="button" class="btn" style="background:#b42e3a;color:#fff;border:none;padding:9px 14px;border-radius:8px;font-weight:700;cursor:pointer" disabled>XÓA VĨNH VIỄN</button>
+  </div>
+</div></div>
 
 <script>
 const $=id=>document.getElementById(id);
-const state={courses:[],courseSlug:'',data:null,activeLessonId:null,editingPostId:null,busy:false,files:[],capabilities:null,preflight:null,newCourseSlugTouched:false,authoringMode:'timeline',hiddenLessonId:null,mirrorStatus:null,config:{}};
+const state={courses:[],courseSlug:'',data:null,activeLessonId:null,editingPostId:null,busy:false,files:[],capabilities:null,preflight:null,newCourseSlugTouched:false,authoringMode:'timeline',hiddenLessonId:null,mirrorStatus:null,config:{},storageSnapshot:null,deletePlan:null};
 let mirrorPollTimer=null,mirrorPollInFlight=false;
 const MIRROR_POLL_INTERVAL_MS=2500;
 function stopMirrorPolling(){if(mirrorPollTimer){clearTimeout(mirrorPollTimer);mirrorPollTimer=null}mirrorPollInFlight=false}
@@ -115,13 +171,251 @@ async function saveStudentDisplayTitle(){
     btn.textContent='Lưu tên hiển thị';
   }
 }
-async function loadCourses(preferredSlug=''){try{const data=await api('/api/lms/admin?endpoint=courses');const slugs=Array.isArray(data.courses)?data.courses:[];state.config=data.config||{};state.courses=slugs.filter(slug=>String(data.courseMeta?.[slug]?.deliveryMode||'').toLowerCase()==='v5').map(slug=>({slug,title:titleForSlug(slug,data.config),meta:data.courseMeta?.[slug]||{}}));$('courseSelect').innerHTML='<option value="">Chọn khóa V5…</option>'+state.courses.map(course=>`<option value="${esc(course.slug)}">${esc(course.title)}</option>`).join('');const requested=preferredSlug||new URLSearchParams(location.search).get('course');if(requested&&state.courses.some(course=>course.slug===requested)){$('courseSelect').value=requested;await chooseCourse(requested)}else if(requested){toast('Khóa được yêu cầu không phải LMS V5.')}}catch(error){error.auth?showAuth():toast(error.message)}}
+async function loadStorageSnapshot(forceRefresh=false){
+  try{
+    const btn=$('refreshStorageBtn'),modalBtn=$('refreshModalStorageBtn');
+    if(btn)btn.disabled=true;
+    if(modalBtn)modalBtn.disabled=true;
+    $('storageTotalRow').textContent='Đang cập nhật…';
+    const data=await api(`/api/lms/admin?endpoint=v5-storage${forceRefresh?'&refresh=1':''}`);
+    state.storageSnapshot=data;
+    renderStorageSummary(data.summary);
+    updateCourseStorageUi();
+    if($('storageModal')?.classList.contains('show'))renderStorageModalTable();
+  }catch(err){
+    $('storageTotalRow').textContent='Không tải được dung lượng';
+    if(err.auth)showAuth();
+    else toast(err.message||'Lỗi tải dữ liệu dung lượng R2.');
+  }finally{
+    if($('refreshStorageBtn'))$('refreshStorageBtn').disabled=false;
+    if($('refreshModalStorageBtn'))$('refreshModalStorageBtn').disabled=false;
+  }
+}
+function renderStorageSummary(summary){
+  if(!summary)return;
+  if(summary.r2Configured===false){
+    $('storageTotalRow').textContent='R2 chưa cấu hình';
+    $('storageDbTracked').textContent=formatBytes(summary.dbTrackedBytes||0);
+    $('storageOrphans').textContent='—';
+    $('storageMissing').textContent='—';
+    $('storageFreeTier').textContent='—';
+    return;
+  }
+  if(summary.r2Verified===false){
+    $('storageTotalRow').textContent='Không xác minh được R2';
+    $('storageDbTracked').textContent=formatBytes(summary.dbTrackedBytes||0);
+    $('storageOrphans').textContent='—';
+    $('storageMissing').textContent='—';
+    $('storageFreeTier').textContent='—';
+    return;
+  }
+  $('storageTotalRow').textContent=`${formatBytes(summary.v5Bytes||0)} · ${(summary.v5ObjectCount||0).toLocaleString()} objects`;
+  $('storageDbTracked').textContent=formatBytes(summary.dbTrackedBytes||0);
+  $('storageOrphans').textContent=`${formatBytes(summary.orphanCandidateBytes||0)} · ${summary.orphanCandidateObjects||0} object`;
+  $('storageMissing').textContent=String(summary.missingTrackedObjects||0);
+  const percent=Math.round(((summary.currentSnapshotGb||0)/(summary.r2StandardFreeTierGbMonthReference||10))*100);
+  $('storageFreeTier').textContent=`${percent}% / 10 GB-month`;
+}
+function updateCourseStorageUi(){
+  const card=$('courseStorageCard'),topBtn=$('topCleanCourseBtn');
+  if(!card)return;
+  if(!state.courseSlug){
+    card.style.display='none';
+    if(topBtn)topBtn.style.display='none';
+    return;
+  }
+  const courseStorage=state.storageSnapshot?.courses?.find(c=>c.slug===state.courseSlug);
+  card.style.display='block';
+  if(!courseStorage){
+    $('courseStorageStats').textContent='Đang tính…';
+    $('courseReclaimable').textContent='—';
+    $('courseDeleteEligibilityBadge').textContent='—';
+    $('courseDeleteEligibilityBadge').style.background='#eee';
+    $('courseDeleteEligibilityBadge').style.color='#666';
+    $('cleanCourseBtn').disabled=true;
+    if(topBtn)topBtn.style.display='none';
+    $('courseBlockedReasonsList').style.display='none';
+    return;
+  }
+  if(courseStorage.actualR2Bytes===null||courseStorage.r2Verified===false){
+    $('courseStorageStats').textContent='Không xác minh được R2';
+    $('courseReclaimable').textContent='—';
+  }else{
+    $('courseStorageStats').textContent=`${formatBytes(courseStorage.actualR2Bytes)} · ${(courseStorage.actualR2Objects||0).toLocaleString()} objects`;
+    $('courseReclaimable').textContent=formatBytes(courseStorage.reclaimableBytes);
+  }
+  if(courseStorage.canDelete){
+    $('courseDeleteEligibilityBadge').textContent='✅ Safe Draft — có thể dọn';
+    $('courseDeleteEligibilityBadge').style.background='#e2f0e6';
+    $('courseDeleteEligibilityBadge').style.color='#187c40';
+    $('cleanCourseBtn').disabled=false;
+    $('cleanCourseBtn').style.display='block';
+    if(topBtn)topBtn.style.display='inline-block';
+    $('courseBlockedReasonsList').style.display='none';
+  }else{
+    $('courseDeleteEligibilityBadge').textContent='🔒 Không thể xóa';
+    $('courseDeleteEligibilityBadge').style.background='#f0f4f7';
+    $('courseDeleteEligibilityBadge').style.color='#52616c';
+    $('cleanCourseBtn').disabled=true;
+    if(topBtn)topBtn.style.display='none';
+    $('courseBlockedReasonsList').style.display='block';
+    $('courseBlockedReasonsList').innerHTML=(courseStorage.blockedReasons||[]).map(r=>`• ${esc(r)}`).join('<br>');
+  }
+}
+function openStorageModal(){
+  $('storageModal').classList.add('show');
+  renderStorageModalTable();
+}
+function renderStorageModalTable(){
+  const snapshot=state.storageSnapshot;
+  if(!snapshot)return;
+  const summary=snapshot.summary||{};
+  const bar=$('storageModalSummaryBar');
+  if(summary.r2Verified===false){
+    bar.innerHTML=`
+      <div>Tổng R2: <strong style="color:#b42e3a">Không xác minh được R2</strong></div>
+      <div>DB Tracked: <strong>${formatBytes(summary.dbTrackedBytes||0)}</strong></div>
+      <div>Orphan: <strong>—</strong></div>
+      <div>Missing: <strong>—</strong></div>
+      <div>Headroom ước tính: <strong>—</strong></div>
+    `;
+  }else{
+    bar.innerHTML=`
+      <div>Tổng R2: <strong>${formatBytes(summary.bucketBytes||0)}</strong> (${(summary.bucketObjectCount||0).toLocaleString()} objects)</div>
+      <div>V5 Media: <strong>${formatBytes(summary.v5Bytes||0)}</strong> (${(summary.v5ObjectCount||0).toLocaleString()} objects)</div>
+      <div>DB Tracked: <strong>${formatBytes(summary.dbTrackedBytes||0)}</strong></div>
+      <div>Orphan: <strong>${formatBytes(summary.orphanCandidateBytes||0)}</strong> (${summary.orphanCandidateObjects||0})</div>
+      <div>Missing: <strong style="${summary.missingTrackedObjects>0?'color:#b42e3a':''}">${summary.missingTrackedObjects||0}</strong></div>
+      <div>Headroom ước tính: <strong>~${summary.estimatedHeadroomGb||0} GB-month</strong></div>
+    `;
+  }
+  const tbody=$('storageModalTableBody');
+  const courses=snapshot.courses||[];
+  if(!courses.length){
+    tbody.innerHTML='<tr><td colspan="9" style="padding:15px;text-align:center;color:#6b8296">Chưa có khóa học V5 nào</td></tr>';
+    return;
+  }
+  tbody.innerHTML=courses.map(c=>{
+    const statusText=c.isPublished?'Published':(c.configStatus==='draft'?'Draft':c.configStatus);
+    const isSelected=c.slug===state.courseSlug;
+    const canDel=c.canDelete===true;
+    const delBadge=canDel
+      ?`<button type="button" class="btn" style="background:#b42e3a;color:#fff;border:none;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" onclick="openCourseDeleteModal('${esc(c.slug)}')">🗑 Dọn</button>`
+      :`<span style="color:#71808d;font-size:11px" title="${esc((c.blockedReasons||[]).join('; '))}">🔒 Khóa</span>`;
+    const r2BytesCell=c.actualR2Bytes!==null?formatBytes(c.actualR2Bytes):'<span style="color:#b42e3a">—</span>';
+    const r2ObjsCell=c.actualR2Objects!==null?(c.actualR2Objects||0).toLocaleString():'—';
+    return `<tr style="border-bottom:1px solid #eef3f6;${isSelected?'background:#f4f9f5':''}">
+      <td style="padding:8px 10px"><a href="javascript:void(0)" onclick="chooseCourse('${esc(c.slug)}');closeModal('storageModal')" style="font-weight:700;color:#184a77;text-decoration:none">${esc(c.title)}</a><br><span class="tiny" style="color:#71808d">${esc(c.slug)}</span></td>
+      <td style="padding:8px 6px"><span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${c.isPublished?'#e2f0e6;color:#187c40':'#fff3d4;color:#986900'}">${esc(statusText)}</span></td>
+      <td style="padding:8px 6px;text-align:right;font-weight:700">${r2BytesCell}</td>
+      <td style="padding:8px 6px;text-align:right">${r2ObjsCell}</td>
+      <td style="padding:8px 6px;text-align:right;color:#52616c">${formatBytes(c.dbTrackedBytes)}</td>
+      <td style="padding:8px 6px;text-align:center">${c.orderCount||0}</td>
+      <td style="padding:8px 6px;text-align:center">${c.enrollmentCount||0}</td>
+      <td style="padding:8px 6px;text-align:center">${c.releaseCount||0}</td>
+      <td style="padding:8px 10px;text-align:center">${delBadge}</td>
+    </tr>`;
+  }).join('');
+}
+async function openCourseDeleteModal(slug=state.courseSlug){
+  if(!slug)return toast('Hãy chọn một khóa V5 trước.');
+  if(state.busy)return;
+  closeModal('storageModal');
+  const modal=$('deleteCourseModal');
+  $('deleteCourseDetails').innerHTML='Đang phân tích điều kiện và media R2…';
+  $('deleteConfirmationSlugInput').value='';
+  $('deleteConfirmCheckbox').checked=false;
+  $('confirmExecuteDeleteBtn').disabled=true;
+  $('confirmExecuteDeleteBtn').textContent='XÓA VĨNH VIỄN';
+  $('deleteProgressBox').style.display='none';
+  modal.classList.add('show');
+  try{
+    const data=await api('/api/lms/admin?endpoint=v5-course-delete',{
+      method:'POST',
+      body:JSON.stringify({action:'preview',slug})
+    });
+    state.deletePlan=data;
+    $('deleteExpectedSlugText').textContent=data.course.slug;
+    $('deleteCourseDetails').innerHTML=`
+      <div><strong>Tên khóa:</strong> ${esc(data.course.title)}</div>
+      <div><strong>Slug:</strong> <code>${esc(data.course.slug)}</code></div>
+      <div><strong>Dung lượng R2:</strong> <span style="font-weight:700;color:#b42e3a">${formatBytes(data.storage.actualR2Bytes)}</span> · ${data.storage.actualR2Objects} objects</div>
+      <div><strong>Thu hồi ước tính:</strong> <strong>${formatBytes(data.storage.actualR2Bytes)}</strong></div>
+      <div><strong>Bài viết (Posts):</strong> ${data.counts.posts} · <strong>Bài học:</strong> ${data.counts.lessons}</div>
+      <div><strong>Source mappings:</strong> ${data.counts.sourceMappings} · <strong>Jobs:</strong> ${data.counts.terminalJobs}</div>
+      <div><strong>Đơn hàng:</strong> ${data.counts.orders} · <strong>Ghi danh:</strong> ${data.counts.enrollments} · <strong>Releases:</strong> ${data.counts.releases}</div>
+      ${!data.eligible?`<div style="margin-top:8px;color:#b42e3a;font-weight:700">❌ Không đủ điều kiện:<br>${(data.blockedReasons||[]).map(r=>'• '+esc(r)).join('<br>')}</div>`:''}
+    `;
+    function checkReady(){
+      const slugMatch=$('deleteConfirmationSlugInput').value.trim()===data.course.slug;
+      const checked=$('deleteConfirmCheckbox').checked;
+      $('confirmExecuteDeleteBtn').disabled=!(data.eligible&&slugMatch&&checked);
+    }
+    $('deleteConfirmationSlugInput').oninput=checkReady;
+    $('deleteConfirmCheckbox').onchange=checkReady;
+    checkReady();
+  }catch(err){
+    toast(err.message||'Lỗi kiểm tra kế hoạch xóa.');
+    closeModal('deleteCourseModal');
+  }
+}
+async function executeCourseDelete(){
+  const plan=state.deletePlan;
+  if(!plan?.eligible)return;
+  const btn=$('confirmExecuteDeleteBtn');
+  btn.disabled=true;
+  btn.textContent='Đang dọn R2 media…';
+  const progressBox=$('deleteProgressBox');
+  progressBox.style.display='block';
+  progressBox.textContent='Đang tiến hành dọn dẹp các tệp media trên R2…';
+  try{
+    let done=false;
+    let passCount=0;
+    while(!done){
+      passCount++;
+      const data=await api('/api/lms/admin?endpoint=v5-course-delete',{
+        method:'POST',
+        body:JSON.stringify({
+          action:'execute',
+          courseId:plan.course.id,
+          slug:plan.course.slug,
+          planHash:plan.planHash,
+          confirmationSlug:plan.course.slug,
+          confirmed:true
+        })
+      });
+      if(data.done===true){
+        done=true;
+        progressBox.innerHTML='✓ Đã xóa hoàn tất toàn bộ media R2 và nội dung khóa học!';
+        toast(`Đã xóa vĩnh viễn khóa "${plan.course.title}".`);
+        setTimeout(()=>{
+          closeModal('deleteCourseModal');
+          if(state.courseSlug===plan.course.slug){
+            state.courseSlug='';
+            history.replaceState(null,'','?');
+          }
+          Promise.all([loadCourses(),loadStorageSnapshot(true)]);
+        },1000);
+        break;
+      }else{
+        progressBox.innerHTML=`Đang dọn media pass #${passCount}: ${esc(data.message)} (Còn ${data.remainingObjects} objects)`;
+        btn.textContent='Đang tiếp tục dọn…';
+      }
+    }
+  }catch(err){
+    progressBox.innerHTML=`<span style="color:#b42e3a">Lỗi: ${esc(err.message)}</span>`;
+    btn.disabled=false;
+    btn.textContent='Thử lại dọn khóa';
+    toast(err.message||'Lỗi trong quá trình dọn khóa.');
+  }
+}
+async function loadCourses(preferredSlug=''){try{const data=await api('/api/lms/admin?endpoint=courses');const slugs=Array.isArray(data.courses)?data.courses:[];state.config=data.config||{};state.courses=slugs.filter(slug=>String(data.courseMeta?.[slug]?.deliveryMode||'').toLowerCase()==='v5').map(slug=>({slug,title:titleForSlug(slug,data.config),meta:data.courseMeta?.[slug]||{}}));$('courseSelect').innerHTML='<option value="">Chọn khóa V5…</option>'+state.courses.map(course=>`<option value="${esc(course.slug)}">${esc(course.title)}</option>`).join('');loadStorageSnapshot();const requested=preferredSlug||new URLSearchParams(location.search).get('course');if(requested&&state.courses.some(course=>course.slug===requested)){$('courseSelect').value=requested;await chooseCourse(requested)}else if(requested){toast('Khóa được yêu cầu không phải LMS V5.')}}catch(error){error.auth?showAuth():toast(error.message)}}
 async function createCourse(){const title=$('newCourseTitleInput').value.trim();const slug=slugify($('newCourseSlugInput').value||title);const description=$('newCourseDescriptionInput').value.trim();if(!title){toast('Hãy nhập tên khóa học.');$('newCourseTitleInput').focus();return}const button=$('confirmCourseBtn');button.disabled=true;button.textContent='Đang tạo...';try{const data=await api('/api/lms/admin?endpoint=v5-create-course',{method:'POST',body:JSON.stringify({title,slug,description})});closeModal('courseModal');state.newCourseSlugTouched=false;await loadCourses(data.course.slug);toast(data.message||(data.operation==='reused_existing_course'?'Khóa đã tồn tại trên Commerce. Đã mở/khởi tạo V5 Channel trên cùng khóa.':'Đã tạo khóa V5 Draft. Bạn có thể nhập nội dung ngay.'))}catch(error){toast(error.message)}finally{button.disabled=false;button.textContent='Tạo khóa & mở Channel'}}
 function openCourseCreate(){state.newCourseSlugTouched=false;$('newCourseTitleInput').value='';$('newCourseSlugInput').value='';$('newCourseDescriptionInput').value='';$('courseModal').classList.add('show');setTimeout(()=>$('newCourseTitleInput').focus(),50)}
 async function loadCapabilities(){if(!state.courseSlug)return null;try{const data=await api('/api/lms/admin?endpoint=v5-capabilities');state.capabilities=data.capabilities||{};renderCapabilities();return state.capabilities}catch(error){if(error.auth)showAuth();else toast(error.message);return null}}
 function renderCapabilities(){const cap=state.capabilities||{};for(const [id,key] of [['r2Cap','r2Upload'],['signCap','playbackSigning'],['mediaCap','mediaPublicUrl']]){const node=$(id);const yes=cap[key]===true;node.textContent=yes?'READY':'CHƯA CẤU HÌNH';node.className=yes?'ok':'no'}}
 async function ensureR2(){const cap=state.capabilities||await loadCapabilities();if(!cap?.r2Upload){toast('R2 chưa cấu hình. V5 chặn tạo Post media để không để lại upload dở dang.');return false}return true}
-async function chooseCourse(slug){stopMirrorPolling();state.mirrorStatus=null;if($('telegramMirrorProgressContainer'))$('telegramMirrorProgressContainer').style.display='none';state.courseSlug=slug;state.activeLessonId=null;state.files=[];state.capabilities=null;state.authoringMode='timeline';state.hiddenLessonId=null;renderPending();updateCourseTitleUi();if(!slug){state.data=null;render();return}history.replaceState(null,'',`?course=${encodeURIComponent(slug)}`);await Promise.all([refresh(),loadCapabilities()])}
+async function chooseCourse(slug){stopMirrorPolling();state.mirrorStatus=null;if($('telegramMirrorProgressContainer'))$('telegramMirrorProgressContainer').style.display='none';state.courseSlug=slug;state.activeLessonId=null;state.files=[];state.capabilities=null;state.authoringMode='timeline';state.hiddenLessonId=null;renderPending();updateCourseTitleUi();updateCourseStorageUi();if(!slug){state.data=null;render();return}history.replaceState(null,'',`?course=${encodeURIComponent(slug)}`);await Promise.all([refresh(),loadCapabilities()]);updateCourseStorageUi()}
 async function refresh(){if(!state.courseSlug)return;try{const data=await api(`/api/lms/admin?endpoint=v5-content&course=${encodeURIComponent(state.courseSlug)}`);state.data=data;state.authoringMode=(data.authoringMode==='lesson'||data.config?.settings?.authoring_mode==='lesson')?'lesson':'timeline';state.hiddenLessonId=data.hiddenLessonId||null;const hasTelegram=Boolean(data.config?.telegram_source_id);if($('telegramWizardBtn'))$('telegramWizardBtn').textContent=hasTelegram?'✈ Đồng bộ Telegram':'✈ Nhập từ Telegram';if($('telegramActionBadge'))$('telegramActionBadge').textContent=hasTelegram?'Đồng bộ':'Nhập';if(!state.activeLessonId&&data.lessons?.length)state.activeLessonId=data.lessons[0].id;render()}catch(error){error.auth?showAuth():toast(error.message)}}
 async function contentAction(name,payload={}){const data=await api(`/api/lms/admin?endpoint=v5-content&course=${encodeURIComponent(state.courseSlug)}`,{method:'POST',body:JSON.stringify({action:name,course:state.courseSlug,...payload})});state.data=data.state||state.data;render();return data}
 async function busyRun(work){if(state.busy)return;state.busy=true;updateSend();try{return await work()}finally{state.busy=false;updateSend()}}
@@ -219,6 +513,12 @@ $('publishBtn').onclick=runPreflight;
 $('confirmPublishBtn').onclick=publish;
 if($('saveDisplayTitleBtn'))$('saveDisplayTitleBtn').onclick=saveStudentDisplayTitle;
 if($('studentDisplayTitleInput'))$('studentDisplayTitleInput').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();saveStudentDisplayTitle()}};
+if($('refreshStorageBtn'))$('refreshStorageBtn').onclick=()=>loadStorageSnapshot(true);
+if($('openStorageModalBtn'))$('openStorageModalBtn').onclick=openStorageModal;
+if($('refreshModalStorageBtn'))$('refreshModalStorageBtn').onclick=()=>loadStorageSnapshot(true);
+if($('cleanCourseBtn'))$('cleanCourseBtn').onclick=()=>openCourseDeleteModal(state.courseSlug);
+if($('topCleanCourseBtn'))$('topCleanCourseBtn').onclick=()=>openCourseDeleteModal(state.courseSlug);
+if($('confirmExecuteDeleteBtn'))$('confirmExecuteDeleteBtn').onclick=executeCourseDelete;
 $('channel').addEventListener('dragover',event=>{event.preventDefault()});
 $('channel').addEventListener('drop',event=>{event.preventDefault();if(event.dataTransfer?.files?.length){state.files.push(...[...event.dataTransfer.files].map(file=>({file,progress:0,status:'chờ gửi'})));renderPending();updateSend()}});
 loadCourses();
