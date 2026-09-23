@@ -94,17 +94,109 @@ test("12. Vietnamese Unicode round-trip support in title handling", () => {
   assert.equal(trimmed.normalize("NFC"), sampleVietnamese.normalize("NFC"));
 });
 
-test("13. Authoritative storage: courses.raw_data takes precedence over site_config in GET courses", () => {
+test("13. V5-ONLY GUARD: setStudentDisplayTitle rejects non-V5 courses and preserves data", () => {
   const code = read("utils/lms-handlers/admin-courses.js");
-  assert.match(code, /if \(rawData\.studentDisplayTitle\) \{\s*config\[`\$\{slug\}_studentDisplayTitle`\] = rawData\.studentDisplayTitle;\s*\} else \{\s*delete config\[`\$\{slug\}_studentDisplayTitle`\];\s*\}/);
+  // Code structure check: must verify delivery_mode === 'v5' right after course lookup
+  assert.match(code, /if\s*\(String\(courseRow\.delivery_mode\s*\|\|\s*""\)\.trim\(\)\.toLowerCase\(\)\s*!==\s*"v5"\)\s*\{\s*return\s*res\.status\(400\)\.json\(\{\s*success:\s*false,\s*error:\s*"Chỉ khóa V5 mới dùng thao tác này\."\s*\}\);\s*\}/);
+
+  // Verification that guard executes BEFORE any courses.update or site_config upsert
+  const block = code.slice(code.indexOf('action === "setStudentDisplayTitle"'), code.indexOf('if (action !== "updateConfig")'));
+  const guardIndex = block.indexOf('Chỉ khóa V5 mới dùng thao tác này.');
+  const updateIndex = block.indexOf('.update({');
+  assert.ok(guardIndex > 0, "Guard must be present");
+  assert.ok(updateIndex > guardIndex, "Guard must execute before any DB update");
+
+  // Logic simulation of guard
+  function checkV5Guard(courseRow) {
+    if (!courseRow) return { ok: false, status: 404, error: "Không tìm thấy khóa học" };
+    if (String(courseRow.delivery_mode || "").trim().toLowerCase() !== "v5") {
+      return { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." };
+    }
+    return { ok: true };
+  }
+
+  // V5 accepted
+  assert.deepEqual(checkV5Guard({ delivery_mode: "v5" }), { ok: true });
+  assert.deepEqual(checkV5Guard({ delivery_mode: "V5 " }), { ok: true });
+  // V4 rejected
+  assert.deepEqual(checkV5Guard({ delivery_mode: "v4" }), { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." });
+  // LMS rejected
+  assert.deepEqual(checkV5Guard({ delivery_mode: "lms" }), { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." });
+  // Missing / empty rejected
+  assert.deepEqual(checkV5Guard({ delivery_mode: null }), { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." });
+  assert.deepEqual(checkV5Guard({}), { ok: false, status: 400, error: "Chỉ khóa V5 mới dùng thao tác này." });
 });
 
-test("14. Fail-closed: DB update errors in admin-courses are thrown, not swallowed", () => {
+test("14. SITE_CONFIG FALLBACK PRESERVATION: GET logic and clear semantics", () => {
   const code = read("utils/lms-handlers/admin-courses.js");
-  assert.match(code, /if \(updateError\) throw updateError;/);
+  // Verification: GET logic does NOT delete config when rawData has no studentDisplayTitle
+  const getLoop = code.slice(code.indexOf('for (const course of courseRows || [])'), code.indexOf('return res.status(200).json({ success: true, courses'));
+  assert.match(getLoop, /if\s*\(rawData\.studentDisplayTitle\)\s*\{\s*config\[`\$\{slug\}_studentDisplayTitle`\]\s*=\s*rawData\.studentDisplayTitle;\s*\}/);
+  assert.doesNotMatch(getLoop, /delete\s+config\[`\$\{slug\}_studentDisplayTitle`\]/);
+
+  // Logic simulation of GET config merging
+  function simulateGetConfig(siteConfigRows, courseRows) {
+    const config = {};
+    if (siteConfigRows) {
+      siteConfigRows.forEach(row => {
+        const valObj = row.value;
+        const val = (valObj && typeof valObj === "object" && valObj.val !== undefined) ? valObj.val : valObj;
+        config[row.key] = val;
+      });
+    }
+    for (const course of courseRows || []) {
+      const slug = course.slug;
+      const rawData = course.raw_data || {};
+      if (!slug) continue;
+      if (rawData.studentDisplayTitle) {
+        config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+      }
+    }
+    return config;
+  }
+
+  // A. raw_data value exists + site_config old value -> raw_data wins
+  const resA = simulateGetConfig(
+    [{ key: "course-1_studentDisplayTitle", value: { val: "Tên Cũ site_config" } }],
+    [{ slug: "course-1", title: "Tên Gốc", raw_data: { studentDisplayTitle: "Tên Mới raw_data" } }]
+  );
+  assert.equal(resA["course-1_studentDisplayTitle"], "Tên Mới raw_data");
+
+  // B. raw_data absent + legacy site_config value exists -> legacy site_config fallback remains available
+  const resB = simulateGetConfig(
+    [{ key: "course-2_studentDisplayTitle", value: { val: "Tên Cũ Legacy Fallback" } }],
+    [{ slug: "course-2", title: "Tên Gốc", raw_data: {} }]
+  );
+  assert.equal(resB["course-2_studentDisplayTitle"], "Tên Cũ Legacy Fallback");
+
+  // C. Explicit Clear through setStudentDisplayTitle:
+  // raw_data key removed AND site_config compatibility value becomes empty string
+  const resC = simulateGetConfig(
+    [{ key: "course-3_studentDisplayTitle", value: { val: "" } }],
+    [{ slug: "course-3", title: "Tên Gốc", raw_data: {} }]
+  );
+  assert.equal(resC["course-3_studentDisplayTitle"], "");
+  // In v5-admin titleForSlug or learner resolution, empty string falls back to canonical title:
+  function titleForSlug(slug, config) {
+    return String(config?.[`${slug}_studentDisplayTitle`] || config?.[`${slug}_title`] || slug);
+  }
+  const effectiveInAdmin = titleForSlug("course-3", { "course-3_title": "Tên Gốc", ...resC });
+  assert.equal(effectiveInAdmin, "Tên Gốc");
 });
 
-test("15. V5 Admin UI: courseTitleCard contains all required management elements", () => {
+test("15. HARDENED SYNC & FAIL-CLOSED: site_config inspection and fail-closed courses update", () => {
+  const code = read("utils/lms-handlers/admin-courses.js");
+  const block = code.slice(code.indexOf('action === "setStudentDisplayTitle"'), code.indexOf('if (action !== "updateConfig")'));
+
+  // Authoritative update fails closed (throws on updateError)
+  assert.match(block, /const\s*\{\s*error:\s*updateError\s*\}\s*=\s*await\s*supabase[\s\S]*?\.from\("courses"\)[\s\S]*?\.update[\s\S]*?if\s*\(updateError\)\s*throw\s*updateError;/);
+
+  // Best-effort secondary sync explicitly inspects siteConfigError
+  assert.match(block, /const\s*\{\s*error:\s*siteConfigError\s*\}\s*=\s*await\s*supabase[\s\S]*?\.from\("site_config"\)[\s\S]*?\.upsert/);
+  assert.match(block, /if\s*\(siteConfigError\)\s*\{\s*console\.warn\("\[admin-courses\] Best-effort site_config sync warning:",\s*siteConfigError\.message\);\s*\}/);
+});
+
+test("16. V5 Admin UI: courseTitleCard contains all required management elements", () => {
   const html = read("v5-admin.html");
   assert.match(html, /id="courseTitleCard"/);
   assert.match(html, /id="canonicalTitleInput"/);
@@ -114,13 +206,13 @@ test("15. V5 Admin UI: courseTitleCard contains all required management elements
   assert.match(html, /id="saveDisplayTitleBtn"/);
 });
 
-test("16. V5 Admin UI: Helper texts strictly communicate scope and empty fallback", () => {
+test("17. V5 Admin UI: Helper texts strictly communicate scope and empty fallback", () => {
   const html = read("v5-admin.html");
   assert.match(html, /Chỉ thay đổi tên mà học viên nhìn thấy\. Không đổi tên khóa trên Web bán hàng, slug hoặc dữ liệu khóa học\./);
   assert.match(html, /Để trống để dùng tên khóa học gốc\./);
 });
 
-test("17. V5 Admin UI: Script connects saveDisplayTitleBtn and Enter keydown", () => {
+test("18. V5 Admin UI: Script connects saveDisplayTitleBtn and Enter keydown", () => {
   const html = read("v5-admin.html");
   assert.match(html, /\$\('saveDisplayTitleBtn'\)\.onclick\s*=\s*saveStudentDisplayTitle/);
   assert.match(html, /\$\('studentDisplayTitleInput'\)\.onkeydown/);
@@ -128,21 +220,21 @@ test("17. V5 Admin UI: Script connects saveDisplayTitleBtn and Enter keydown", (
   assert.match(html, /saveStudentDisplayTitle\(\)/);
 });
 
-test("18. V5 Admin UI: updateCourseTitleUi updates inputs and protects active input", () => {
+test("19. V5 Admin UI: updateCourseTitleUi updates inputs and protects active input", () => {
   const html = read("v5-admin.html");
   assert.match(html, /function updateCourseTitleUi\(\)/);
   assert.match(html, /document\.activeElement!==\$\('studentDisplayTitleInput'\)/);
   assert.match(html, /titleForSlug\(slug,config\)/);
 });
 
-test("19. V5 Admin UI: saveStudentDisplayTitle updates select dropdown and channel title immediately", () => {
+test("20. V5 Admin UI: saveStudentDisplayTitle updates select dropdown and channel title immediately", () => {
   const html = read("v5-admin.html");
   assert.match(html, /action:'setStudentDisplayTitle'/);
   assert.match(html, /\$\('courseSelect'\)\.innerHTML=/);
   assert.match(html, /\$\('channelTitle'\)\.textContent=effectiveTitle/);
 });
 
-test("20. Content handler loadCourse includes raw_data for V5 admin operations", () => {
+test("21. Content handler loadCourse includes raw_data for V5 admin operations", () => {
   const code = read("utils/lms-handlers/admin-v5-content.js");
   assert.match(code, /select\("id,slug,title,subtitle,image_url,active,is_published,delivery_mode,raw_data"\)/);
 });

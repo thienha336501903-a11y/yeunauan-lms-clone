@@ -73,8 +73,6 @@ export default async function handler(req, res) {
         }
         if (rawData.studentDisplayTitle) {
           config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
-        } else {
-          delete config[`${slug}_studentDisplayTitle`];
         }
       }
 
@@ -168,6 +166,13 @@ export default async function handler(req, res) {
           return res.status(404).json({ success: false, error: "Không tìm thấy khóa học" });
         }
 
+        if (String(courseRow.delivery_mode || "").trim().toLowerCase() !== "v5") {
+          return res.status(400).json({
+            success: false,
+            error: "Chỉ khóa V5 mới dùng thao tác này."
+          });
+        }
+
         const rawTitle = req.body?.studentDisplayTitle !== undefined
           ? req.body.studentDisplayTitle
           : (req.body?.title !== undefined ? req.body.title : "");
@@ -203,13 +208,16 @@ export default async function handler(req, res) {
 
         // Compatibility sync to site_config (best-effort / secondary)
         try {
-          await supabase
+          const { error: siteConfigError } = await supabase
             .from("site_config")
             .upsert({
               key: `${course}_studentDisplayTitle`,
               value: { val: trimmed },
               updated_at: new Date().toISOString()
             }, { onConflict: "key" });
+          if (siteConfigError) {
+            console.warn("[admin-courses] Best-effort site_config sync warning:", siteConfigError.message);
+          }
         } catch (siteConfigErr) {
           console.warn("[admin-courses] Best-effort site_config sync warning:", siteConfigErr.message);
         }
