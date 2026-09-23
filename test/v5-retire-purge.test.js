@@ -217,3 +217,29 @@ test("54. completed archived course is read-only",()=>{
   assert.match(adminSource,/content_purged_at/);
   assert.match(adminSource,/isCourseArchived/);
 });
+
+
+test("55. R2 deletion revalidates DB ownership immediately before deleting bytes",()=>{
+  assert.match(migrationSql,/create or replace function public\.validate_v5_retire_purge_r2_delete_safe/i);
+  assert.match(handlerSource,/supabase\.rpc\("validate_v5_retire_purge_r2_delete_safe"/);
+  assert.match(handlerSource,/r2_delete_safety_revalidation_failed/);
+});
+
+test("56. shared physical R2 key blocks begin, pre-delete validation, and finalize",()=>{
+  assert.match(migrationSql,/v5_retire_shared_r2_key/);
+  assert.match(migrationSql,/v5_retire_r2_delete_shared_r2_key/);
+  assert.match(migrationSql,/v5_retire_finalize_shared_r2_key/);
+});
+
+test("57. archived V5 course cannot be silently put back on sale",()=>{
+  assert.match(migrationSql,/create or replace function public\.enforce_v5_retired_course_sale_lock/i);
+  assert.match(migrationSql,/v5_archived_course_cannot_activate/);
+  assert.match(migrationSql,/before update of active on public\.courses/i);
+});
+
+test("58. archived V5 config cannot be deleted or reactivated outside a future controlled workflow",()=>{
+  assert.match(migrationSql,/create or replace function public\.enforce_v5_archived_config_lock/i);
+  assert.match(migrationSql,/v5_archived_config_delete_forbidden/);
+  assert.match(migrationSql,/v5_archived_config_reactivation_forbidden/);
+  assert.match(migrationSql,/before update or delete on public\.v5_course_configs/i);
+});
