@@ -746,8 +746,10 @@ if($('refreshModalStorageBtn'))$('refreshModalStorageBtn').onclick=()=>loadStora
 if($('cleanCourseBtn'))$('cleanCourseBtn').onclick=()=>openCourseDeleteModal(state.courseSlug);
 if($('topCleanCourseBtn'))$('topCleanCourseBtn').onclick=()=>openCourseDeleteModal(state.courseSlug);
 if($('confirmExecuteDeleteBtn'))$('confirmExecuteDeleteBtn').onclick=executeCourseDelete;
+if($('retirePurgeCourseBtn'))$('retirePurgeCourseBtn').onclick=()=>openRetirePurgeModal(state.courseSlug);
+if($('confirmRetirePurgeBtn'))$('confirmRetirePurgeBtn').onclick=executeRetirePurge;
 $('channel').addEventListener('dragover',event=>{event.preventDefault()});
-$('channel').addEventListener('drop',event=>{event.preventDefault();if(event.dataTransfer?.files?.length){state.files.push(...[...event.dataTransfer.files].map(file=>({file,progress:0,status:'chờ gửi'})));renderPending();updateSend()}});
+$('channel').addEventListener('drop',event=>{event.preventDefault();if(isCourseArchived())return toast('Khóa đã Archived / Retired. Không thể thêm media.');if(event.dataTransfer?.files?.length){state.files.push(...[...event.dataTransfer.files].map(file=>({file,progress:0,status:'chờ gửi'})));renderPending();updateSend()}});
 loadCourses();
 </script>
 </body>
