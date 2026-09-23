@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "supabase/migrations/20260923143000_v5_retire_purge_content.sql"
+      - "supabase/migrations/20260923154500_v5_retire_purge_trigger_privileges.sql"
       - "scripts/verify-v5-retire-purge-pg17.sql"
       - ".github/workflows/v5-retire-purge-pg17.yml"
   workflow_dispatch:

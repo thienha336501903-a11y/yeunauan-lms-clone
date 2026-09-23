@@ -102,6 +102,7 @@ after update of status,published_release_id on public.v5_course_configs
 for each row execute function public.test_sync_v5_course_failclosed();
 
 \i supabase/migrations/20260923143000_v5_retire_purge_content.sql
+\i supabase/migrations/20260923154500_v5_retire_purge_trigger_privileges.sql
 
 do $$
 begin
@@ -119,6 +120,16 @@ begin
      or has_function_privilege('authenticated','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE')
      or not has_function_privilege('service_' || 'role','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE') then
     raise exception 'R2 delete validation function permission assertion failed';
+  end if;
+  if has_function_privilege('anon','public.enforce_v5_retired_course_sale_lock()','EXECUTE')
+     or has_function_privilege('authenticated','public.enforce_v5_retired_course_sale_lock()','EXECUTE')
+     or has_function_privilege('service_' || 'role','public.enforce_v5_retired_course_sale_lock()','EXECUTE') then
+    raise exception 'retired course trigger function must not be directly executable';
+  end if;
+  if has_function_privilege('anon','public.enforce_v5_archived_config_lock()','EXECUTE')
+     or has_function_privilege('authenticated','public.enforce_v5_archived_config_lock()','EXECUTE')
+     or has_function_privilege('service_' || 'role','public.enforce_v5_archived_config_lock()','EXECUTE') then
+    raise exception 'archived config trigger function must not be directly executable';
   end if;
 end $$;
 

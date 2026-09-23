@@ -15,6 +15,7 @@ const {
 } = await import("../utils/v5-retire-purge.js");
 
 const migrationSql = fs.readFileSync(new URL("../supabase/migrations/20260923143000_v5_retire_purge_content.sql", import.meta.url), "utf8");
+const privilegeFixSql = fs.readFileSync(new URL("../supabase/migrations/20260923154500_v5_retire_purge_trigger_privileges.sql", import.meta.url), "utf8");
 const handlerSource = fs.readFileSync(new URL("../utils/lms-handlers/admin-v5-course-retire-purge.js", import.meta.url), "utf8");
 const adminSource = fs.readFileSync(new URL("../v5-admin.html", import.meta.url), "utf8");
 const accessSource = fs.readFileSync(new URL("../utils/v4-telegram-access.js", import.meta.url), "utf8");
@@ -242,4 +243,12 @@ test("58. archived V5 config cannot be deleted or reactivated outside a future c
   assert.match(migrationSql,/v5_archived_config_delete_forbidden/);
   assert.match(migrationSql,/v5_archived_config_reactivation_forbidden/);
   assert.match(migrationSql,/before update or delete on public\.v5_course_configs/i);
+});
+
+
+test("59. trigger-only SECURITY DEFINER guards are not directly executable",()=>{
+  for (const fn of ["enforce_v5_retired_course_sale_lock","enforce_v5_archived_config_lock"]) {
+    const re = new RegExp("revoke all on function public\\."+fn+"\\(\\) from public;[\\s\\S]*from anon;[\\s\\S]*from authenticated;[\\s\\S]*from service_role;", "i");
+    assert.match(privilegeFixSql,re);
+  }
 });
