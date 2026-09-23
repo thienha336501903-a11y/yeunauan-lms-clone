@@ -338,20 +338,6 @@ begin
        and other_a.id <> all(v_asset_ids)
   ) then raise exception 'v5_retire_shared_thumbnail_asset'; end if;
 
-  -- A physical R2 object key must never be represented by a second media row
-  -- outside this course's owned asset set. Otherwise purging the object would
-  -- silently break that other row even if the asset UUID itself is not shared.
-  if exists (
-    select 1
-      from public.v5_media_assets owned_a
-      join public.v5_media_assets other_a
-        on other_a.r2_object_key = owned_a.r2_object_key
-       and other_a.id <> owned_a.id
-     where owned_a.id = any(v_asset_ids)
-       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
-       and other_a.id <> all(v_asset_ids)
-  ) then raise exception 'v5_retire_shared_r2_key'; end if;
-
   select count(*) into v_order_count
     from public.orders o
    where o.course_id = p_course_id or o.course_slug = v_course.slug;
@@ -629,17 +615,6 @@ begin
      where other_a.thumbnail_asset_id=any(v_asset_ids)
        and other_a.id<>all(v_asset_ids)
   ) then raise exception 'v5_retire_finalize_shared_thumbnail_asset'; end if;
-
-  if exists (
-    select 1
-      from public.v5_media_assets owned_a
-      join public.v5_media_assets other_a
-        on other_a.r2_object_key = owned_a.r2_object_key
-       and other_a.id <> owned_a.id
-     where owned_a.id = any(v_asset_ids)
-       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
-       and other_a.id <> all(v_asset_ids)
-  ) then raise exception 'v5_retire_finalize_shared_r2_key'; end if;
 
   select coalesce(jsonb_agg(to_jsonb(r) order by r.version), '[]'::jsonb)
     into v_release_archive
@@ -929,17 +904,6 @@ begin
     where other_a.thumbnail_asset_id=any(v_asset_ids)
       and other_a.id<>all(v_asset_ids)
   ) then raise exception 'v5_retire_r2_delete_shared_thumbnail_asset'; end if;
-
-  if exists (
-    select 1
-      from public.v5_media_assets owned_a
-      join public.v5_media_assets other_a
-        on other_a.r2_object_key=owned_a.r2_object_key
-       and other_a.id<>owned_a.id
-     where owned_a.id=any(v_asset_ids)
-       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
-       and other_a.id<>all(v_asset_ids)
-  ) then raise exception 'v5_retire_r2_delete_shared_r2_key'; end if;
 
   return jsonb_build_object('success',true,'course_id',v_op.course_id,'slug',v_op.course_slug);
 end;
