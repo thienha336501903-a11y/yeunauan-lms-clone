@@ -239,6 +239,8 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
   if (uploadsRes.error) throw uploadsRes.error;
   if (v4Res.error) throw v4Res.error;
   if (assetsRes.error) throw assetsRes.error;
+  if (postAssetsRes.error) throw postAssetsRes.error;
+  if (sourceMappingsRes.error) throw sourceMappingsRes.error;
 
   const configsByCourse = new Map((configsRes.data || []).map(cfg => [cfg.course_id, cfg]));
   
