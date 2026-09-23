@@ -203,6 +203,45 @@ end $$;
 update public.v5_course_retire_operations
    set status='r2_verified_empty',remaining_r2_count=0
  where course_id='11111111-1111-4111-8111-111111111111';
+
+-- Safety is revalidated at finalize: a concurrent order revoke back to pending
+-- pauses destructive metadata cleanup.
+reset role;
+update public.orders set status='Chờ duyệt' where course_id='11111111-1111-4111-8111-111111111111';
+set role service_role;
+do $
+declare v_op uuid;
+begin
+  select id into v_op from public.v5_course_retire_operations where course_id='11111111-1111-4111-8111-111111111111';
+  begin
+    perform public.finalize_v5_course_retire_purge(v_op,'11111111-1111-4111-8111-111111111111','retire-target');
+    raise exception 'finalize with pending order unexpectedly succeeded';
+  exception when others then
+    if sqlerrm not like '%v5_retire_finalize_has_nonterminal_order%' then raise; end if;
+  end;
+end $;
+reset role;
+update public.orders set status='Đã duyệt' where course_id='11111111-1111-4111-8111-111111111111';
+
+-- A late V4 legacy binding also pauses finalize.
+insert into public.lms_v4_telegram_course_sources(course_slug,source_id)
+values ('retire-target','dddddddd-1111-4111-8111-111111111111');
+set role service_role;
+do $
+declare v_op uuid;
+begin
+  select id into v_op from public.v5_course_retire_operations where course_id='11111111-1111-4111-8111-111111111111';
+  begin
+    perform public.finalize_v5_course_retire_purge(v_op,'11111111-1111-4111-8111-111111111111','retire-target');
+    raise exception 'finalize with V4 source unexpectedly succeeded';
+  exception when others then
+    if sqlerrm not like '%v5_retire_finalize_has_v4_source%' then raise; end if;
+  end;
+end $;
+reset role;
+delete from public.lms_v4_telegram_course_sources where course_slug='retire-target';
+
+set role service_role;
 select id as operation_id
   from public.v5_course_retire_operations
  where course_id='11111111-1111-4111-8111-111111111111'
