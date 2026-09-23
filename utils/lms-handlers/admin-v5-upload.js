@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
+import { assertV5CourseWritable } from "../v5-course-write-guard.js";
 import {
   abortMultipartUpload,
   completeMultipartUpload,
@@ -435,6 +436,7 @@ export default async function adminV5UploadHandler(req, res) {
   try {
     const course = await loadCourse(req.query?.course || req.body?.course);
     if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa V5." });
+    await assertV5CourseWritable(course.id);
     const action = clean(req.body?.action);
     let result;
     if (action === "init") result = await initUpload(course, admin, req.body || {});
@@ -448,7 +450,7 @@ export default async function adminV5UploadHandler(req, res) {
     return res.status(200).json({ success: true, result });
   } catch (error) {
     console.error("[admin-v5-upload]", error);
-    const status = error?.code === "r2_not_configured" ? 503 : 500;
+    const status = error?.code === "r2_not_configured" ? 503 : (error?.code === "v5_course_archived" ? 409 : 500);
     return res.status(status).json({ success: false, code: error?.code || "v5_upload_failed", error: error?.message || "V5 upload error" });
   }
 }
