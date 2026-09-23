@@ -56,18 +56,20 @@ function validConfigFixture(overrides = {}) {
   };
 }
 
-function createQueryChain(data = []) {
+function createQueryChain(data = [], directError = null) {
   const chain = {
+    // Filtered queries are separate safety reads and should not inherit an
+    // injected error intended for an unfiltered cross-course ownership query.
     eq: () => createQueryChain(data),
     in: () => createQueryChain(data),
     order: () => createQueryChain(data),
     maybeSingle: async () => ({ data: data[0] || null, error: null }),
-    then: (resolve) => resolve({ data, error: null })
+    then: (resolve) => resolve({ data, error: directError })
   };
   return chain;
 }
 
-function createMockSupabase(courseOverrides = {}, configOverrides = {}) {
+function createMockSupabase(courseOverrides = {}, configOverrides = {}, safetyErrorTable = null) {
   const course = validCourseFixture(courseOverrides);
   const config = validConfigFixture(configOverrides);
 
@@ -82,8 +84,11 @@ function createMockSupabase(courseOverrides = {}, configOverrides = {}) {
         select: () => createQueryChain([config])
       };
     }
+    const directError = table === safetyErrorTable
+      ? new Error(`forced ${table} safety query failure`)
+      : null;
     return {
-      select: () => createQueryChain([])
+      select: () => createQueryChain([], directError)
     };
   };
 }
@@ -785,5 +790,129 @@ test("45. site_config cleanup deletes all 7 exact known keys", () => {
   ];
   for (const k of expectedKeys) {
     assert.match(migrationSql, new RegExp(`v_course\\.slug \\|\\| '${k}'`));
+  }
+});
+
+
+async function assertDeletePreviewSafetyQueryFailsClosed(table) {
+  const origFrom = supabase.from;
+  const origFetchLocal = globalThis.fetch;
+  let fetchCalls = 0;
+  try {
+    supabase.from = createMockSupabase({}, {}, table);
+    globalThis.fetch = async (...args) => {
+      fetchCalls++;
+      return origFetchLocal(...args);
+    };
+
+    let statusCode = null;
+    let jsonBody = null;
+    const req = {
+      method: "POST",
+      headers: { cookie: `admin_session_token=${adminToken}` },
+      body: { action: "preview", courseId }
+    };
+    const res = {
+      setHeader: () => {},
+      status: (code) => {
+        statusCode = code;
+        return { json: (body) => { jsonBody = body; } };
+      }
+    };
+
+    await adminV5CourseDeleteHandler(req, res);
+
+    assert.equal(statusCode, 500, `${table}: preview must fail closed`);
+    assert.equal(jsonBody?.success, false);
+    assert.equal(jsonBody?.planHash, undefined, `${table}: no planHash may be issued`);
+    assert.match(jsonBody?.error || "", new RegExp(`forced ${table} safety query failure`));
+    assert.equal(fetchCalls, 0, `${table}: R2 must not be touched after a safety query failure`);
+  } finally {
+    supabase.from = origFrom;
+    globalThis.fetch = origFetchLocal;
+  }
+}
+
+test("46. postAssets safety query error blocks preview and issues no planHash", async () => {
+  await assertDeletePreviewSafetyQueryFailsClosed("v5_post_assets");
+});
+
+test("47. allSourceMappings safety query error blocks preview and issues no planHash", async () => {
+  await assertDeletePreviewSafetyQueryFailsClosed("v5_source_mappings");
+});
+
+test("48. allJobs safety query error blocks preview and issues no planHash", async () => {
+  await assertDeletePreviewSafetyQueryFailsClosed("v5_jobs");
+});
+
+test("49. allUploads safety query error blocks preview and issues no planHash", async () => {
+  await assertDeletePreviewSafetyQueryFailsClosed("v5_upload_sessions");
+});
+
+test("50. allReleases safety query error blocks preview and issues no planHash", async () => {
+  await assertDeletePreviewSafetyQueryFailsClosed("v5_releases");
+});
+
+test("51. execute safety-query failures make zero R2 calls and zero cleanup RPC calls", async () => {
+  const safetyTables = [
+    "v5_post_assets",
+    "v5_source_mappings",
+    "v5_jobs",
+    "v5_upload_sessions",
+    "v5_releases"
+  ];
+
+  for (const table of safetyTables) {
+    const origFrom = supabase.from;
+    const origRpc = supabase.rpc;
+    const origFetchLocal = globalThis.fetch;
+    let fetchCalls = 0;
+    let rpcCalls = 0;
+
+    try {
+      supabase.from = createMockSupabase({}, {}, table);
+      supabase.rpc = async () => {
+        rpcCalls++;
+        return { data: null, error: null };
+      };
+      globalThis.fetch = async (...args) => {
+        fetchCalls++;
+        return origFetchLocal(...args);
+      };
+
+      let statusCode = null;
+      let jsonBody = null;
+      const req = {
+        method: "POST",
+        headers: { cookie: `admin_session_token=${adminToken}` },
+        body: {
+          action: "execute",
+          courseId,
+          slug: courseSlug,
+          confirmationSlug: courseSlug,
+          confirmed: true,
+          planHash: "never-used"
+        }
+      };
+      const res = {
+        setHeader: () => {},
+        status: (code) => {
+          statusCode = code;
+          return { json: (body) => { jsonBody = body; } };
+        }
+      };
+
+      await adminV5CourseDeleteHandler(req, res);
+
+      assert.equal(statusCode, 409, `${table}: execute must fail closed`);
+      assert.equal(jsonBody?.success, false);
+      assert.match(jsonBody?.error || "", new RegExp(`forced ${table} safety query failure`));
+      assert.equal(fetchCalls, 0, `${table}: zero R2 list/delete calls allowed`);
+      assert.equal(rpcCalls, 0, `${table}: zero cleanup RPC calls allowed`);
+    } finally {
+      supabase.from = origFrom;
+      supabase.rpc = origRpc;
+      globalThis.fetch = origFetchLocal;
+    }
   }
 });
