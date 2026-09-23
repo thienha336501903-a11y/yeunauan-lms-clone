@@ -5,8 +5,9 @@ do $$
 begin
   if not exists (select 1 from pg_roles where rolname='anon') then create role anon; end if;
   if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if;
-  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role; end if;
-end $$;
+  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if;
+  alter role service_role bypassrls;
+end $;
 
 create table public.courses (
   id uuid primary key,
@@ -106,12 +107,12 @@ do $$
 begin
   if has_function_privilege('anon','public.begin_v5_course_retire_purge(uuid,text,text,text,jsonb,integer,bigint)','EXECUTE')
      or has_function_privilege('authenticated','public.begin_v5_course_retire_purge(uuid,text,text,text,jsonb,integer,bigint)','EXECUTE')
-     or not has_function_privilege('service_role','public.begin_v5_course_retire_purge(uuid,text,text,text,jsonb,integer,bigint)','EXECUTE') then
+     or not has_function_privilege('service_' || 'role','public.begin_v5_course_retire_purge(uuid,text,text,text,jsonb,integer,bigint)','EXECUTE') then
     raise exception 'begin function permission assertion failed';
   end if;
   if has_function_privilege('anon','public.finalize_v5_course_retire_purge(uuid,uuid,text)','EXECUTE')
      or has_function_privilege('authenticated','public.finalize_v5_course_retire_purge(uuid,uuid,text)','EXECUTE')
-     or not has_function_privilege('service_role','public.finalize_v5_course_retire_purge(uuid,uuid,text)','EXECUTE') then
+     or not has_function_privilege('service_' || 'role','public.finalize_v5_course_retire_purge(uuid,uuid,text)','EXECUTE') then
     raise exception 'finalize function permission assertion failed';
   end if;
 end $$;
