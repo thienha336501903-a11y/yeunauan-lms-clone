@@ -1,6 +1,7 @@
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
 import adminV5TelegramImportHandler, { computeMirrorProgress } from "./admin-v5-telegram-import.js";
+import { assertV5CourseWritable } from "../v5-course-write-guard.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -145,6 +146,18 @@ export default async function adminV5TelegramImportScopedHandler(req, res) {
   const isRetryFailed = action === "retry_failed_media" || action === "retry_failed";
 
   if (!isMirrorStatus && !isRetryFailed) {
+    if (req.method === "POST") {
+      try {
+        const course = await loadCourse(req.query?.course || req.body?.course);
+        if (course) await assertV5CourseWritable(course.id);
+      } catch (error) {
+        return res.status(error?.code === "v5_course_archived" ? 409 : 500).json({
+          success: false,
+          code: error?.code || "v5_telegram_write_guard_failed",
+          error: error?.message || "Không thể xác minh trạng thái khóa V5."
+        });
+      }
+    }
     return adminV5TelegramImportHandler(req, res);
   }
 
@@ -161,6 +174,7 @@ export default async function adminV5TelegramImportScopedHandler(req, res) {
       return res.status(200).json({ success: true, result, ...result, admin: admin.email });
     }
 
+    await assertV5CourseWritable(course.id);
     const result = await retryFailedProductionTelegramMedia(course.id);
     return res.status(200).json({ success: true, result, retried: result.retried, admin: admin.email });
   } catch (error) {
