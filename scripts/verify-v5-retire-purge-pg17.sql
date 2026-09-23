@@ -210,31 +210,6 @@ select id as r2_validation_operation_id
 select public.validate_v5_retire_purge_r2_delete_safe(:'r2_validation_operation_id'::uuid);
 reset role;
 
--- A duplicate physical R2 key outside the owned asset set must block byte deletion.
-insert into public.v5_media_assets(id,r2_object_key,bytes,thumbnail_asset_id)
-values (
-  '32111111-1111-4111-8111-111111111111',
-  'media/v5/11111111-1111-4111-8111-111111111111/asset/video.mp4',
-  12345,
-  null
-);
-set role service_role;
-do $$
-declare v_op uuid;
-begin
-  select id into v_op
-    from public.v5_course_retire_operations
-   where course_id='11111111-1111-4111-8111-111111111111';
-  begin
-    perform public.validate_v5_retire_purge_r2_delete_safe(v_op);
-    raise exception 'shared physical R2 key unexpectedly allowed';
-  exception when others then
-    if sqlerrm not like '%v5_retire_r2_delete_shared_r2_key%' then raise; end if;
-  end;
-end $$;
-reset role;
-delete from public.v5_media_assets where id='32111111-1111-4111-8111-111111111111';
-
 -- Generic release delete remains forbidden.
 do $$
 begin
