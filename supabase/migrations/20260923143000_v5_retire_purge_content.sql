@@ -505,6 +505,23 @@ begin
        and (u.expires_at is null or u.expires_at > now())
   ) then raise exception 'v5_retire_finalize_active_uploads'; end if;
 
+  -- Revalidate Commerce order safety at finalize. A concurrent revoke can
+  -- move an approved order back to Chờ duyệt, which must pause the purge.
+  if exists (
+    select 1
+      from public.orders o
+     where (o.course_id = p_course_id or o.course_slug = v_course.slug)
+       and coalesce(o.status, '') not in ('Đã duyệt', 'Từ chối')
+  ) then raise exception 'v5_retire_finalize_has_nonterminal_order'; end if;
+
+  -- A legacy V4 mapping appearing after Retire changes ownership semantics;
+  -- fail closed rather than purging content under an ambiguous legacy binding.
+  if exists (
+    select 1
+      from public.lms_v4_telegram_course_sources s
+     where s.course_slug = v_course.slug
+  ) then raise exception 'v5_retire_finalize_has_v4_source'; end if;
+
   select coalesce(array_agg(distinct asset_id), array[]::uuid[])
     into v_asset_ids
   from (
