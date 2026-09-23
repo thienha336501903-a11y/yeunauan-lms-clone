@@ -1,0 +1,41 @@
+name: V5 Retire Purge PostgreSQL 17
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260923143000_v5_retire_purge_content.sql"
+      - "scripts/verify-v5-retire-purge-pg17.sql"
+      - ".github/workflows/v5-retire-purge-pg17.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify migration on PostgreSQL 17
+        run: psql -v ON_ERROR_STOP=1 -f scripts/verify-v5-retire-purge-pg17.sql
+      - name: Diff check
+        run: git diff --check HEAD^..HEAD
