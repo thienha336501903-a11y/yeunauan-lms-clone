@@ -19,7 +19,7 @@ const { supabase } = await import("../utils/supabase.js");
 const { createAdminSession } = await import("../utils/lms.js");
 
 const migrationSql = fs.readFileSync(
-  new URL("../supabase/migrations/20260923160000_v5_controlled_unreleased_course_cleanup.sql", import.meta.url),
+  new URL("../supabase/migrations/20260923113159_v5_controlled_unreleased_course_cleanup.sql", import.meta.url),
   "utf8"
 );
 
