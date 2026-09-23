@@ -62,6 +62,21 @@ function createMockSupabase(overrides = {}) {
   };
 }
 
+function createStorageSafetyErrorSupabase(tableToFail) {
+  const base = createMockSupabase();
+  return (table) => {
+    if (table === tableToFail) {
+      return {
+        select: async () => ({
+          data: null,
+          error: new Error(`forced ${table} ownership query failure`)
+        })
+      };
+    }
+    return base(table);
+  };
+}
+
 test("1. parseListBucketResult: single page listing parses objects and metadata", () => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
@@ -461,4 +476,51 @@ test("19. lms_v4_telegram_course_sources query does not select non-existent id c
     /from\("lms_v4_telegram_course_sources"\)\.select\("course_slug, source_id"\)/,
     "Must select valid columns course_slug, source_id"
   );
+});
+
+
+test("20. storage dashboard postAssets query error fails closed before R2 listing", async () => {
+  const origFrom = supabase.from;
+  const origFetchLocal = globalThis.fetch;
+  let fetchCalls = 0;
+  try {
+    supabase.from = createStorageSafetyErrorSupabase("v5_post_assets");
+    globalThis.fetch = async (...args) => {
+      fetchCalls++;
+      return origFetchLocal(...args);
+    };
+
+    invalidateStorageCache();
+    await assert.rejects(
+      () => getV5StorageSnapshot({ refresh: true }),
+      /forced v5_post_assets ownership query failure/
+    );
+    assert.equal(fetchCalls, 0, "R2 must not be listed when post asset ownership cannot be verified");
+  } finally {
+    supabase.from = origFrom;
+    globalThis.fetch = origFetchLocal;
+  }
+});
+
+test("21. storage dashboard sourceMappings query error fails closed before R2 listing", async () => {
+  const origFrom = supabase.from;
+  const origFetchLocal = globalThis.fetch;
+  let fetchCalls = 0;
+  try {
+    supabase.from = createStorageSafetyErrorSupabase("v5_source_mappings");
+    globalThis.fetch = async (...args) => {
+      fetchCalls++;
+      return origFetchLocal(...args);
+    };
+
+    invalidateStorageCache();
+    await assert.rejects(
+      () => getV5StorageSnapshot({ refresh: true }),
+      /forced v5_source_mappings ownership query failure/
+    );
+    assert.equal(fetchCalls, 0, "R2 must not be listed when source mapping ownership cannot be verified");
+  } finally {
+    supabase.from = origFrom;
+    globalThis.fetch = origFetchLocal;
+  }
 });
