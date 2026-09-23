@@ -256,16 +256,30 @@ function xmlUnescape(value) {
 }
 
 export function parseListBucketResult(xml) {
-  const isTruncated = xmlValue(xml, "IsTruncated").toLowerCase() === "true";
-  const nextContinuationToken = xmlValue(xml, "NextContinuationToken") || null;
-  const keyCount = Number(xmlValue(xml, "KeyCount") || 0);
+  const text = String(xml || "").trim();
+  if (!text.includes("<ListBucketResult") || !text.includes("</ListBucketResult>")) {
+    throw new Error("R2 list response không phải là ListBucketResult XML hợp lệ.");
+  }
+  const isTruncatedMatch = text.match(/<IsTruncated>([\s\S]*?)<\/IsTruncated>/i);
+  if (!isTruncatedMatch) {
+    throw new Error("R2 list XML thiếu thẻ IsTruncated hợp lệ.");
+  }
+  const isTruncated = isTruncatedMatch[1].trim().toLowerCase() === "true";
+  const nextContinuationToken = xmlValue(text, "NextContinuationToken") || null;
+  if (isTruncated && !nextContinuationToken) {
+    throw new Error("R2 list kết quả bị cắt ngắn nhưng thiếu NextContinuationToken.");
+  }
+  const keyCount = Number(xmlValue(text, "KeyCount") || 0);
 
   const objects = [];
   const contentsRegex = /<Contents>([\s\S]*?)<\/Contents>/gi;
   let match;
-  while ((match = contentsRegex.exec(xml)) !== null) {
+  while ((match = contentsRegex.exec(text)) !== null) {
     const block = match[1];
     const rawKey = xmlValue(block, "Key");
+    if (!rawKey) {
+      throw new Error("R2 list XML chứa phần tử Contents thiếu thẻ Key.");
+    }
     const key = xmlUnescape(rawKey);
     const size = Number(xmlValue(block, "Size") || 0);
     const lastModified = xmlValue(block, "LastModified");

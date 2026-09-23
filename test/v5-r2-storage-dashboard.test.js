@@ -388,3 +388,77 @@ test("15. informational free-tier reference included with disclaimer", async () 
     globalThis.fetch = origFetch;
   }
 });
+
+test("16. parseListBucketResult fails closed on malformed XML", () => {
+  assert.throws(
+    () => parseListBucketResult("invalid non-xml response"),
+    /ListBucketResult XML hợp lệ/
+  );
+  assert.throws(
+    () => parseListBucketResult("<Error><Code>AccessDenied</Code></Error>"),
+    /ListBucketResult XML hợp lệ/
+  );
+});
+
+test("17. parseListBucketResult fails closed on truncated pagination without NextContinuationToken", () => {
+  const truncatedWithoutToken = `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>test-bucket</Name>
+  <Prefix>media/v5/</Prefix>
+  <KeyCount>1</KeyCount>
+  <MaxKeys>1</MaxKeys>
+  <IsTruncated>true</IsTruncated>
+  <Contents>
+    <Key>media/v5/video1.mp4</Key>
+    <Size>1024</Size>
+    <ETag>&quot;etag1&quot;</ETag>
+  </Contents>
+</ListBucketResult>`;
+
+  assert.throws(
+    () => parseListBucketResult(truncatedWithoutToken),
+    /thiếu NextContinuationToken/
+  );
+});
+
+test("18. getV5StorageSnapshot fails closed on R2 listing error: r2Verified=false and no false zero", async () => {
+  const origFrom = supabase.from;
+  const origFetch = globalThis.fetch;
+  try {
+    supabase.from = createMockSupabase();
+    globalThis.fetch = async () => {
+      throw new Error("R2 network timeout");
+    };
+
+    invalidateStorageCache();
+    const snapshot = await getV5StorageSnapshot({ refresh: true });
+    assert.equal(snapshot.summary.r2Verified, false);
+    assert.equal(snapshot.summary.bucketBytes, null, "bucketBytes must be null when R2 unverified");
+    assert.equal(snapshot.summary.v5Bytes, null, "v5Bytes must be null when R2 unverified");
+    assert.match(snapshot.summary.r2Error, /R2 network timeout/);
+
+    for (const c of snapshot.courses) {
+      assert.equal(c.r2Verified, false);
+      assert.equal(c.actualR2Bytes, null);
+      assert.equal(c.canDelete, false);
+      assert.ok(c.blockedReasons.some(r => r.includes("Không thể xác minh R2")));
+    }
+  } finally {
+    supabase.from = origFrom;
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("19. lms_v4_telegram_course_sources query does not select non-existent id column", () => {
+  const storageSource = fs.readFileSync(new URL("../utils/v5-course-storage.js", import.meta.url), "utf8");
+  assert.doesNotMatch(
+    storageSource,
+    /from\("lms_v4_telegram_course_sources"\)\.select\("id,/i,
+    "Must not select non-existent id column from lms_v4_telegram_course_sources"
+  );
+  assert.match(
+    storageSource,
+    /from\("lms_v4_telegram_course_sources"\)\.select\("course_slug, source_id"\)/,
+    "Must select valid columns course_slug, source_id"
+  );
+});

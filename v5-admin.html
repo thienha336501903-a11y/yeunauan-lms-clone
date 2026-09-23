@@ -201,6 +201,14 @@ function renderStorageSummary(summary){
     $('storageFreeTier').textContent='—';
     return;
   }
+  if(summary.r2Verified===false){
+    $('storageTotalRow').textContent='Không xác minh được R2';
+    $('storageDbTracked').textContent=formatBytes(summary.dbTrackedBytes||0);
+    $('storageOrphans').textContent='—';
+    $('storageMissing').textContent='—';
+    $('storageFreeTier').textContent='—';
+    return;
+  }
   $('storageTotalRow').textContent=`${formatBytes(summary.v5Bytes||0)} · ${(summary.v5ObjectCount||0).toLocaleString()} objects`;
   $('storageDbTracked').textContent=formatBytes(summary.dbTrackedBytes||0);
   $('storageOrphans').textContent=`${formatBytes(summary.orphanCandidateBytes||0)} · ${summary.orphanCandidateObjects||0} object`;
@@ -229,8 +237,13 @@ function updateCourseStorageUi(){
     $('courseBlockedReasonsList').style.display='none';
     return;
   }
-  $('courseStorageStats').textContent=`${formatBytes(courseStorage.actualR2Bytes)} · ${(courseStorage.actualR2Objects||0).toLocaleString()} objects`;
-  $('courseReclaimable').textContent=formatBytes(courseStorage.reclaimableBytes);
+  if(courseStorage.actualR2Bytes===null||courseStorage.r2Verified===false){
+    $('courseStorageStats').textContent='Không xác minh được R2';
+    $('courseReclaimable').textContent='—';
+  }else{
+    $('courseStorageStats').textContent=`${formatBytes(courseStorage.actualR2Bytes)} · ${(courseStorage.actualR2Objects||0).toLocaleString()} objects`;
+    $('courseReclaimable').textContent=formatBytes(courseStorage.reclaimableBytes);
+  }
   if(courseStorage.canDelete){
     $('courseDeleteEligibilityBadge').textContent='✅ Safe Draft — có thể dọn';
     $('courseDeleteEligibilityBadge').style.background='#e2f0e6';
@@ -258,14 +271,24 @@ function renderStorageModalTable(){
   if(!snapshot)return;
   const summary=snapshot.summary||{};
   const bar=$('storageModalSummaryBar');
-  bar.innerHTML=`
-    <div>Tổng R2: <strong>${formatBytes(summary.bucketBytes||0)}</strong> (${(summary.bucketObjectCount||0).toLocaleString()} objects)</div>
-    <div>V5 Media: <strong>${formatBytes(summary.v5Bytes||0)}</strong> (${(summary.v5ObjectCount||0).toLocaleString()} objects)</div>
-    <div>DB Tracked: <strong>${formatBytes(summary.dbTrackedBytes||0)}</strong></div>
-    <div>Orphan: <strong>${formatBytes(summary.orphanCandidateBytes||0)}</strong> (${summary.orphanCandidateObjects||0})</div>
-    <div>Missing: <strong style="${summary.missingTrackedObjects>0?'color:#b42e3a':''}">${summary.missingTrackedObjects||0}</strong></div>
-    <div>Headroom ước tính: <strong>~${summary.estimatedHeadroomGb||0} GB-month</strong></div>
-  `;
+  if(summary.r2Verified===false){
+    bar.innerHTML=`
+      <div>Tổng R2: <strong style="color:#b42e3a">Không xác minh được R2</strong></div>
+      <div>DB Tracked: <strong>${formatBytes(summary.dbTrackedBytes||0)}</strong></div>
+      <div>Orphan: <strong>—</strong></div>
+      <div>Missing: <strong>—</strong></div>
+      <div>Headroom ước tính: <strong>—</strong></div>
+    `;
+  }else{
+    bar.innerHTML=`
+      <div>Tổng R2: <strong>${formatBytes(summary.bucketBytes||0)}</strong> (${(summary.bucketObjectCount||0).toLocaleString()} objects)</div>
+      <div>V5 Media: <strong>${formatBytes(summary.v5Bytes||0)}</strong> (${(summary.v5ObjectCount||0).toLocaleString()} objects)</div>
+      <div>DB Tracked: <strong>${formatBytes(summary.dbTrackedBytes||0)}</strong></div>
+      <div>Orphan: <strong>${formatBytes(summary.orphanCandidateBytes||0)}</strong> (${summary.orphanCandidateObjects||0})</div>
+      <div>Missing: <strong style="${summary.missingTrackedObjects>0?'color:#b42e3a':''}">${summary.missingTrackedObjects||0}</strong></div>
+      <div>Headroom ước tính: <strong>~${summary.estimatedHeadroomGb||0} GB-month</strong></div>
+    `;
+  }
   const tbody=$('storageModalTableBody');
   const courses=snapshot.courses||[];
   if(!courses.length){
@@ -279,11 +302,13 @@ function renderStorageModalTable(){
     const delBadge=canDel
       ?`<button type="button" class="btn" style="background:#b42e3a;color:#fff;border:none;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" onclick="openCourseDeleteModal('${esc(c.slug)}')">🗑 Dọn</button>`
       :`<span style="color:#71808d;font-size:11px" title="${esc((c.blockedReasons||[]).join('; '))}">🔒 Khóa</span>`;
+    const r2BytesCell=c.actualR2Bytes!==null?formatBytes(c.actualR2Bytes):'<span style="color:#b42e3a">—</span>';
+    const r2ObjsCell=c.actualR2Objects!==null?(c.actualR2Objects||0).toLocaleString():'—';
     return `<tr style="border-bottom:1px solid #eef3f6;${isSelected?'background:#f4f9f5':''}">
       <td style="padding:8px 10px"><a href="javascript:void(0)" onclick="chooseCourse('${esc(c.slug)}');closeModal('storageModal')" style="font-weight:700;color:#184a77;text-decoration:none">${esc(c.title)}</a><br><span class="tiny" style="color:#71808d">${esc(c.slug)}</span></td>
       <td style="padding:8px 6px"><span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${c.isPublished?'#e2f0e6;color:#187c40':'#fff3d4;color:#986900'}">${esc(statusText)}</span></td>
-      <td style="padding:8px 6px;text-align:right;font-weight:700">${formatBytes(c.actualR2Bytes)}</td>
-      <td style="padding:8px 6px;text-align:right">${(c.actualR2Objects||0).toLocaleString()}</td>
+      <td style="padding:8px 6px;text-align:right;font-weight:700">${r2BytesCell}</td>
+      <td style="padding:8px 6px;text-align:right">${r2ObjsCell}</td>
       <td style="padding:8px 6px;text-align:right;color:#52616c">${formatBytes(c.dbTrackedBytes)}</td>
       <td style="padding:8px 6px;text-align:center">${c.orderCount||0}</td>
       <td style="padding:8px 6px;text-align:center">${c.enrollmentCount||0}</td>

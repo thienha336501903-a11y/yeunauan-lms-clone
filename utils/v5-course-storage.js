@@ -32,10 +32,24 @@ export function evaluateCourseDeleteEligibility({
   v4Sources = [],
   courseAssets = [],
   otherCourseAssets = [],
-  r2ObjectsInNamespace = []
+  r2Configured = true,
+  r2Verified = true,
+  sharedPostAssets = [],
+  sharedSourceMappings = [],
+  sharedJobs = [],
+  sharedUploadSessions = [],
+  sharedReleaseAssets = [],
+  sharedThumbnailAssets = []
 }) {
   const blockedReasons = [];
   const raw = course.raw_data && typeof course.raw_data === "object" ? course.raw_data : {};
+
+  // 0. R2 configuration and verification requirement
+  if (r2Configured === false) {
+    blockedReasons.push("R2 chưa được cấu hình. Cleanup bị chặn.");
+  } else if (!r2Verified) {
+    blockedReasons.push("Không thể xác minh R2. Cleanup bị chặn.");
+  }
 
   // 1. delivery_mode === 'v5'
   if (clean(course.delivery_mode).toLowerCase() !== "v5") {
@@ -120,6 +134,26 @@ export function evaluateCourseDeleteEligibility({
     }
   }
 
+  // 14b. Explicit cross-course shared relationship guards
+  if (sharedPostAssets.length > 0) {
+    blockedReasons.push("Có tài nguyên media được chia sẻ với bài viết của khóa học khác.");
+  }
+  if (sharedSourceMappings.length > 0) {
+    blockedReasons.push("Có tài nguyên media được liên kết với nguồn dữ liệu của khóa học khác.");
+  }
+  if (sharedJobs.length > 0) {
+    blockedReasons.push("Có tài nguyên media được liên kết với tác vụ xử lý của khóa học khác.");
+  }
+  if (sharedUploadSessions.length > 0) {
+    blockedReasons.push("Có tài nguyên media được liên kết với phiên tải lên của khóa học khác.");
+  }
+  if (sharedReleaseAssets.length > 0) {
+    blockedReasons.push("Có tài nguyên media được tham chiếu trong bản phát hành của khóa học khác.");
+  }
+  if (sharedThumbnailAssets.length > 0) {
+    blockedReasons.push("Có ảnh thu nhỏ (thumbnail) được chia sẻ với khóa học khác.");
+  }
+
   // 15. All DB assets inside course UUID namespace
   const coursePrefix = `media/v5/${course.id}/`;
   for (const asset of courseAssets) {
@@ -182,17 +216,19 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
     uploadsRes,
     v4Res,
     assetsRes,
-    postAssetsRes
+    postAssetsRes,
+    sourceMappingsRes
   ] = await Promise.all([
     supabase.from("v5_course_configs").select("course_id, status, published_release_id, settings, telegram_source_id").in("course_id", courseIds),
-    supabase.from("v5_releases").select("id, course_id, version, status").in("course_id", courseIds),
+    supabase.from("v5_releases").select("id, course_id, version, status, snapshot").in("course_id", courseIds),
     supabase.from("orders").select("id, course_id, course_slug, status"),
     supabase.from("student_enrollments").select("id, course_id, course_slug, status"),
     supabase.from("v5_jobs").select("id, course_id, asset_id, status, job_type, created_at"),
     supabase.from("v5_upload_sessions").select("id, course_id, asset_id, status, object_key, expires_at"),
-    supabase.from("lms_v4_telegram_course_sources").select("id, course_slug"),
-    supabase.from("v5_media_assets").select("id, r2_object_key, bytes, status, original_filename"),
-    supabase.from("v5_post_assets").select("post_id, asset_id, v5_posts!inner(course_id)")
+    supabase.from("lms_v4_telegram_course_sources").select("course_slug, source_id"),
+    supabase.from("v5_media_assets").select("id, r2_object_key, bytes, status, original_filename, thumbnail_asset_id"),
+    supabase.from("v5_post_assets").select("post_id, asset_id, v5_posts!inner(course_id)"),
+    supabase.from("v5_source_mappings").select("id, course_id, asset_id")
   ]);
 
   if (configsRes.error) throw configsRes.error;
@@ -264,6 +300,53 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
     }
   }
 
+  // Source mapping asset ownership map: asset_id -> Set of course_ids
+  const sourceMappingAssetOwners = new Map();
+  for (const sm of sourceMappingsRes.data || []) {
+    if (sm.course_id && sm.asset_id) {
+      if (!sourceMappingAssetOwners.has(sm.asset_id)) sourceMappingAssetOwners.set(sm.asset_id, new Set());
+      sourceMappingAssetOwners.get(sm.asset_id).add(sm.course_id);
+    }
+  }
+
+  // Jobs asset ownership map: asset_id -> Set of course_ids
+  const jobAssetOwners = new Map();
+  for (const j of jobsRes.data || []) {
+    if (j.course_id && j.asset_id) {
+      if (!jobAssetOwners.has(j.asset_id)) jobAssetOwners.set(j.asset_id, new Set());
+      jobAssetOwners.get(j.asset_id).add(j.course_id);
+    }
+  }
+
+  // Upload sessions asset ownership map: asset_id -> Set of course_ids
+  const uploadAssetOwners = new Map();
+  for (const u of uploadsRes.data || []) {
+    if (u.course_id && u.asset_id) {
+      if (!uploadAssetOwners.has(u.asset_id)) uploadAssetOwners.set(u.asset_id, new Set());
+      uploadAssetOwners.get(u.asset_id).add(u.course_id);
+    }
+  }
+
+  // Release snapshots referencing asset_id: asset_id -> Set of course_ids
+  const releaseAssetOwners = new Map();
+  for (const r of releasesRes.data || []) {
+    const snap = r.snapshot;
+    if (snap && typeof snap === "object") {
+      const assetIds = Array.isArray(snap.asset_ids) ? snap.asset_ids : [];
+      for (const aId of assetIds) {
+        if (!releaseAssetOwners.has(aId)) releaseAssetOwners.set(aId, new Set());
+        releaseAssetOwners.get(aId).add(r.course_id);
+      }
+      const links = Array.isArray(snap.links) ? snap.links : [];
+      for (const l of links) {
+        if (l?.asset_id) {
+          if (!releaseAssetOwners.has(l.asset_id)) releaseAssetOwners.set(l.asset_id, new Set());
+          releaseAssetOwners.get(l.asset_id).add(r.course_id);
+        }
+      }
+    }
+  }
+
   // Assets in DB
   const allDbAssets = assetsRes.data || [];
   const dbTrackedKeysSet = new Set();
@@ -289,12 +372,16 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
   // 2. Fetch actual R2 objects
   let r2Objects = [];
   let r2Configured = isR2Configured();
+  let r2Verified = false;
+  let r2Error = null;
   if (r2Configured) {
     try {
       r2Objects = await listAllR2Objects();
+      r2Verified = true;
     } catch (err) {
       console.error("[v5-course-storage] Error listing R2 objects:", err.message);
-      r2Configured = false;
+      r2Verified = false;
+      r2Error = err.message;
     }
   }
 
@@ -303,44 +390,52 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
   let v5Bytes = 0;
   let v5ObjectCount = 0;
 
-  for (const obj of r2Objects) {
-    r2KeyMap.set(obj.key, obj);
-    bucketBytes += Number(obj.size || 0);
-    if (obj.key.startsWith("media/v5/")) {
-      v5Bytes += Number(obj.size || 0);
-      v5ObjectCount++;
+  if (r2Verified) {
+    for (const obj of r2Objects) {
+      r2KeyMap.set(obj.key, obj);
+      bucketBytes += Number(obj.size || 0);
+      if (obj.key.startsWith("media/v5/")) {
+        v5Bytes += Number(obj.size || 0);
+        v5ObjectCount++;
+      }
     }
   }
 
   // Classify orphans & missing
   let orphanCandidateBytes = 0;
   let orphanCandidateObjects = 0;
-  for (const obj of r2Objects) {
-    if (obj.key.startsWith("media/v5/")) {
-      if (!dbTrackedKeysSet.has(obj.key) && !activeUploadKeys.has(obj.key)) {
-        orphanCandidateBytes += Number(obj.size || 0);
-        orphanCandidateObjects++;
+  if (r2Verified) {
+    for (const obj of r2Objects) {
+      if (obj.key.startsWith("media/v5/")) {
+        if (!dbTrackedKeysSet.has(obj.key) && !activeUploadKeys.has(obj.key)) {
+          orphanCandidateBytes += Number(obj.size || 0);
+          orphanCandidateObjects++;
+        }
       }
     }
   }
 
   let missingTrackedObjects = 0;
-  for (const key of dbTrackedKeysSet) {
-    if (!r2KeyMap.has(key)) {
-      missingTrackedObjects++;
+  if (r2Verified) {
+    for (const key of dbTrackedKeysSet) {
+      if (!r2KeyMap.has(key)) {
+        missingTrackedObjects++;
+      }
     }
   }
 
   // Group R2 objects by course UUID namespace
   // Prefix format: media/v5/<COURSE_UUID>/...
   const r2ObjectsByCourseId = new Map();
-  for (const obj of r2Objects) {
-    if (obj.key.startsWith("media/v5/")) {
-      const parts = obj.key.split("/");
-      const courseId = parts[2];
-      if (courseId) {
-        if (!r2ObjectsByCourseId.has(courseId)) r2ObjectsByCourseId.set(courseId, []);
-        r2ObjectsByCourseId.get(courseId).push(obj);
+  if (r2Verified) {
+    for (const obj of r2Objects) {
+      if (obj.key.startsWith("media/v5/")) {
+        const parts = obj.key.split("/");
+        const courseId = parts[2];
+        if (courseId) {
+          if (!r2ObjectsByCourseId.has(courseId)) r2ObjectsByCourseId.set(courseId, []);
+          r2ObjectsByCourseId.get(courseId).push(obj);
+        }
       }
     }
   }
@@ -402,25 +497,95 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
       if (otherId !== cId) otherCourseAssets.push(...assets);
     }
 
+    const courseAssetIds = new Set(courseAssets.map(a => a.id));
+
+    // Cross-course shared reference identification
+    const sharedPostAssets = [];
+    for (const aId of courseAssetIds) {
+      const owners = assetCourseOwnership.get(aId);
+      if (owners) {
+        for (const oId of owners) {
+          if (oId !== cId) sharedPostAssets.push(aId);
+        }
+      }
+    }
+
+    const sharedSourceMappings = [];
+    for (const aId of courseAssetIds) {
+      const owners = sourceMappingAssetOwners.get(aId);
+      if (owners) {
+        for (const oId of owners) {
+          if (oId !== cId) sharedSourceMappings.push(aId);
+        }
+      }
+    }
+
+    const sharedJobs = [];
+    for (const aId of courseAssetIds) {
+      const owners = jobAssetOwners.get(aId);
+      if (owners) {
+        for (const oId of owners) {
+          if (oId !== cId) sharedJobs.push(aId);
+        }
+      }
+    }
+
+    const sharedUploadSessions = [];
+    for (const aId of courseAssetIds) {
+      const owners = uploadAssetOwners.get(aId);
+      if (owners) {
+        for (const oId of owners) {
+          if (oId !== cId) sharedUploadSessions.push(aId);
+        }
+      }
+    }
+
+    const sharedReleaseAssets = [];
+    for (const aId of courseAssetIds) {
+      const owners = releaseAssetOwners.get(aId);
+      if (owners) {
+        for (const oId of owners) {
+          if (oId !== cId) sharedReleaseAssets.push(aId);
+        }
+      }
+    }
+
+    const sharedThumbnailAssets = [];
+    for (const otherAsset of otherCourseAssets) {
+      if (otherAsset.thumbnail_asset_id && courseAssetIds.has(otherAsset.thumbnail_asset_id)) {
+        sharedThumbnailAssets.push(otherAsset.thumbnail_asset_id);
+      }
+    }
+    for (const a of courseAssets) {
+      if (a.thumbnail_asset_id && !courseAssetIds.has(a.thumbnail_asset_id)) {
+        // Thumbnail belongs to another course or is outside course
+        sharedThumbnailAssets.push(a.thumbnail_asset_id);
+      }
+    }
+
     const r2Objs = r2ObjectsByCourseId.get(cId) || [];
-    const actualR2Bytes = r2Objs.reduce((sum, o) => sum + Number(o.size || 0), 0);
-    const actualR2Objects = r2Objs.length;
+    const actualR2Bytes = r2Verified ? r2Objs.reduce((sum, o) => sum + Number(o.size || 0), 0) : null;
+    const actualR2Objects = r2Verified ? r2Objs.length : null;
 
     const dbTrackedBytesForCourse = courseAssets.reduce((sum, a) => sum + Number(a.bytes || 0), 0);
     const dbTrackedObjectsForCourse = courseAssets.length;
 
     const courseDbKeys = new Set(courseAssets.map(a => clean(a.r2_object_key)).filter(Boolean));
     let untrackedInsidePrefix = 0;
-    for (const obj of r2Objs) {
-      if (!courseDbKeys.has(obj.key) && !activeUploadKeys.has(obj.key)) {
-        untrackedInsidePrefix++;
+    if (r2Verified) {
+      for (const obj of r2Objs) {
+        if (!courseDbKeys.has(obj.key) && !activeUploadKeys.has(obj.key)) {
+          untrackedInsidePrefix++;
+        }
       }
     }
 
     let missingTrackedForCourse = 0;
-    for (const key of courseDbKeys) {
-      if (!r2KeyMap.has(key)) {
-        missingTrackedForCourse++;
+    if (r2Verified) {
+      for (const key of courseDbKeys) {
+        if (!r2KeyMap.has(key)) {
+          missingTrackedForCourse++;
+        }
       }
     }
 
@@ -449,7 +614,14 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
       v4Sources,
       courseAssets,
       otherCourseAssets,
-      r2ObjectsInNamespace: r2Objs
+      r2ObjectsInNamespace: r2Objs,
+      r2Verified,
+      sharedPostAssets,
+      sharedSourceMappings,
+      sharedJobs,
+      sharedUploadSessions,
+      sharedReleaseAssets,
+      sharedThumbnailAssets
     });
 
     const isCloneFactoryFixture = clean(course.slug).startsWith("__clone_factory_test")
@@ -465,8 +637,8 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
       dbTrackedBytes: dbTrackedBytesForCourse,
       dbTrackedObjects: dbTrackedObjectsForCourse,
       reclaimableBytes: actualR2Bytes,
-      untrackedObjectsInsideCoursePrefix: untrackedInsidePrefix,
-      missingTrackedObjects: missingTrackedForCourse,
+      untrackedObjectsInsideCoursePrefix: r2Verified ? untrackedInsidePrefix : null,
+      missingTrackedObjects: r2Verified ? missingTrackedForCourse : null,
       active: Boolean(course.active),
       isPublished: Boolean(course.is_published),
       configStatus: config?.status || "none",
@@ -478,31 +650,34 @@ export async function getV5StorageSnapshot({ refresh = false } = {}) {
       canDelete,
       blockedReasons,
       isCloneFactoryFixture,
+      r2Verified,
       createdAt: course.created_at,
       updatedAt: course.updated_at
     };
   });
 
-  // Sort courses by actualR2Bytes DESC
-  coursesReport.sort((a, b) => b.actualR2Bytes - a.actualR2Bytes);
+  // Sort courses by actualR2Bytes DESC (or dbTrackedBytes if r2 not verified)
+  coursesReport.sort((a, b) => (b.actualR2Bytes ?? b.dbTrackedBytes) - (a.actualR2Bytes ?? a.dbTrackedBytes));
 
-  const snapshotGb = Number((v5Bytes / 1e9).toFixed(3));
+  const snapshotGb = r2Verified ? Number((v5Bytes / 1e9).toFixed(3)) : null;
   const freeTierGb = 10;
-  const headroomGb = Number(Math.max(0, freeTierGb - snapshotGb).toFixed(3));
+  const headroomGb = r2Verified ? Number(Math.max(0, freeTierGb - snapshotGb).toFixed(3)) : null;
 
   const result = {
     summary: {
       snapshotAt: new Date().toISOString(),
       r2Configured,
-      bucketBytes,
-      bucketObjectCount: r2Objects.length,
-      v5Bytes,
-      v5ObjectCount,
+      r2Verified,
+      r2Error,
+      bucketBytes: r2Verified ? bucketBytes : null,
+      bucketObjectCount: r2Verified ? r2Objects.length : null,
+      v5Bytes: r2Verified ? v5Bytes : null,
+      v5ObjectCount: r2Verified ? v5ObjectCount : null,
       dbTrackedBytes,
       dbTrackedObjectCount: dbTrackedKeysSet.size,
-      orphanCandidateBytes,
-      orphanCandidateObjects,
-      missingTrackedObjects,
+      orphanCandidateBytes: r2Verified ? orphanCandidateBytes : null,
+      orphanCandidateObjects: r2Verified ? orphanCandidateObjects : null,
+      missingTrackedObjects: r2Verified ? missingTrackedObjects : null,
       r2StandardFreeTierGbMonthReference: freeTierGb,
       currentSnapshotGb: snapshotGb,
       estimatedHeadroomGb: headroomGb,

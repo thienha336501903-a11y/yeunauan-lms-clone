@@ -103,7 +103,11 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
     lessonsRes,
     mappingsRes,
     allDbAssetsRes,
-    postAssetsRes
+    postAssetsRes,
+    allSourceMappingsRes,
+    allJobsRes,
+    allUploadsRes,
+    allReleasesRes
   ] = await Promise.all([
     supabase.from("v5_course_configs").select("course_id, status, published_release_id, settings, telegram_source_id").eq("course_id", cId).maybeSingle(),
     supabase.from("v5_releases").select("id, course_id, version, status").eq("course_id", cId),
@@ -113,12 +117,16 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
     supabase.from("student_enrollments").select("id, course_id, course_slug, status").eq("course_slug", cSlug),
     supabase.from("v5_jobs").select("id, course_id, asset_id, status, job_type, created_at").eq("course_id", cId),
     supabase.from("v5_upload_sessions").select("id, course_id, asset_id, status, object_key, expires_at").eq("course_id", cId),
-    supabase.from("lms_v4_telegram_course_sources").select("id, course_slug").eq("course_slug", cSlug),
+    supabase.from("lms_v4_telegram_course_sources").select("course_slug, source_id").eq("course_slug", cSlug),
     supabase.from("v5_posts").select("id, status").eq("course_id", cId),
     supabase.from("v5_lessons").select("id, status").eq("course_id", cId),
-    supabase.from("v5_source_mappings").select("id").eq("course_id", cId),
-    supabase.from("v5_media_assets").select("id, r2_object_key, bytes, status, original_filename"),
-    supabase.from("v5_post_assets").select("post_id, asset_id, v5_posts!inner(course_id)")
+    supabase.from("v5_source_mappings").select("id, course_id, asset_id").eq("course_id", cId),
+    supabase.from("v5_media_assets").select("id, r2_object_key, bytes, status, original_filename, thumbnail_asset_id"),
+    supabase.from("v5_post_assets").select("post_id, asset_id, v5_posts!inner(course_id)"),
+    supabase.from("v5_source_mappings").select("id, course_id, asset_id"),
+    supabase.from("v5_jobs").select("id, course_id, asset_id"),
+    supabase.from("v5_upload_sessions").select("id, course_id, asset_id"),
+    supabase.from("v5_releases").select("id, course_id, version, status, snapshot")
   ]);
 
   if (configRes.error) throw configRes.error;
@@ -177,6 +185,68 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
     }
   }
 
+  const courseAssetIds = new Set(courseAssets.map(a => a.id));
+
+  // Cross-course reference discovery
+  const sharedPostAssets = [];
+  for (const aId of courseAssetIds) {
+    const owners = assetCourseOwnership.get(aId);
+    if (owners) {
+      for (const oId of owners) {
+        if (oId !== cId) sharedPostAssets.push(aId);
+      }
+    }
+  }
+
+  const sharedSourceMappings = [];
+  for (const sm of allSourceMappingsRes.data || []) {
+    if (sm.course_id && sm.course_id !== cId && sm.asset_id && courseAssetIds.has(sm.asset_id)) {
+      sharedSourceMappings.push(sm.asset_id);
+    }
+  }
+
+  const sharedJobs = [];
+  for (const j of allJobsRes.data || []) {
+    if (j.course_id && j.course_id !== cId && j.asset_id && courseAssetIds.has(j.asset_id)) {
+      sharedJobs.push(j.asset_id);
+    }
+  }
+
+  const sharedUploadSessions = [];
+  for (const u of allUploadsRes.data || []) {
+    if (u.course_id && u.course_id !== cId && u.asset_id && courseAssetIds.has(u.asset_id)) {
+      sharedUploadSessions.push(u.asset_id);
+    }
+  }
+
+  const sharedReleaseAssets = [];
+  for (const r of allReleasesRes.data || []) {
+    if (r.course_id && r.course_id !== cId && r.snapshot && typeof r.snapshot === "object") {
+      const snapAssetIds = Array.isArray(r.snapshot.asset_ids) ? r.snapshot.asset_ids : [];
+      for (const aId of snapAssetIds) {
+        if (courseAssetIds.has(aId)) sharedReleaseAssets.push(aId);
+      }
+      const links = Array.isArray(r.snapshot.links) ? r.snapshot.links : [];
+      for (const l of links) {
+        if (l?.asset_id && courseAssetIds.has(l.asset_id)) {
+          sharedReleaseAssets.push(l.asset_id);
+        }
+      }
+    }
+  }
+
+  const sharedThumbnailAssets = [];
+  for (const otherAsset of otherCourseAssets) {
+    if (otherAsset.thumbnail_asset_id && courseAssetIds.has(otherAsset.thumbnail_asset_id)) {
+      sharedThumbnailAssets.push(otherAsset.thumbnail_asset_id);
+    }
+  }
+  for (const a of courseAssets) {
+    if (a.thumbnail_asset_id && !courseAssetIds.has(a.thumbnail_asset_id)) {
+      sharedThumbnailAssets.push(a.thumbnail_asset_id);
+    }
+  }
+
   const jobs = jobsRes.data || [];
   const uploads = uploadsRes.data || [];
   const releases = releasesRes.data || [];
@@ -188,16 +258,23 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
 
   // Fetch actual R2 objects under course prefix if R2 is configured
   let r2Objects = [];
-  if (isR2Configured()) {
+  let r2Error = null;
+  let r2Verified = false;
+  const r2Configured = isR2Configured();
+
+  if (r2Configured) {
     try {
       r2Objects = await listAllR2Objects({ prefix: coursePrefix });
+      r2Verified = true;
     } catch (err) {
       console.error("[admin-v5-course-delete] Error listing R2 objects for prefix:", coursePrefix, err.message);
+      r2Error = err;
+      r2Verified = false;
     }
   }
 
-  const actualR2Bytes = r2Objects.reduce((sum, o) => sum + Number(o.size || 0), 0);
-  const actualR2Objects = r2Objects.length;
+  const actualR2Bytes = r2Verified ? r2Objects.reduce((sum, o) => sum + Number(o.size || 0), 0) : null;
+  const actualR2Objects = r2Verified ? r2Objects.length : null;
 
   const courseDbKeys = new Set(courseAssets.map(a => clean(a.r2_object_key)).filter(Boolean));
   const activeUploadKeys = new Set();
@@ -210,9 +287,11 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
   }
 
   let untrackedInsidePrefix = 0;
-  for (const obj of r2Objects) {
-    if (!courseDbKeys.has(obj.key) && !activeUploadKeys.has(obj.key)) {
-      untrackedInsidePrefix++;
+  if (r2Verified) {
+    for (const obj of r2Objects) {
+      if (!courseDbKeys.has(obj.key) && !activeUploadKeys.has(obj.key)) {
+        untrackedInsidePrefix++;
+      }
     }
   }
 
@@ -242,10 +321,19 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
     v4Sources,
     courseAssets,
     otherCourseAssets,
-    r2ObjectsInNamespace: r2Objects
+    r2Configured,
+    r2Verified: r2Configured && r2Verified && !r2Error,
+    sharedPostAssets,
+    sharedSourceMappings,
+    sharedJobs,
+    sharedUploadSessions,
+    sharedReleaseAssets,
+    sharedThumbnailAssets
   });
 
-  const planHash = computeDeletePlanHash({
+  const isEligible = canDelete && r2Configured && r2Verified && !r2Error;
+
+  const planHash = isEligible ? computeDeletePlanHash({
     courseId: cId,
     slug: cSlug,
     courseUpdatedAt: course.updated_at,
@@ -261,13 +349,16 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
     assetIds: courseAssets.map(a => a.id),
     registeredR2Keys: [...courseDbKeys],
     courseNamespace: coursePrefix
-  });
+  }) : null;
 
   return {
     course,
     config,
-    eligible: canDelete,
+    eligible: isEligible,
     blockedReasons,
+    r2Configured,
+    r2Verified,
+    r2Error,
     counts: {
       lessons: lessons.length,
       posts: posts.length,
@@ -281,7 +372,7 @@ async function loadCourseAndMetadata(courseIdOrSlug) {
       actualR2Bytes,
       actualR2Objects,
       trackedObjects: courseAssets.length,
-      untrackedObjectsInsidePrefix: untrackedInsidePrefix
+      untrackedObjectsInsidePrefix: r2Verified ? untrackedInsidePrefix : null
     },
     planHash,
     courseAssets,
@@ -328,6 +419,14 @@ export default async function adminV5CourseDeleteHandler(req, res) {
         return res.status(404).json({ success: false, error: "Không tìm thấy khóa học V5." });
       }
 
+      if (metadata.r2Error) {
+        return res.status(503).json({
+          success: false,
+          code: "r2_list_failed",
+          error: `Không thể xác minh R2 (${metadata.r2Error.message || "Lỗi kiểm tra storage"}). Thao tác bị chặn.`
+        });
+      }
+
       return res.status(200).json({
         success: true,
         eligible: metadata.eligible,
@@ -348,17 +447,32 @@ export default async function adminV5CourseDeleteHandler(req, res) {
   }
 
   if (action === "execute") {
+    // Hard requirement: R2 must be configured
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        success: false,
+        code: "r2_unavailable",
+        error: "Không thể xác minh R2. Cleanup bị chặn."
+      });
+    }
+
     try {
       const metadata = await loadCourseAndMetadata(courseId || slug);
       if (!metadata) {
         // Course may have already been deleted
         const cPrefix = `media/v5/${courseId}/`;
         let remainingObjs = [];
-        if (isR2Configured() && courseId) {
+        if (courseId) {
           try {
             const listRes = await listR2Objects({ prefix: cPrefix, maxKeys: 1 });
             remainingObjs = listRes.objects;
-          } catch (_) {}
+          } catch (listErr) {
+            return res.status(503).json({
+              success: false,
+              code: "r2_list_failed",
+              error: `Không thể xác minh R2 (${listErr.message || "Lỗi kiểm tra storage"}). Thao tác bị chặn.`
+            });
+          }
         }
         if (remainingObjs.length === 0) {
           return res.status(200).json({
@@ -369,6 +483,15 @@ export default async function adminV5CourseDeleteHandler(req, res) {
           });
         }
         return res.status(404).json({ success: false, error: "Không tìm thấy khóa học V5 để xóa." });
+      }
+
+      // Hard requirement: R2 list failure must fail-closed
+      if (metadata.r2Error) {
+        return res.status(503).json({
+          success: false,
+          code: "r2_list_failed",
+          error: `Không thể xác minh R2 (${metadata.r2Error.message || "Lỗi kiểm tra storage"}). Thao tác bị chặn.`
+        });
       }
 
       // Revalidate confirmation
@@ -389,7 +512,7 @@ export default async function adminV5CourseDeleteHandler(req, res) {
       }
 
       // Revalidate planHash
-      if (clean(planHash) !== metadata.planHash) {
+      if (!metadata.planHash || clean(planHash) !== metadata.planHash) {
         return res.status(409).json({
           success: false,
           code: "plan_changed_refresh_preview",
@@ -403,35 +526,53 @@ export default async function adminV5CourseDeleteHandler(req, res) {
       let remainingObjects = 0;
       let remainingBytes = 0;
 
-      if (isR2Configured()) {
-        const listResult = await listR2Objects({ prefix: metadata.coursePrefix, maxKeys: MAX_OBJECTS_PER_PASS });
-        const objectsToDelete = listResult.objects || [];
+      let listResult;
+      try {
+        listResult = await listR2Objects({ prefix: metadata.coursePrefix, maxKeys: MAX_OBJECTS_PER_PASS });
+      } catch (listErr) {
+        return res.status(503).json({
+          success: false,
+          code: "r2_list_failed",
+          error: `Không thể xác minh R2 (${listErr.message || "Lỗi kiểm tra storage"}). Thao tác bị chặn.`
+        });
+      }
 
-        if (objectsToDelete.length > 0) {
-          const keysToDelete = objectsToDelete.map(o => o.key);
-          const deleteResults = await runParallelR2BatchDelete(keysToDelete, CONCURRENCY);
-          const failed = deleteResults.filter(r => !r.success);
-          if (failed.length > 0) {
-            throw new Error(`Xóa R2 media thất bại ${failed.length}/${keysToDelete.length} object: ${failed[0].error}`);
-          }
-          deletedThisPass = keysToDelete.length;
+      const objectsToDelete = listResult.objects || [];
+
+      if (objectsToDelete.length > 0) {
+        const keysToDelete = objectsToDelete.map(o => o.key);
+        const deleteResults = await runParallelR2BatchDelete(keysToDelete, CONCURRENCY);
+        const failed = deleteResults.filter(r => !r.success);
+        if (failed.length > 0) {
+          throw new Error(`Xóa R2 media thất bại ${failed.length}/${keysToDelete.length} object: ${failed[0].error}`);
         }
+        deletedThisPass = keysToDelete.length;
+      }
 
-        // Check if prefix is now empty
-        const recheck = await listR2Objects({ prefix: metadata.coursePrefix, maxKeys: 100 });
-        remainingObjects = recheck.objects.length;
-        remainingBytes = recheck.objects.reduce((sum, o) => sum + Number(o.size || 0), 0);
+      // Check if prefix is now empty
+      let recheck;
+      try {
+        recheck = await listR2Objects({ prefix: metadata.coursePrefix, maxKeys: 100 });
+      } catch (recheckErr) {
+        return res.status(503).json({
+          success: false,
+          code: "r2_list_failed",
+          error: `Không thể xác minh R2 (${recheckErr.message || "Lỗi kiểm tra storage"}). Thao tác bị chặn.`
+        });
+      }
 
-        if (recheck.isTruncated || remainingObjects > 0) {
-          return res.status(200).json({
-            success: true,
-            done: false,
-            deletedThisPass,
-            remainingObjects,
-            remainingBytes,
-            message: `Đã dọn ${deletedThisPass} object. Bấm Tiếp tục dọn.`
-          });
-        }
+      remainingObjects = recheck.objects.length;
+      remainingBytes = recheck.objects.reduce((sum, o) => sum + Number(o.size || 0), 0);
+
+      if (recheck.isTruncated || remainingObjects > 0) {
+        return res.status(200).json({
+          success: true,
+          done: false,
+          deletedThisPass,
+          remainingObjects,
+          remainingBytes,
+          message: `Đã dọn ${deletedThisPass} object. Bấm Tiếp tục dọn.`
+        });
       }
 
       // Prefix is empty! Call DB cleanup RPC

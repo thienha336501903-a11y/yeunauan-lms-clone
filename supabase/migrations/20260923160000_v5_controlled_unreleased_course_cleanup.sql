@@ -150,6 +150,12 @@ begin
 
     union
 
+    select sm.asset_id
+    from public.v5_source_mappings sm
+    where sm.course_id = p_course_id and sm.asset_id is not null
+
+    union
+
     select j.asset_id
     from public.v5_jobs j
     where j.course_id = p_course_id and j.asset_id is not null
@@ -168,6 +174,16 @@ begin
       coalesce(a.r2_object_key, ''),
       length('media/v5/' || p_course_id::text || '/')
     ) = 'media/v5/' || p_course_id::text || '/'
+
+    union
+
+    select a.thumbnail_asset_id as asset_id
+    from public.v5_media_assets a
+    where left(
+      coalesce(a.r2_object_key, ''),
+      length('media/v5/' || p_course_id::text || '/')
+    ) = 'media/v5/' || p_course_id::text || '/'
+      and a.thumbnail_asset_id is not null
   ) owned_assets
   where asset_id is not null;
 
@@ -195,7 +211,37 @@ begin
     raise exception 'v5_course_cleanup_shared_post_asset';
   end if;
 
-  -- 18. Verify no candidate asset is referenced by another course's releases
+  -- 18. Verify no candidate asset is shared by another course's source mappings
+  if exists (
+    select 1
+    from public.v5_source_mappings sm
+    where sm.asset_id = any(v_asset_ids)
+      and sm.course_id <> p_course_id
+  ) then
+    raise exception 'v5_course_cleanup_shared_source_mapping_asset';
+  end if;
+
+  -- 19. Verify no candidate asset is shared by another course's jobs
+  if exists (
+    select 1
+    from public.v5_jobs j
+    where j.asset_id = any(v_asset_ids)
+      and j.course_id <> p_course_id
+  ) then
+    raise exception 'v5_course_cleanup_shared_job_asset';
+  end if;
+
+  -- 20. Verify no candidate asset is shared by another course's upload sessions
+  if exists (
+    select 1
+    from public.v5_upload_sessions u
+    where u.asset_id = any(v_asset_ids)
+      and u.course_id <> p_course_id
+  ) then
+    raise exception 'v5_course_cleanup_shared_upload_asset';
+  end if;
+
+  -- 21. Verify no candidate asset is referenced by another course's releases
   if exists (
     select 1
     from public.v5_releases r
@@ -214,18 +260,32 @@ begin
     raise exception 'v5_course_cleanup_shared_release_asset';
   end if;
 
-  -- 19. Delete course-specific site_config keys safely (no wildcard over other courses)
+  -- 22. Verify no candidate asset is used as thumbnail_asset_id by another course's media asset
+  if exists (
+    select 1
+    from public.v5_media_assets other_a
+    where other_a.thumbnail_asset_id = any(v_asset_ids)
+      and other_a.id <> all(v_asset_ids)
+  ) then
+    raise exception 'v5_course_cleanup_shared_thumbnail_asset';
+  end if;
+
+  -- 23. Delete course-specific site_config keys safely (explicit known keys only, no wildcard)
   delete from public.site_config
   where key in (
     v_course.slug || '_studentDisplayTitle',
     v_course.slug || '_title',
-    v_course.slug || '_description'
+    v_course.slug || '_description',
+    v_course.slug || '_subtitle',
+    v_course.slug || '_heroImage',
+    v_course.slug || '_posterImage',
+    v_course.slug || '_qrImage'
   );
 
-  -- 20. Delete V5 course config first so courses delete trigger does not raise
+  -- 24. Delete V5 course config first so courses delete trigger does not raise
   delete from public.v5_course_configs where course_id = p_course_id;
 
-  -- 21. Delete canonical courses row (cascades remove posts, lessons, source mappings, jobs, upload sessions)
+  -- 25. Delete canonical courses row (cascades remove posts, lessons, source mappings, jobs, upload sessions)
   delete from public.courses
   where id = p_course_id and slug = v_course.slug;
   get diagnostics v_course_count = row_count;
@@ -234,7 +294,7 @@ begin
     raise exception 'v5_course_cleanup_delete_failed';
   end if;
 
-  -- 22. Delete now-unreferenced owned media assets
+  -- 26. Delete now-unreferenced owned media assets
   if array_length(v_asset_ids, 1) > 0 then
     delete from public.v5_media_assets
     where id = any(v_asset_ids);

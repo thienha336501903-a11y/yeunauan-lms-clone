@@ -557,3 +557,233 @@ test("36. storage cache invalidated after successful delete", () => {
   const handlerSource = fs.readFileSync(new URL("../utils/lms-handlers/admin-v5-course-delete.js", import.meta.url), "utf8");
   assert.match(handlerSource, /invalidateStorageCache\(\);/);
 });
+
+test("37. R2 unconfigured: execute returns 503 r2_unavailable, zero R2 deletes, zero DB RPC calls", async () => {
+  const origAcc = process.env.R2_ACCOUNT_ID;
+  const origFrom = supabase.from;
+  const origRpc = supabase.rpc;
+  let r2DeleteCalled = false;
+  let dbRpcCalled = false;
+
+  try {
+    delete process.env.R2_ACCOUNT_ID;
+    supabase.from = createMockSupabase();
+    supabase.rpc = async () => {
+      dbRpcCalled = true;
+      return { data: null, error: null };
+    };
+
+    let statusCode = null;
+    let jsonBody = null;
+    const req = {
+      method: "POST",
+      headers: { cookie: `admin_session_token=${adminToken}` },
+      body: {
+        action: "execute",
+        courseId,
+        slug: courseSlug,
+        confirmationSlug: courseSlug,
+        confirmed: true,
+        planHash: "dummy"
+      }
+    };
+    const res = {
+      setHeader: () => {},
+      status: (code) => {
+        statusCode = code;
+        return {
+          json: (body) => {
+            jsonBody = body;
+          }
+        };
+      }
+    };
+
+    await adminV5CourseDeleteHandler(req, res);
+
+    assert.equal(statusCode, 503);
+    assert.equal(jsonBody.code, "r2_unavailable");
+    assert.equal(r2DeleteCalled, false, "zero R2 delete calls");
+    assert.equal(dbRpcCalled, false, "zero DB cleanup RPC calls");
+  } finally {
+    process.env.R2_ACCOUNT_ID = origAcc;
+    supabase.from = origFrom;
+    supabase.rpc = origRpc;
+  }
+});
+
+test("38. R2 unconfigured: preview marks course ineligible and provides no usable planHash", async () => {
+  const origAcc = process.env.R2_ACCOUNT_ID;
+  const origFrom = supabase.from;
+
+  try {
+    delete process.env.R2_ACCOUNT_ID;
+    supabase.from = createMockSupabase();
+
+    let statusCode = null;
+    let jsonBody = null;
+    const req = {
+      method: "POST",
+      headers: { cookie: `admin_session_token=${adminToken}` },
+      body: { action: "preview", courseId }
+    };
+    const res = {
+      setHeader: () => {},
+      status: (code) => {
+        statusCode = code;
+        return { json: (body) => { jsonBody = body; } };
+      }
+    };
+
+    await adminV5CourseDeleteHandler(req, res);
+
+    assert.equal(statusCode, 200);
+    assert.equal(jsonBody.eligible, false);
+    assert.equal(jsonBody.planHash, null);
+    assert.ok(jsonBody.blockedReasons.some(r => r.includes("R2 chưa được cấu hình")));
+  } finally {
+    process.env.R2_ACCOUNT_ID = origAcc;
+    supabase.from = origFrom;
+  }
+});
+
+test("39. R2 list failure (network error, 403, malformed XML, truncated pagination) returns 503 and blocks delete", async () => {
+  const origFrom = supabase.from;
+  const origFetch = globalThis.fetch;
+  const origRpc = supabase.rpc;
+  let dbRpcCalled = false;
+
+  const failureScenarios = [
+    { name: "network error", fetchImpl: async () => { throw new Error("Connection reset"); } },
+    { name: "403 forbidden", fetchImpl: async () => ({ ok: false, status: 403, text: async () => "Forbidden" }) },
+    { name: "malformed XML", fetchImpl: async () => ({ ok: true, status: 200, text: async () => "<InvalidXml" }) },
+    { name: "truncated without token", fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "<ListBucketResult><IsTruncated>true</IsTruncated></ListBucketResult>"
+    }) }
+  ];
+
+  try {
+    supabase.from = createMockSupabase();
+    supabase.rpc = async () => { dbRpcCalled = true; return { data: null, error: null }; };
+
+    for (const scenario of failureScenarios) {
+      globalThis.fetch = scenario.fetchImpl;
+
+      // Test preview returns 503
+      let prevStatus = null;
+      let prevBody = null;
+      const prevReq = {
+        method: "POST",
+        headers: { cookie: `admin_session_token=${adminToken}` },
+        body: { action: "preview", courseId }
+      };
+      const prevRes = {
+        setHeader: () => {},
+        status: (code) => { prevStatus = code; return { json: (body) => { prevBody = body; } }; }
+      };
+
+      await adminV5CourseDeleteHandler(prevReq, prevRes);
+      assert.equal(prevStatus, 503, `Preview should return 503 on ${scenario.name}`);
+      assert.equal(prevBody.code, "r2_list_failed", `Preview code should be r2_list_failed on ${scenario.name}`);
+
+      // Test execute returns 503
+      let execStatus = null;
+      let execBody = null;
+      const execReq = {
+        method: "POST",
+        headers: { cookie: `admin_session_token=${adminToken}` },
+        body: {
+          action: "execute",
+          courseId,
+          slug: courseSlug,
+          confirmationSlug: courseSlug,
+          confirmed: true,
+          planHash: "any-hash"
+        }
+      };
+      const execRes = {
+        setHeader: () => {},
+        status: (code) => { execStatus = code; return { json: (body) => { execBody = body; } }; }
+      };
+
+      await adminV5CourseDeleteHandler(execReq, execRes);
+      assert.equal(execStatus, 503, `Execute should return 503 on ${scenario.name}`);
+      assert.equal(execBody.code, "r2_list_failed", `Execute code should be r2_list_failed on ${scenario.name}`);
+      assert.equal(dbRpcCalled, false, `DB RPC must not be called on ${scenario.name}`);
+    }
+  } finally {
+    supabase.from = origFrom;
+    supabase.rpc = origRpc;
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("40. cross-course shared source mapping asset rejection", () => {
+  const result = evaluateCourseDeleteEligibility({
+    course: validCourseFixture(),
+    config: validConfigFixture(),
+    courseAssets: [{ id: "asset-1", r2_object_key: `media/v5/${courseId}/a.mp4` }],
+    sharedSourceMappings: ["asset-1"]
+  });
+  assert.equal(result.canDelete, false);
+  assert.ok(result.blockedReasons.some(r => r.includes("nguồn dữ liệu của khóa học khác")));
+  assert.match(migrationSql, /v5_course_cleanup_shared_source_mapping_asset/);
+});
+
+test("41. cross-course shared job asset rejection", () => {
+  const result = evaluateCourseDeleteEligibility({
+    course: validCourseFixture(),
+    config: validConfigFixture(),
+    courseAssets: [{ id: "asset-1", r2_object_key: `media/v5/${courseId}/a.mp4` }],
+    sharedJobs: ["asset-1"]
+  });
+  assert.equal(result.canDelete, false);
+  assert.ok(result.blockedReasons.some(r => r.includes("tác vụ xử lý của khóa học khác")));
+  assert.match(migrationSql, /v5_course_cleanup_shared_job_asset/);
+});
+
+test("42. cross-course shared upload session asset rejection", () => {
+  const result = evaluateCourseDeleteEligibility({
+    course: validCourseFixture(),
+    config: validConfigFixture(),
+    courseAssets: [{ id: "asset-1", r2_object_key: `media/v5/${courseId}/a.mp4` }],
+    sharedUploadSessions: ["asset-1"]
+  });
+  assert.equal(result.canDelete, false);
+  assert.ok(result.blockedReasons.some(r => r.includes("phiên tải lên của khóa học khác")));
+  assert.match(migrationSql, /v5_course_cleanup_shared_upload_asset/);
+});
+
+test("43. cross-course shared thumbnail asset rejection", () => {
+  const result = evaluateCourseDeleteEligibility({
+    course: validCourseFixture(),
+    config: validConfigFixture(),
+    courseAssets: [{ id: "asset-1", r2_object_key: `media/v5/${courseId}/a.mp4` }],
+    sharedThumbnailAssets: ["asset-1"]
+  });
+  assert.equal(result.canDelete, false);
+  assert.ok(result.blockedReasons.some(r => r.includes("ảnh thu nhỏ (thumbnail) được chia sẻ")));
+  assert.match(migrationSql, /v5_course_cleanup_shared_thumbnail_asset/);
+});
+
+test("44. cross-course shared post asset and release asset rejection in SQL RPC", () => {
+  assert.match(migrationSql, /v5_course_cleanup_shared_post_asset/);
+  assert.match(migrationSql, /v5_course_cleanup_shared_release_asset/);
+});
+
+test("45. site_config cleanup deletes all 7 exact known keys", () => {
+  const expectedKeys = [
+    "_studentDisplayTitle",
+    "_title",
+    "_description",
+    "_subtitle",
+    "_heroImage",
+    "_posterImage",
+    "_qrImage"
+  ];
+  for (const k of expectedKeys) {
+    assert.match(migrationSql, new RegExp(`v_course\\.slug \\|\\| '${k}'`));
+  }
+});
