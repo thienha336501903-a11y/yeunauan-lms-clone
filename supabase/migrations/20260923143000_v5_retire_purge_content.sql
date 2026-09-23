@@ -338,6 +338,20 @@ begin
        and other_a.id <> all(v_asset_ids)
   ) then raise exception 'v5_retire_shared_thumbnail_asset'; end if;
 
+  -- A physical R2 object key must never be represented by a second media row
+  -- outside this course's owned asset set. Otherwise purging the object would
+  -- silently break that other row even if the asset UUID itself is not shared.
+  if exists (
+    select 1
+      from public.v5_media_assets owned_a
+      join public.v5_media_assets other_a
+        on other_a.r2_object_key = owned_a.r2_object_key
+       and other_a.id <> owned_a.id
+     where owned_a.id = any(v_asset_ids)
+       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
+       and other_a.id <> all(v_asset_ids)
+  ) then raise exception 'v5_retire_shared_r2_key'; end if;
+
   select count(*) into v_order_count
     from public.orders o
    where o.course_id = p_course_id or o.course_slug = v_course.slug;
@@ -616,6 +630,17 @@ begin
        and other_a.id<>all(v_asset_ids)
   ) then raise exception 'v5_retire_finalize_shared_thumbnail_asset'; end if;
 
+  if exists (
+    select 1
+      from public.v5_media_assets owned_a
+      join public.v5_media_assets other_a
+        on other_a.r2_object_key = owned_a.r2_object_key
+       and other_a.id <> owned_a.id
+     where owned_a.id = any(v_asset_ids)
+       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
+       and other_a.id <> all(v_asset_ids)
+  ) then raise exception 'v5_retire_finalize_shared_r2_key'; end if;
+
   select coalesce(jsonb_agg(to_jsonb(r) order by r.version), '[]'::jsonb)
     into v_release_archive
     from public.v5_releases r
@@ -691,3 +716,236 @@ revoke all on function public.finalize_v5_course_retire_purge(uuid,uuid,text) fr
 revoke all on function public.finalize_v5_course_retire_purge(uuid,uuid,text) from anon;
 revoke all on function public.finalize_v5_course_retire_purge(uuid,uuid,text) from authenticated;
 grant execute on function public.finalize_v5_course_retire_purge(uuid,uuid,text) to service_role;
+
+
+-- Retired V5 courses are intentionally one-way in this feature. A future
+-- Reactivate/Rebuild workflow must explicitly relax these guards in a
+-- separately reviewed migration; ordinary Commerce/admin writes cannot
+-- silently put an archived course back on sale or republish it.
+create or replace function public.enforce_v5_retired_course_sale_lock()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if lower(coalesce(new.delivery_mode,'')) = 'v5'
+     and new.active is true
+     and exists (
+       select 1 from public.v5_course_configs cfg
+       where cfg.course_id = new.id
+         and lower(coalesce(cfg.status,'')) = 'archived'
+     ) then
+    raise exception 'v5_archived_course_cannot_activate';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_v5_retired_course_sale_lock on public.courses;
+create trigger trg_v5_retired_course_sale_lock
+before update of active on public.courses
+for each row execute function public.enforce_v5_retired_course_sale_lock();
+
+create or replace function public.enforce_v5_archived_config_lock()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if lower(coalesce(old.status,'')) <> 'archived' then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    raise exception 'v5_archived_config_delete_forbidden';
+  end if;
+
+  if lower(coalesce(new.status,'')) <> 'archived'
+     or new.published_release_id is not null then
+    raise exception 'v5_archived_config_reactivation_forbidden';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_v5_archived_config_lock on public.v5_course_configs;
+create trigger trg_v5_archived_config_lock
+before update or delete on public.v5_course_configs
+for each row execute function public.enforce_v5_archived_config_lock();
+
+-- Final fail-closed ownership check used immediately before any R2 bytes are
+-- deleted. This repeats the destructive ownership guards after the course has
+-- already been retired, so a concurrent cross-course reference cannot turn a
+-- previously safe plan into an unsafe R2 purge.
+create or replace function public.validate_v5_retire_purge_r2_delete_safe(
+  p_operation_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_op record;
+  v_course record;
+  v_config record;
+  v_asset_ids uuid[] := array[]::uuid[];
+begin
+  select * into v_op
+    from public.v5_course_retire_operations
+   where id = p_operation_id
+   for update;
+
+  if not found then raise exception 'v5_retire_operation_not_found'; end if;
+  if v_op.status not in ('retired','r2_deleting','failed') then
+    raise exception 'v5_retire_r2_delete_state_invalid';
+  end if;
+
+  select * into v_course from public.courses where id=v_op.course_id for update;
+  if not found or v_course.slug is distinct from v_op.course_slug then
+    raise exception 'v5_retire_course_identity_invalid';
+  end if;
+  if v_course.active is true or v_course.is_published is true then
+    raise exception 'v5_retire_course_not_retired';
+  end if;
+
+  select * into v_config from public.v5_course_configs where course_id=v_op.course_id for update;
+  if not found
+     or lower(coalesce(v_config.status,'')) <> 'archived'
+     or v_config.published_release_id is not null then
+    raise exception 'v5_retire_config_not_archived';
+  end if;
+
+  if exists (
+    select 1 from public.orders o
+    where (o.course_id=v_op.course_id or o.course_slug=v_op.course_slug)
+      and coalesce(o.status,'') not in ('Đã duyệt','Từ chối')
+  ) then raise exception 'v5_retire_r2_delete_has_nonterminal_order'; end if;
+
+  if exists (
+    select 1 from public.v5_jobs j
+    where j.course_id=v_op.course_id
+      and lower(coalesce(j.status,'')) not in ('success','failed','cancelled','canceled')
+  ) then raise exception 'v5_retire_r2_delete_active_jobs'; end if;
+
+  if exists (
+    select 1 from public.v5_upload_sessions u
+    where u.course_id=v_op.course_id
+      and lower(coalesce(u.status,'')) not in ('completed','aborted','expired')
+      and (u.expires_at is null or u.expires_at > now())
+  ) then raise exception 'v5_retire_r2_delete_active_uploads'; end if;
+
+  if exists (
+    select 1 from public.lms_v4_telegram_course_sources s
+    where s.course_slug=v_op.course_slug
+  ) then raise exception 'v5_retire_r2_delete_has_v4_source'; end if;
+
+  select coalesce(array_agg(distinct asset_id), array[]::uuid[])
+    into v_asset_ids
+  from (
+    select pa.asset_id
+      from public.v5_post_assets pa
+      join public.v5_posts p on p.id=pa.post_id
+     where p.course_id=v_op.course_id
+    union
+    select sm.asset_id from public.v5_source_mappings sm
+     where sm.course_id=v_op.course_id and sm.asset_id is not null
+    union
+    select j.asset_id from public.v5_jobs j
+     where j.course_id=v_op.course_id and j.asset_id is not null
+    union
+    select u.asset_id from public.v5_upload_sessions u
+     where u.course_id=v_op.course_id and u.asset_id is not null
+    union
+    select a.id from public.v5_media_assets a
+     where left(coalesce(a.r2_object_key,''), length('media/v5/' || v_op.course_id::text || '/'))
+           = 'media/v5/' || v_op.course_id::text || '/'
+    union
+    select a.thumbnail_asset_id from public.v5_media_assets a
+     where left(coalesce(a.r2_object_key,''), length('media/v5/' || v_op.course_id::text || '/'))
+           = 'media/v5/' || v_op.course_id::text || '/'
+       and a.thumbnail_asset_id is not null
+    union
+    select x.asset_text::uuid
+      from public.v5_releases r
+      cross join lateral jsonb_array_elements_text(coalesce(r.snapshot->'asset_ids','[]'::jsonb)) x(asset_text)
+     where r.course_id=v_op.course_id
+    union
+    select nullif(l.value->>'asset_id','')::uuid
+      from public.v5_releases r
+      cross join lateral jsonb_array_elements(coalesce(r.snapshot->'links','[]'::jsonb)) l(value)
+     where r.course_id=v_op.course_id
+       and nullif(l.value->>'asset_id','') is not null
+  ) owned
+  where asset_id is not null;
+
+  if exists (
+    select 1 from unnest(v_asset_ids) owned(asset_id)
+    left join public.v5_media_assets a on a.id=owned.asset_id
+    where a.id is null
+       or left(coalesce(a.r2_object_key,''), length('media/v5/' || v_op.course_id::text || '/'))
+          <> 'media/v5/' || v_op.course_id::text || '/'
+  ) then raise exception 'v5_retire_r2_delete_asset_namespace_invalid'; end if;
+
+  if exists (
+    select 1 from public.v5_post_assets pa join public.v5_posts p on p.id=pa.post_id
+    where pa.asset_id=any(v_asset_ids) and p.course_id<>v_op.course_id
+  ) then raise exception 'v5_retire_r2_delete_shared_post_asset'; end if;
+
+  if exists (
+    select 1 from public.v5_source_mappings sm
+    where sm.asset_id=any(v_asset_ids) and sm.course_id<>v_op.course_id
+  ) then raise exception 'v5_retire_r2_delete_shared_source_asset'; end if;
+
+  if exists (
+    select 1 from public.v5_jobs j
+    where j.asset_id=any(v_asset_ids) and j.course_id<>v_op.course_id
+  ) then raise exception 'v5_retire_r2_delete_shared_job_asset'; end if;
+
+  if exists (
+    select 1 from public.v5_upload_sessions u
+    where u.asset_id=any(v_asset_ids) and u.course_id<>v_op.course_id
+  ) then raise exception 'v5_retire_r2_delete_shared_upload_asset'; end if;
+
+  if exists (
+    select 1 from public.v5_releases r
+    where r.course_id<>v_op.course_id
+      and exists (
+        select 1 from unnest(v_asset_ids) owned(asset_id)
+        where coalesce(r.snapshot->'asset_ids','[]'::jsonb) ? owned.asset_id::text
+           or exists (
+             select 1 from jsonb_array_elements(coalesce(r.snapshot->'links','[]'::jsonb)) l(value)
+             where l.value->>'asset_id'=owned.asset_id::text
+           )
+      )
+  ) then raise exception 'v5_retire_r2_delete_shared_release_asset'; end if;
+
+  if exists (
+    select 1 from public.v5_media_assets other_a
+    where other_a.thumbnail_asset_id=any(v_asset_ids)
+      and other_a.id<>all(v_asset_ids)
+  ) then raise exception 'v5_retire_r2_delete_shared_thumbnail_asset'; end if;
+
+  if exists (
+    select 1
+      from public.v5_media_assets owned_a
+      join public.v5_media_assets other_a
+        on other_a.r2_object_key=owned_a.r2_object_key
+       and other_a.id<>owned_a.id
+     where owned_a.id=any(v_asset_ids)
+       and nullif(btrim(coalesce(owned_a.r2_object_key,'')),'') is not null
+       and other_a.id<>all(v_asset_ids)
+  ) then raise exception 'v5_retire_r2_delete_shared_r2_key'; end if;
+
+  return jsonb_build_object('success',true,'course_id',v_op.course_id,'slug',v_op.course_slug);
+end;
+$$;
+
+revoke all on function public.validate_v5_retire_purge_r2_delete_safe(uuid) from public;
+revoke all on function public.validate_v5_retire_purge_r2_delete_safe(uuid) from anon;
+revoke all on function public.validate_v5_retire_purge_r2_delete_safe(uuid) from authenticated;
+grant execute on function public.validate_v5_retire_purge_r2_delete_safe(uuid) to service_role;
