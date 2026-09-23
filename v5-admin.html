@@ -459,6 +459,182 @@ async function executeCourseDelete(){
     toast(err.message||'Lỗi trong quá trình dọn khóa.');
   }
 }
+
+async function openRetirePurgeModal(slug=state.courseSlug){
+  if(!slug)return toast('Hãy chọn một khóa V5 trước.');
+  if(state.busy)return;
+  closeModal('storageModal');
+  const modal=$('retirePurgeModal');
+  $('retirePurgeDetails').innerHTML='Đang phân tích khóa học, lịch sử và media R2…';
+  $('retireProgressBox').style.display='none';
+  $('retireConfirmFields').style.display='block';
+  $('retireConfirmationSlugInput').value='';
+  $('retireConfirmCheckbox').checked=false;
+  $('confirmRetirePurgeBtn').disabled=true;
+  $('confirmRetirePurgeBtn').textContent='NGỪNG KHÓA & DỌN NỘI DUNG';
+  state.retirePlan=null;
+  state.retireOperation=null;
+  modal.classList.add('show');
+
+  const existingOpId=state.data?.config?.settings?.retire_operation_id;
+  const archived=String(state.data?.config?.status||'').toLowerCase()==='archived';
+  if(archived&&existingOpId){
+    try{
+      const data=await api('/api/lms/admin?endpoint=v5-course-retire-purge',{
+        method:'POST',
+        body:JSON.stringify({action:'status',operationId:existingOpId})
+      });
+      state.retireOperation=data.operation;
+      $('retireConfirmFields').style.display='none';
+      $('retireExpectedSlugText').textContent=data.operation.slug||slug;
+      $('retirePurgeDetails').innerHTML=`
+        <div><strong>Khóa:</strong> ${esc(data.operation.slug||slug)}</div>
+        <div><strong>Trạng thái:</strong> ${esc(data.operation.status)}</div>
+        <div><strong>Đơn hàng giữ lại:</strong> ${data.operation.orderCount||0}</div>
+        <div><strong>Ghi danh giữ lại:</strong> ${data.operation.enrollmentCount||0}</div>
+        <div><strong>Releases cần purge:</strong> ${data.operation.releaseCount||0}</div>
+        <div><strong>R2:</strong> ${formatBytes(data.operation.r2TotalBytes||0)} · ${data.operation.r2ObjectCount||0} objects</div>
+      `;
+      $('retireProgressBox').style.display='block';
+      $('retireProgressBox').textContent=data.operation.status==='r2_verified_empty'
+        ?'✓ Khóa đã retire và R2 đã trống. Sẵn sàng finalize metadata V5.'
+        :data.operation.status==='completed'
+          ?'✓ Retire & Purge đã hoàn tất.'
+          :'Cleanup chưa hoàn tất — có thể tiếp tục an toàn.';
+      $('confirmRetirePurgeBtn').disabled=data.operation.status==='completed';
+      $('confirmRetirePurgeBtn').textContent=data.operation.status==='completed'?'ĐÃ HOÀN TẤT':'TIẾP TỤC DỌN';
+      return;
+    }catch(err){
+      $('retirePurgeDetails').innerHTML=`<span style="color:#b42e3a">Không tải được operation: ${esc(err.message)}</span>`;
+      $('confirmRetirePurgeBtn').disabled=true;
+      return;
+    }
+  }
+
+  try{
+    const data=await api('/api/lms/admin?endpoint=v5-course-retire-purge',{
+      method:'POST',
+      body:JSON.stringify({action:'preview',slug})
+    });
+    state.retirePlan=data;
+    $('retireExpectedSlugText').textContent=data.course.slug;
+    $('retirePurgeDetails').innerHTML=`
+      <div><strong>Tên khóa:</strong> ${esc(data.course.title)}</div>
+      <div><strong>Slug:</strong> <code>${esc(data.course.slug)}</code></div>
+      <div><strong>R2:</strong> <span style="font-weight:700;color:#986900">${formatBytes(data.storage.actualR2Bytes)}</span> · ${data.storage.actualR2Objects} objects</div>
+      <div><strong>Releases:</strong> ${data.purged.releases} → sẽ purge khỏi V5 live</div>
+      <div><strong>Đơn hàng:</strong> ${data.retained.orders} → <strong>GIỮ NGUYÊN</strong></div>
+      <div><strong>Ghi danh:</strong> ${data.retained.enrollments} → <strong>GIỮ NGUYÊN</strong></div>
+      <div><strong>Course/Commerce metadata:</strong> GIỮ NGUYÊN</div>
+      <div style="margin-top:7px;color:#77510a">Sau thao tác: ngừng bán, learner access bị chặn, media R2 và nội dung V5 bị xóa vĩnh viễn.</div>
+      ${!data.eligible?`<div style="margin-top:8px;color:#b42e3a;font-weight:700">❌ Chưa đủ điều kiện:<br>${(data.blockedReasons||[]).map(r=>'• '+esc(r)).join('<br>')}</div>`:''}
+    `;
+    function checkReady(){
+      const slugMatch=$('retireConfirmationSlugInput').value.trim()===data.course.slug;
+      const checked=$('retireConfirmCheckbox').checked;
+      $('confirmRetirePurgeBtn').disabled=!(data.eligible&&slugMatch&&checked);
+    }
+    $('retireConfirmationSlugInput').oninput=checkReady;
+    $('retireConfirmCheckbox').onchange=checkReady;
+    checkReady();
+  }catch(err){
+    $('retirePurgeDetails').innerHTML=`<span style="color:#b42e3a">Lỗi Preview: ${esc(err.message)}</span>`;
+    $('confirmRetirePurgeBtn').disabled=true;
+  }
+}
+
+async function processRetirePurge(){
+  const op=state.retireOperation;
+  if(!op?.id)return;
+  const btn=$('confirmRetirePurgeBtn');
+  const progress=$('retireProgressBox');
+  btn.disabled=true;
+  progress.style.display='block';
+  try{
+    let guard=0;
+    while(guard++<20){
+      if(state.retireOperation.status==='completed'){
+        progress.innerHTML='✓ Hoàn tất Retire & Purge.';
+        btn.textContent='ĐÃ HOÀN TẤT';
+        await Promise.all([loadCourses(state.courseSlug),loadStorageSnapshot(true)]);
+        return;
+      }
+      if(state.retireOperation.status==='r2_verified_empty'){
+        btn.textContent='Đang dọn metadata V5…';
+        progress.innerHTML='✓ R2 đã trống.<br>4. Đang dọn metadata V5…';
+        const finalData=await api('/api/lms/admin?endpoint=v5-course-retire-purge',{
+          method:'POST',
+          body:JSON.stringify({action:'finalize',operationId:state.retireOperation.id})
+        });
+        state.retireOperation=finalData.operation;
+        progress.innerHTML='✓ 1. Đã retire khóa<br>✓ 2. Đã dọn R2<br>✓ 3. Đã xác minh R2 trống<br>✓ 4. Đã dọn metadata V5<br>✓ 5. Hoàn tất';
+        btn.textContent='ĐÃ HOÀN TẤT';
+        btn.disabled=true;
+        toast('Đã Retire & Purge nội dung V5. Lịch sử đơn hàng và ghi danh được giữ.');
+        await Promise.all([loadCourses(state.courseSlug),loadStorageSnapshot(true)]);
+        return;
+      }
+
+      btn.textContent='Đang dọn R2…';
+      progress.innerHTML=`✓ 1. Đã retire khóa<br>2. Đang dọn R2 — còn ${state.retireOperation.remainingR2Count??state.retireOperation.r2ObjectCount??'?'} objects`;
+      const data=await api('/api/lms/admin?endpoint=v5-course-retire-purge',{
+        method:'POST',
+        body:JSON.stringify({action:'continue',operationId:state.retireOperation.id})
+      });
+      state.retireOperation=data.operation;
+      if(data.readyToFinalize===true)continue;
+      if(data.done===true&&state.retireOperation.status==='completed')continue;
+      if((data.remainingObjects||0)>0)continue;
+    }
+    throw new Error('Cleanup cần nhiều batch hơn giới hạn an toàn. Hãy bấm Tiếp tục dọn.');
+  }catch(err){
+    progress.innerHTML=`<span style="color:#b42e3a">Cleanup chưa hoàn tất: ${esc(err.message)}<br>Có thể tiếp tục an toàn.</span>`;
+    btn.disabled=false;
+    btn.textContent='TIẾP TỤC DỌN';
+    toast(err.message||'Retire/Purge chưa hoàn tất.');
+  }
+}
+
+async function executeRetirePurge(){
+  const btn=$('confirmRetirePurgeBtn');
+  btn.disabled=true;
+  if(state.retireOperation?.id){
+    return processRetirePurge();
+  }
+  const plan=state.retirePlan;
+  if(!plan?.eligible||!plan?.planHash){
+    btn.disabled=true;
+    return;
+  }
+  btn.textContent='Đang retire khóa…';
+  const progress=$('retireProgressBox');
+  progress.style.display='block';
+  progress.textContent='1. Đang retire khóa và chặn sale/learner access…';
+  try{
+    const data=await api('/api/lms/admin?endpoint=v5-course-retire-purge',{
+      method:'POST',
+      body:JSON.stringify({
+        action:'begin',
+        courseId:plan.course.id,
+        slug:plan.course.slug,
+        planHash:plan.planHash,
+        confirmationSlug:plan.course.slug,
+        confirmed:true
+      })
+    });
+    state.retireOperation=data.operation;
+    $('retireConfirmFields').style.display='none';
+    await refresh();
+    await loadStorageSnapshot(true);
+    return processRetirePurge();
+  }catch(err){
+    progress.innerHTML=`<span style="color:#b42e3a">Retire chưa hoàn tất: ${esc(err.message)}</span>`;
+    btn.disabled=false;
+    btn.textContent='THỬ LẠI';
+    toast(err.message||'Không thể bắt đầu Retire/Purge.');
+  }
+}
+
 async function loadCourses(preferredSlug=''){try{const data=await api('/api/lms/admin?endpoint=courses');const slugs=Array.isArray(data.courses)?data.courses:[];state.config=data.config||{};state.courses=slugs.filter(slug=>String(data.courseMeta?.[slug]?.deliveryMode||'').toLowerCase()==='v5').map(slug=>({slug,title:titleForSlug(slug,data.config),meta:data.courseMeta?.[slug]||{}}));$('courseSelect').innerHTML='<option value="">Chọn khóa V5…</option>'+state.courses.map(course=>`<option value="${esc(course.slug)}">${esc(course.title)}</option>`).join('');loadStorageSnapshot();const requested=preferredSlug||new URLSearchParams(location.search).get('course');if(requested&&state.courses.some(course=>course.slug===requested)){$('courseSelect').value=requested;await chooseCourse(requested)}else if(requested){toast('Khóa được yêu cầu không phải LMS V5.')}}catch(error){error.auth?showAuth():toast(error.message)}}
 async function createCourse(){const title=$('newCourseTitleInput').value.trim();const slug=slugify($('newCourseSlugInput').value||title);const description=$('newCourseDescriptionInput').value.trim();if(!title){toast('Hãy nhập tên khóa học.');$('newCourseTitleInput').focus();return}const button=$('confirmCourseBtn');button.disabled=true;button.textContent='Đang tạo...';try{const data=await api('/api/lms/admin?endpoint=v5-create-course',{method:'POST',body:JSON.stringify({title,slug,description})});closeModal('courseModal');state.newCourseSlugTouched=false;await loadCourses(data.course.slug);toast(data.message||(data.operation==='reused_existing_course'?'Khóa đã tồn tại trên Commerce. Đã mở/khởi tạo V5 Channel trên cùng khóa.':'Đã tạo khóa V5 Draft. Bạn có thể nhập nội dung ngay.'))}catch(error){toast(error.message)}finally{button.disabled=false;button.textContent='Tạo khóa & mở Channel'}}
 function openCourseCreate(){state.newCourseSlugTouched=false;$('newCourseTitleInput').value='';$('newCourseSlugInput').value='';$('newCourseDescriptionInput').value='';$('courseModal').classList.add('show');setTimeout(()=>$('newCourseTitleInput').focus(),50)}
