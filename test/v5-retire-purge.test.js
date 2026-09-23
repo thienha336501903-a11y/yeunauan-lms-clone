@@ -225,10 +225,10 @@ test("55. R2 deletion revalidates DB ownership immediately before deleting bytes
   assert.match(handlerSource,/r2_delete_safety_revalidation_failed/);
 });
 
-test("56. shared physical R2 key blocks begin, pre-delete validation, and finalize",()=>{
-  assert.match(migrationSql,/v5_retire_shared_r2_key/);
-  assert.match(migrationSql,/v5_retire_r2_delete_shared_r2_key/);
-  assert.match(migrationSql,/v5_retire_finalize_shared_r2_key/);
+test("56. pre-R2 validation repeats every cross-course ownership guard",()=>{
+  for(const code of ["shared_post","shared_source","shared_job","shared_upload","shared_release","shared_thumbnail"]) {
+    assert.match(migrationSql,new RegExp("v5_retire_r2_delete_"+code));
+  }
 });
 
 test("57. archived V5 course cannot be silently put back on sale",()=>{
