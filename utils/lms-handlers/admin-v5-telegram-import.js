@@ -1,4 +1,5 @@
 import { supabase } from "../supabase.js";
+import { assertV5CourseWritable } from "../v5-course-write-guard.js";
 import { getAdminFromRequest } from "../lms.js";
 import { ensureHiddenTimelineLesson } from "./admin-v5-content.js";
 import {
@@ -778,6 +779,7 @@ export default async function adminV5TelegramImportHandler(req, res) {
     try {
       const course = await loadCourse(req.query?.course || req.body?.course);
       if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+      await assertV5CourseWritable(course.id);
       const result = await retryFailedTelegramMedia(course.id);
       return res.status(200).json({ success: true, result, retried: result.retried, admin: admin.email });
     } catch (err) {
@@ -819,6 +821,7 @@ export default async function adminV5TelegramImportHandler(req, res) {
   try {
     const course = await loadCourse(req.query?.course || req.body?.course);
     if (!course) return res.status(404).json({ success: false, error: "Không tìm thấy khóa học." });
+    await assertV5CourseWritable(course.id);
 
     const sourceId = clean(req.body?.sourceId);
 
@@ -836,7 +839,8 @@ export default async function adminV5TelegramImportHandler(req, res) {
   } catch (error) {
     console.error("[admin-v5-telegram-import]", error);
     const isConflict = error.code === "source_conflict" || error.message?.includes("nguồn Telegram khác");
-    return res.status(isConflict ? 409 : 500).json({
+    const isArchived = error.code === "v5_course_archived";
+    return res.status((isConflict || isArchived) ? 409 : 500).json({
       success: false,
       code: isConflict ? "source_conflict" : (error.code || "TELEGRAM_IMPORT_ERROR"),
       error: error?.message || "V5 Telegram import error"

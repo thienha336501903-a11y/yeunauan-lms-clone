@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { getAdminFromRequest } from "../lms.js";
+import { assertV5CourseWritable } from "../v5-course-write-guard.js";
 
 function clean(value) { return String(value || "").trim(); }
 
@@ -271,6 +272,7 @@ export default async function adminV5ReleaseHandler(req, res) {
       return res.status(200).json({ success: true, report, releases: await listReleases(course) });
     }
     if (req.method !== "POST") return res.status(405).json({ success: false, error: "Method not allowed" });
+    await assertV5CourseWritable(course.id);
     const action = clean(req.body?.action);
     if (action === "preflight") {
       const { report } = await preflight(course);
@@ -281,6 +283,6 @@ export default async function adminV5ReleaseHandler(req, res) {
     return res.status(400).json({ success: false, error: "V5 release action không hợp lệ." });
   } catch (error) {
     console.error("[admin-v5-release]", error);
-    return res.status(error?.code === "v5_preflight_failed" ? 409 : 500).json({ success: false, code: error?.code || "v5_release_failed", error: error?.message || "V5 release error", report: error?.report || null });
+    return res.status(["v5_preflight_failed","v5_course_archived"].includes(error?.code) ? 409 : 500).json({ success: false, code: error?.code || "v5_release_failed", error: error?.message || "V5 release error", report: error?.report || null });
   }
 }
