@@ -146,18 +146,6 @@ export default async function adminV5TelegramImportScopedHandler(req, res) {
   const isRetryFailed = action === "retry_failed_media" || action === "retry_failed";
 
   if (!isMirrorStatus && !isRetryFailed) {
-    if (req.method === "POST") {
-      try {
-        const course = await loadCourse(req.query?.course || req.body?.course);
-        if (course) await assertV5CourseWritable(course.id);
-      } catch (error) {
-        return res.status(error?.code === "v5_course_archived" ? 409 : 500).json({
-          success: false,
-          code: error?.code || "v5_telegram_write_guard_failed",
-          error: error?.message || "Không thể xác minh trạng thái khóa V5."
-        });
-      }
-    }
     return adminV5TelegramImportHandler(req, res);
   }
 
