@@ -115,7 +115,12 @@ begin
      or not has_function_privilege('service_' || 'role','public.finalize_v5_course_retire_purge(uuid,uuid,text)','EXECUTE') then
     raise exception 'finalize function permission assertion failed';
   end if;
-end $$;
+  if has_function_privilege('anon','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE')
+     or has_function_privilege('authenticated','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE')
+     or not has_function_privilege('service_' || 'role','public.validate_v5_retire_purge_r2_delete_safe(uuid)','EXECUTE') then
+    raise exception 'R2 delete validation function permission assertion failed';
+  end if;
+end $;
 
 -- Published course fixture with approved order + active enrollment.
 insert into public.courses(id,slug,delivery_mode,active,is_published)
@@ -163,7 +168,68 @@ begin
   if (select count(*) from public.student_enrollments where course_id='11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'enrollment changed'; end if;
   if (select count(*) from public.v5_releases where course_id='11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'release changed during retire'; end if;
   if (select count(*) from public.v5_media_assets where id='31111111-1111-4111-8111-111111111111') <> 1 then raise exception 'media changed during retire'; end if;
-end $$;
+end $;
+
+-- Archived state is one-way in this feature. Direct sale reactivation,
+-- config reactivation, or config deletion must fail closed.
+do $
+begin
+  begin
+    update public.courses
+       set active=true
+     where id='11111111-1111-4111-8111-111111111111';
+    raise exception 'archived sale reactivation unexpectedly succeeded';
+  exception when others then
+    if sqlerrm not like '%v5_archived_course_cannot_activate%' then raise; end if;
+  end;
+
+  begin
+    update public.v5_course_configs
+       set status='published'
+     where course_id='11111111-1111-4111-8111-111111111111';
+    raise exception 'archived config reactivation unexpectedly succeeded';
+  exception when others then
+    if sqlerrm not like '%v5_archived_config_reactivation_forbidden%' then raise; end if;
+  end;
+
+  begin
+    delete from public.v5_course_configs
+     where course_id='11111111-1111-4111-8111-111111111111';
+    raise exception 'archived config delete unexpectedly succeeded';
+  exception when others then
+    if sqlerrm not like '%v5_archived_config_delete_forbidden%' then raise; end if;
+  end;
+end $;
+
+-- Fresh DB-side ownership validation must pass immediately before R2 deletion.
+set role service_role;
+select id as r2_validation_operation_id
+  from public.v5_course_retire_operations
+ where course_id='11111111-1111-4111-8111-111111111111'
+\gset
+select public.validate_v5_retire_purge_r2_delete_safe(:'r2_validation_operation_id'::uuid);
+reset role;
+
+-- A duplicate physical R2 key outside the owned asset set must block byte deletion.
+insert into public.v5_media_assets(id,r2_object_key,bytes,thumbnail_asset_id)
+values (
+  '32111111-1111-4111-8111-111111111111',
+  'media/v5/11111111-1111-4111-8111-111111111111/asset/video.mp4',
+  12345,
+  null
+);
+set role service_role;
+do $
+begin
+  begin
+    perform public.validate_v5_retire_purge_r2_delete_safe(:'r2_validation_operation_id'::uuid);
+    raise exception 'shared physical R2 key unexpectedly allowed';
+  exception when others then
+    if sqlerrm not like '%v5_retire_r2_delete_shared_r2_key%' then raise; end if;
+  end;
+end $;
+reset role;
+delete from public.v5_media_assets where id='32111111-1111-4111-8111-111111111111';
 
 -- Generic release delete remains forbidden.
 do $$
@@ -209,7 +275,7 @@ update public.v5_course_retire_operations
 reset role;
 update public.orders set status='Chờ duyệt' where course_id='11111111-1111-4111-8111-111111111111';
 set role service_role;
-do $
+do $$
 declare v_op uuid;
 begin
   select id into v_op from public.v5_course_retire_operations where course_id='11111111-1111-4111-8111-111111111111';
@@ -219,7 +285,7 @@ begin
   exception when others then
     if sqlerrm not like '%v5_retire_finalize_has_nonterminal_order%' then raise; end if;
   end;
-end $;
+end $$;
 reset role;
 update public.orders set status='Đã duyệt' where course_id='11111111-1111-4111-8111-111111111111';
 
@@ -227,7 +293,7 @@ update public.orders set status='Đã duyệt' where course_id='11111111-1111-41
 insert into public.lms_v4_telegram_course_sources(course_slug,source_id)
 values ('retire-target','dddddddd-1111-4111-8111-111111111111');
 set role service_role;
-do $
+do $$
 declare v_op uuid;
 begin
   select id into v_op from public.v5_course_retire_operations where course_id='11111111-1111-4111-8111-111111111111';
@@ -237,7 +303,7 @@ begin
   exception when others then
     if sqlerrm not like '%v5_retire_finalize_has_v4_source%' then raise; end if;
   end;
-end $;
+end $$;
 reset role;
 delete from public.lms_v4_telegram_course_sources where course_slug='retire-target';
 
