@@ -247,12 +247,14 @@ export async function deleteR2Object({ key }) {
 }
 
 function xmlUnescape(value) {
+  // Decode XML entities exactly one level. Decode &amp; last so a value such
+  // as "&amp;lt;" becomes "&lt;" rather than being double-decoded to "<".
   return String(value || "")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 export function parseListBucketResult(xml) {
