@@ -71,8 +71,17 @@ export default async function handler(req, res) {
         if (!config[`${slug}_qrImage`] && rawData.qrImageUrl) {
           config[`${slug}_qrImage`] = rawData.qrImageUrl;
         }
-        if (!config[`${slug}_studentDisplayTitle`] && rawData.studentDisplayTitle) {
-          config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+        const isV5 = String(course.delivery_mode || "").trim().toLowerCase() === "v5";
+        if (isV5) {
+          if (rawData.studentDisplayTitle) {
+            config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+          } else {
+            delete config[`${slug}_studentDisplayTitle`];
+          }
+        } else {
+          if (rawData.studentDisplayTitle) {
+            config[`${slug}_studentDisplayTitle`] = rawData.studentDisplayTitle;
+          }
         }
       }
 
@@ -151,6 +160,87 @@ export default async function handler(req, res) {
         });
       }
 
+      if (action === "setStudentDisplayTitle") {
+        if (!course) {
+          return res.status(400).json({ success: false, error: "Thiếu tham số course" });
+        }
+
+        const { data: courseRow, error: courseLookupError } = await supabase
+          .from("courses")
+          .select("id, slug, title, raw_data, delivery_mode")
+          .eq("slug", course)
+          .maybeSingle();
+        if (courseLookupError) throw courseLookupError;
+        if (!courseRow) {
+          return res.status(404).json({ success: false, error: "Không tìm thấy khóa học" });
+        }
+
+        if (String(courseRow.delivery_mode || "").trim().toLowerCase() !== "v5") {
+          return res.status(400).json({
+            success: false,
+            error: "Chỉ khóa V5 mới dùng thao tác này."
+          });
+        }
+
+        const rawTitle = req.body?.studentDisplayTitle !== undefined
+          ? req.body.studentDisplayTitle
+          : (req.body?.title !== undefined ? req.body.title : "");
+        const trimmed = String(rawTitle || "").trim();
+        const MAX_TITLE_LENGTH = 120;
+        if (trimmed.length > MAX_TITLE_LENGTH) {
+          return res.status(400).json({
+            success: false,
+            error: `Tên hiển thị cho học viên tối đa ${MAX_TITLE_LENGTH} ký tự.`
+          });
+        }
+
+        // Authoritative update on courses.raw_data
+        const rawData = (courseRow.raw_data && typeof courseRow.raw_data === "object")
+          ? { ...courseRow.raw_data }
+          : {};
+
+        if (trimmed) {
+          rawData.studentDisplayTitle = trimmed;
+        } else {
+          delete rawData.studentDisplayTitle;
+        }
+
+        const { error: updateError } = await supabase
+          .from("courses")
+          .update({
+            raw_data: rawData,
+            updated_at: new Date().toISOString()
+          })
+          .eq("slug", course);
+
+        if (updateError) throw updateError;
+
+        // Compatibility sync to site_config (best-effort / secondary)
+        try {
+          const { error: siteConfigError } = await supabase
+            .from("site_config")
+            .upsert({
+              key: `${course}_studentDisplayTitle`,
+              value: { val: trimmed },
+              updated_at: new Date().toISOString()
+            }, { onConflict: "key" });
+          if (siteConfigError) {
+            console.warn("[admin-courses] Best-effort site_config sync warning:", siteConfigError.message);
+          }
+        } catch (siteConfigErr) {
+          console.warn("[admin-courses] Best-effort site_config sync warning:", siteConfigErr.message);
+        }
+
+        const effectiveTitle = trimmed || courseRow.title || courseRow.slug;
+        return res.status(200).json({
+          success: true,
+          course: courseRow.slug,
+          canonicalTitle: courseRow.title || courseRow.slug,
+          studentDisplayTitle: trimmed,
+          effectiveTitle
+        });
+      }
+
       if (action !== "updateConfig") {
         return res.status(400).json({ success: false, error: "action không hợp lệ" });
       }
@@ -179,53 +269,59 @@ export default async function handler(req, res) {
         if (upsertErr) throw upsertErr;
       }
 
-      // Synchronize back to 'courses' table
-      try {
-        const { data: courseRow } = await supabase
-          .from("courses")
-          .select("raw_data")
-          .eq("slug", course)
-          .maybeSingle();
+      // Synchronize back to 'courses' table authoritatively
+      const { data: courseRow, error: courseFetchErr } = await supabase
+        .from("courses")
+        .select("raw_data")
+        .eq("slug", course)
+        .maybeSingle();
 
-        if (courseRow) {
-          const rawData = courseRow.raw_data || {};
-          
-          const nextQrImage = String(newConfig.qrImage || "").trim();
-          const nextPosterImage = String(newConfig.posterImage || "").trim();
-          const nextStudentDisplayTitle = String(newConfig.studentDisplayTitle || "").trim();
-          const nextSubtitle = String(newConfig.subtitle || "").trim();
-          const nextHeroImage = String(newConfig.heroImage || "").trim();
+      if (courseFetchErr) throw courseFetchErr;
 
-          if (newConfig.qrImage !== undefined && nextQrImage) {
-            rawData.qrImageUrl = nextQrImage;
-          }
-          if (newConfig.posterImage !== undefined && nextPosterImage) {
-            rawData.posterImageUrl = nextPosterImage;
-          }
-          if (newConfig.studentDisplayTitle !== undefined) {
-            rawData.studentDisplayTitle = nextStudentDisplayTitle;
-          }
+      if (courseRow) {
+        const rawData = (courseRow.raw_data && typeof courseRow.raw_data === "object")
+          ? { ...courseRow.raw_data }
+          : {};
 
-          const updatePayload = {
-            updated_at: new Date().toISOString()
-          };
+        const nextQrImage = String(newConfig.qrImage || "").trim();
+        const nextPosterImage = String(newConfig.posterImage || "").trim();
+        const nextStudentDisplayTitle = String(newConfig.studentDisplayTitle || "").trim();
+        const nextSubtitle = String(newConfig.subtitle || "").trim();
+        const nextHeroImage = String(newConfig.heroImage || "").trim();
 
-          if (newConfig.subtitle !== undefined && nextSubtitle) {
-            updatePayload.subtitle = nextSubtitle;
-          }
-          if (newConfig.heroImage !== undefined && nextHeroImage) {
-            updatePayload.image_url = nextHeroImage;
-          }
-          
-          updatePayload.raw_data = rawData;
-
-          await supabase
-            .from("courses")
-            .update(updatePayload)
-            .eq("slug", course);
+        if (newConfig.qrImage !== undefined && nextQrImage) {
+          rawData.qrImageUrl = nextQrImage;
         }
-      } catch (dbErr) {
-        console.error("[admin-courses] Sync to courses table failed:", dbErr.message);
+        if (newConfig.posterImage !== undefined && nextPosterImage) {
+          rawData.posterImageUrl = nextPosterImage;
+        }
+        if (newConfig.studentDisplayTitle !== undefined) {
+          if (nextStudentDisplayTitle) {
+            rawData.studentDisplayTitle = nextStudentDisplayTitle;
+          } else {
+            delete rawData.studentDisplayTitle;
+          }
+        }
+
+        const updatePayload = {
+          updated_at: new Date().toISOString()
+        };
+
+        if (newConfig.subtitle !== undefined && nextSubtitle) {
+          updatePayload.subtitle = nextSubtitle;
+        }
+        if (newConfig.heroImage !== undefined && nextHeroImage) {
+          updatePayload.image_url = nextHeroImage;
+        }
+
+        updatePayload.raw_data = rawData;
+
+        const { error: courseUpdateErr } = await supabase
+          .from("courses")
+          .update(updatePayload)
+          .eq("slug", course);
+
+        if (courseUpdateErr) throw courseUpdateErr;
       }
 
       return res.status(200).json({ success: true });

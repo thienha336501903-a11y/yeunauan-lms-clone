@@ -21,7 +21,7 @@ async function loadCourse(courseSlug) {
   if (!slug) return null;
   const { data, error } = await supabase
     .from("courses")
-    .select("id,slug,title,subtitle,image_url,active,is_published,delivery_mode")
+    .select("id,slug,title,subtitle,image_url,active,is_published,delivery_mode,raw_data")
     .eq("slug", slug)
     .maybeSingle();
   if (error) throw error;
