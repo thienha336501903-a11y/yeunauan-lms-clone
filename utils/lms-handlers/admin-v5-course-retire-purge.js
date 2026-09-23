@@ -420,6 +420,21 @@ export default async function adminV5CourseRetirePurgeHandler(req, res) {
         return res.status(503).json({ success: false, code: "r2_unavailable", error: "Không thể xác minh R2. Retire/Purge bị chặn." });
       }
 
+      // Destructive R2 deletion gets a fresh DB-side ownership/safety check.
+      // Never rely only on the earlier Preview/Begin snapshot because another
+      // course/reference could have changed since the operation was retired.
+      const { error: safetyError } = await supabase.rpc("validate_v5_retire_purge_r2_delete_safe", {
+        p_operation_id: operation.id
+      });
+      if (safetyError) {
+        await updateOperation(operation.id, { status: "failed", last_error: safetyError.message });
+        return res.status(409).json({
+          success: false,
+          code: "r2_delete_safety_revalidation_failed",
+          error: safetyError.message || "Ownership R2 đã thay đổi. Cleanup bị chặn trước khi xóa bytes."
+        });
+      }
+
       const prefix = `media/v5/${operation.course_id}/`;
       let page;
       try {
