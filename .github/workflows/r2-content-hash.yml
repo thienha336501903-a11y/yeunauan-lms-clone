@@ -1,0 +1,128 @@
+name: System B R2 content hashes (encrypted)
+
+on:
+  push:
+    branches:
+      - audit/r2-content-hash-20260925
+    paths:
+      - .github/workflows/r2-content-hash.yml
+
+permissions:
+  contents: read
+
+jobs:
+  hash:
+    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SYSTEM_B_BACKUP_DATABASE_URL: ${{ secrets.SYSTEM_B_BACKUP_DATABASE_URL }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_AUDIT_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_AUDIT_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_PAGER: ''
+      R2_HASH_PUBLIC_KEY_B64: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQm9qQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FZOEFNSUlCaWdLQ0FZRUFybGtMajdWcWtaTFg4TlRIbDd0bQpmUlp5WkM5d0wzalB2cVlIWmNhS2J1NXNRNkw1WjJnTmxqMDFoL2I0MVNBZ1NobWQ3QS92WHdjWTdrU01kYVROCm9PTThDdkdzR0FhdjhEN285MVNEUytzRUY0YnFYZFJWNnk1eEIzOWx6dnZxZWRLTXNCYk5qWWZUOEhmaHBGcEsKL2hET0xUcVBYRThRVGh3MlpHdE14MXVTWERsaGJDUUNiWThQSDVHY2xEa1JZQjlyRWgvMUFKa0hkVFlXTFAxbAovV3J4cE1aS1FqZnNxMWR2Uzgvb2hYb2FkeHdmNFJBQWIvbXROeXJJQkppRzduSHlmdzQ4ZUdTUDhsYmJEallkCmJzNkhWRUpVSFhCMWk0VVlCQjZ2czRJN1VLdW9DTE5EYWo2RFJXTDhVeEtqeGdvejU2K3k4ZFJBSmNXTStxK0YKMjlHeVJOdE40VkkxQ1JjR0N2eDE3cjlHdWFtbUFzZzlVWWNmK1hyL2YxUnZNUWlwQm96ODg3WFZ4bkUvWVVGNwp5MkxVeStSNWZ3VWN2VzdoNENiNUJjbmdCcnR3NS9GQStCSHB6NkErV0JCTWt4bUMwRzRzbEd4VGJOckJ1R3YxCk1QNkdkam83cnRjR3BNNGJCRmlWb0lHL2MycWNOR3V4bzJoMnVoT1RGbWM5QWdNQkFBRT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+    steps:
+      - name: Read exactly the DB-tracked media object bodies and hash them
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SYSTEM_B_BACKUP_DATABASE_URL" || -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo '::error::Required read-only audit or DB connection secret is missing'
+            exit 1
+          fi
+          command -v aws >/dev/null
+          command -v node >/dev/null
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install --yes postgresql-client >/dev/null
+          fi
+          work="$RUNNER_TEMP/r2-hash-private"
+          mkdir -p "$work"
+          chmod 700 "$work"
+          echo "$work" > "$RUNNER_TEMP/r2-hash-workdir"
+          export PGSSLMODE=require
+          psql --no-psqlrc -X -qAt -v ON_ERROR_STOP=1 "$SYSTEM_B_BACKUP_DATABASE_URL" \
+            -c "select jsonb_agg(jsonb_build_object('key',r2_object_key,'bytes',bytes,'expected_sha256',checksum_sha256) order by r2_object_key)::text from public.v5_media_assets where provider='r2' and r2_object_key is not null" > "$work/targets.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const path = require('node:path');
+          const cp = require('node:child_process');
+          const dir = path.join(process.env.RUNNER_TEMP, 'r2-hash-private');
+          const targets = JSON.parse(fs.readFileSync(path.join(dir, 'targets.json'), 'utf8'));
+          if (!Array.isArray(targets) || targets.length !== 126 || new Set(targets.map(x => x.key)).size !== 126 ||
+              targets.some(x => typeof x.key !== 'string' || !x.key.startsWith('media/v5/') ||
+                !Number.isSafeInteger(x.bytes) || x.bytes < 0 ||
+                (x.expected_sha256 !== null && !/^[a-fA-F0-9]{64}$/.test(x.expected_sha256)))) {
+            throw new Error('Unexpected DB target set; refusing to hash unreviewed keys');
+          }
+          const results = [];
+          const body = path.join(dir, 'one-object.bin');
+          for (const target of targets) {
+            try {
+              cp.execFileSync('aws', [
+                's3api','get-object','--endpoint-url',
+                'https://8272e6fc48727afe9e95af1d696ce088.r2.cloudflarestorage.com',
+                '--region','auto','--bucket','yeubep-v5-media-prod','--key',target.key,
+                '--no-cli-pager',body,
+              ], { stdio: 'ignore', timeout: 180000 });
+              const size = fs.statSync(body).size;
+              const sha256 = crypto.createHash('sha256').update(fs.readFileSync(body)).digest('hex');
+              results.push({ key: target.key, declaredBytes: target.bytes, actualBytes: size,
+                sizeMatch: size === target.bytes, sha256,
+                expectedSha256: target.expected_sha256,
+                expectedHashMatch: target.expected_sha256 === null ? null :
+                  sha256 === target.expected_sha256.toLowerCase(), status: 'read' });
+            } catch (_) {
+              results.push({ key: target.key, declaredBytes: target.bytes, status: 'read_failed' });
+            } finally { fs.rmSync(body, {force:true}); }
+          }
+          const summary = {
+            capturedUtc: new Date().toISOString(), accountId: '8272e6fc48727afe9e95af1d696ce088',
+            bucket: 'yeubep-v5-media-prod', targetCount: targets.length,
+            readCount: results.filter(x => x.status === 'read').length,
+            sizeMatchCount: results.filter(x => x.sizeMatch).length,
+            dbHashPresentCount: results.filter(x => x.expectedSha256).length,
+            dbHashMatchCount: results.filter(x => x.expectedHashMatch === true).length,
+            dbHashMismatchCount: results.filter(x => x.expectedHashMatch === false).length,
+          };
+          fs.writeFileSync(path.join(dir,'result.json'), JSON.stringify({summary,results})+'\n',{mode:0o600});
+          console.log(JSON.stringify(summary));
+          NODE
+
+      - name: Encrypt result with the session public key
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const path = require('node:path');
+          const dir = process.env.RUNNER_TEMP;
+          const input = path.join(dir, 'r2-hash-private', 'result.json');
+          const key = crypto.randomBytes(32), iv = crypto.randomBytes(12);
+          const cipher = crypto.createCipheriv('aes-256-gcm',key,iv);
+          const payload = Buffer.concat([cipher.update(fs.readFileSync(input)),cipher.final()]);
+          const wrapped = crypto.publicEncrypt({key:Buffer.from(process.env.R2_HASH_PUBLIC_KEY_B64,'base64'),
+            padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},key);
+          fs.writeFileSync(path.join(dir,'r2-content-hash.enc'),payload,{mode:0o600});
+          fs.writeFileSync(path.join(dir,'r2-content-hash.meta.json'),JSON.stringify({version:1,
+            cipher:'aes-256-gcm',keyWrap:'rsa-oaep-sha256',iv:iv.toString('base64'),
+            tag:cipher.getAuthTag().toString('base64'),encryptedKey:wrapped.toString('base64')})+'\n',{mode:0o600});
+          fs.rmSync(path.join(dir,'r2-hash-private'),{recursive:true,force:true});
+          console.log('Content hash result encrypted; plaintext removed before upload.');
+          NODE
+
+      - name: Upload only the encrypted hash evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: system-b-r2-content-hash-encrypted
+          path: |
+            ${{ runner.temp }}/r2-content-hash.enc
+            ${{ runner.temp }}/r2-content-hash.meta.json
+          if-no-files-found: error
+          retention-days: 1
