@@ -1,6 +1,7 @@
 // utils/agency-lms-bridge.js
 // System B Milestone B6 — Agency LMS & Existing V5 Playback Bridge
 // Authoritative Plan: SYSTEM_B_MULTI_AGENCY_MASTER_IMPLEMENTATION_PLAN_V1_1.md
+// Milestone M0B.1 Hardened Implementation
 
 import { supabase as defaultSupabase } from "./supabase.js";
 import { resolveTenant, getTrustedHost } from "./tenant-resolver.js";
@@ -26,19 +27,92 @@ function proofPublicJwk(encodedValue) {
 }
 
 /**
- * Checks whether an incoming request is addressed to an Agency tenant domain.
+ * Returns the list of explicitly configured Legacy hostnames.
+ * Reads from process.env.LEGACY_HOST_ALLOWLIST.
  */
-export async function isAgencyRequest(req, options = {}) {
-  const host = getTrustedHost(req);
+export function getLegacyHostAllowlist() {
+  const raw = process.env.LEGACY_HOST_ALLOWLIST || "";
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Checks whether the incoming hostname is an explicitly approved Legacy hostname.
+ */
+export function isExplicitLegacyHost(host) {
   if (!host) return false;
-  // If host is the legacy domain (e.g. localhost during single-tenant test or specific legacy host),
-  // check if resolveTenant finds an active agency.
+  const allowlist = getLegacyHostAllowlist();
+  const normalizedHost = host.toLowerCase().split(":")[0];
+  return allowlist.includes(host.toLowerCase()) || allowlist.includes(normalizedHost);
+}
+
+/**
+ * Resolves request routing mode:
+ * 1. If host explicitly matches legacy allowlist -> { route: "LEGACY", host }
+ * 2. Else -> resolves Agency tenant
+ *    - If valid: { route: "AGENCY", tenant, host }
+ *    - If invalid / unknown / conflicting / resolver error: { route: "DENY", status, code, error }
+ * NO FALLBACK from unknown/invalid Agency host to Legacy!
+ */
+export async function resolveRequestRoute(req, options = {}) {
+  let host;
+  try {
+    host = getTrustedHost(req);
+  } catch (err) {
+    return {
+      route: "DENY",
+      status: 400,
+      code: "invalid_host_header",
+      error: err.message || "Invalid or conflicting Host/Forwarded headers."
+    };
+  }
+
+  if (!host) {
+    return {
+      route: "DENY",
+      status: 400,
+      code: "missing_host_header",
+      error: "Host header is required."
+    };
+  }
+
+  // 1. Explicit Legacy Check
+  if (isExplicitLegacyHost(host)) {
+    return { route: "LEGACY", host };
+  }
+
+  // 2. Resolve Agency Tenant
   try {
     const resolved = await resolveTenant(req, options);
-    return Boolean(resolved.ok && resolved.tenant?.agencyId);
-  } catch {
-    return false;
+    if (resolved.ok && resolved.tenant?.agencyId) {
+      return { route: "AGENCY", tenant: resolved.tenant, host };
+    }
+
+    return {
+      route: "DENY",
+      status: resolved.status || 404,
+      code: resolved.code || "unknown_tenant_host",
+      error: resolved.error || "Unknown or unmapped agency tenant domain."
+    };
+  } catch (err) {
+    return {
+      route: "DENY",
+      status: 500,
+      code: "tenant_resolution_error",
+      error: err.message || "Tenant resolution failed."
+    };
   }
+}
+
+/**
+ * Checks whether an incoming request is addressed to an Agency tenant domain.
+ * Strictly checks that route === "AGENCY".
+ */
+export async function isAgencyRequest(req, options = {}) {
+  const routeDecision = await resolveRequestRoute(req, options);
+  return routeDecision.route === "AGENCY";
 }
 
 /**
@@ -92,7 +166,6 @@ export async function requireAgencyCourseAccess(req, courseIdentifier, options =
     return { ok: false, status: 500, code: "entitlement_error", error: "Failed to verify course entitlement." };
   }
 
-  // Check if entitlement exists and is not expired
   const now = new Date();
   const isExpired = entitlement?.expires_at && new Date(entitlement.expires_at) <= now;
 
@@ -100,16 +173,16 @@ export async function requireAgencyCourseAccess(req, courseIdentifier, options =
     return {
       ok: false,
       status: 403,
-      code: "forbidden_course_access",
-      error: "Học viên chưa đăng ký hoặc gói học đã hết hạn trong đơn vị đào tạo này."
+      code: "entitlement_missing",
+      error: "Học viên chưa đăng ký hoặc quyền truy cập khóa học đã hết hạn."
     };
   }
 
   return {
     ok: true,
-    tenant,
     user,
     membership,
+    tenant,
     entitlement,
     canonicalCourse,
     v5CourseId: canonicalCourse.course_id
@@ -118,6 +191,7 @@ export async function requireAgencyCourseAccess(req, courseIdentifier, options =
 
 /**
  * Handles Agency-aware V5 Playback request (/api/lms/portal?endpoint=v5-play).
+ * Enforces B1.1 Authorization RPC: v5_authorize_agency_playback.
  * Bridges tenant entitlement to existing V5 playback lease issuance without altering V5 architecture.
  */
 export async function handleAgencyV5Play(req, res, options = {}) {
@@ -129,6 +203,8 @@ export async function handleAgencyV5Play(req, res, options = {}) {
   try {
     const courseSlug = clean(req.query?.course);
     const assetId = clean(req.query?.asset);
+    const requestedLessonId = clean(req.query?.lesson);
+
     if (!assetId) {
       return res.status(400).json({ success: false, code: "missing_asset", error: "Thiếu media asset." });
     }
@@ -157,7 +233,7 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       return res.status(access.status).json({ success: false, code: access.code, error: access.error });
     }
 
-    const v5CourseId = access.v5CourseId;
+    const { tenant, membership, canonicalCourse, v5CourseId } = access;
     if (!v5CourseId) {
       return res.status(404).json({
         success: false,
@@ -166,32 +242,62 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 2. Authorize playback asset against existing V5 published release
-    const [authorizationResult, assetResult] = await Promise.all([
-      client.rpc("v5_authorize_playback_asset", {
-        p_course_id: v5CourseId,
-        p_asset_id: assetId
-      }),
-      client
-        .from("v5_media_assets")
-        .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
-        .eq("id", assetId)
-        .maybeSingle()
-    ]);
+    // 2. Resolve canonical lesson for this asset / course (F3: Real canonical lesson mapping required)
+    let lessonId = requestedLessonId;
+    if (!lessonId) {
+      // Look up canonical lesson linked to this course
+      const { data: lessonRow, error: lessonLookupErr } = await client
+        .from("canonical_lessons")
+        .select("id")
+        .eq("canonical_course_id", canonicalCourse.id)
+        .limit(1)
+        .maybeSingle();
 
-    if (authorizationResult.error) throw authorizationResult.error;
-    if (assetResult.error) throw assetResult.error;
+      if (lessonLookupErr || !lessonRow) {
+        return res.status(404).json({
+          success: false,
+          code: "canonical_lesson_not_found",
+          error: "Không tìm thấy bài học canonical tương ứng với nội dung phát."
+        });
+      }
+      lessonId = lessonRow.id;
+    }
 
-    const releaseId = clean(authorizationResult.data);
-    const asset = assetResult.data;
+    // 3. Call B1.1 Authorization RPC: v5_authorize_agency_playback
+    const { data: authData, error: authError } = await client.rpc("v5_authorize_agency_playback", {
+      p_agency_id: tenant.agencyId,
+      p_membership_id: membership.id,
+      p_lesson_id: lessonId,
+      p_asset_id: assetId
+    });
 
-    if (!releaseId) {
-      return res.status(404).json({
+    if (authError) {
+      console.error("[agency-lms-v5-play] B1.1 RPC authorization error:", authError);
+      return res.status(500).json({
         success: false,
-        code: "v5_media_not_linked",
-        error: "Media không thuộc release V5 đang Publish."
+        code: "authorization_rpc_error",
+        error: authError.message || "Failed to authorize playback via agency RPC."
       });
     }
+
+    if (!authData?.authorized) {
+      const code = authData?.code || "unauthorized";
+      const status = code === "lesson_not_found" || code === "media_not_in_release" ? 404 : 403;
+      return res.status(status).json({
+        success: false,
+        code,
+        error: authData?.error || "Playback not authorized for current agency."
+      });
+    }
+
+    // 4. Verify media asset readiness in v5_media_assets
+    const { data: asset, error: assetErr } = await client
+      .from("v5_media_assets")
+      .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
+      .eq("id", assetId)
+      .maybeSingle();
+
+    if (assetErr) throw assetErr;
 
     if (!asset || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) {
       return res.status(404).json({
@@ -201,7 +307,7 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 3. Issue existing V5 cryptographic playback lease
+    // 5. Issue existing V5 cryptographic playback lease (Preserved ECDSA P-256 lease)
     const lease = issueV5PlaybackLease({
       version: 2,
       assetId: asset.id,
@@ -219,7 +325,7 @@ export async function handleAgencyV5Play(req, res, options = {}) {
     return res.status(200).json({
       success: true,
       assetId: asset.id,
-      releaseId,
+      releaseId: authData.release_id,
       playbackUrl: lease.url,
       playbackLease: lease.token,
       mimeType: asset.mime_type,
@@ -251,7 +357,6 @@ export async function handleAgencyLearnerDashboard(req, res, options = {}) {
   const client = options.supabaseClient || defaultSupabase;
 
   try {
-    // 1. Fetch member entitlements
     const { data: entitlements, error: entErr } = await client
       .from("student_entitlements")
       .select("id, canonical_course_id, status, expires_at, created_at")
@@ -261,7 +366,6 @@ export async function handleAgencyLearnerDashboard(req, res, options = {}) {
 
     if (entErr) throw entErr;
 
-    // 2. Fetch canonical courses for these entitlements
     const courseIds = (entitlements || []).map(e => e.canonical_course_id);
     let courses = [];
     if (courseIds.length > 0) {
@@ -275,7 +379,6 @@ export async function handleAgencyLearnerDashboard(req, res, options = {}) {
       courses = courseRows || [];
     }
 
-    // 3. Fetch student devices
     const { data: devices, error: devErr } = await client
       .from("student_devices")
       .select("id, device_fingerprint, device_name, last_ip, last_seen_at, is_active")
@@ -348,29 +451,23 @@ export async function handleAgencyCourseIntro(req, res, options = {}) {
       .maybeSingle();
 
     if (releaseError) throw releaseError;
-
-    const content = release ? v5LearnerReleaseContent(release.snapshot) : null;
-    if (!content) {
-      return res.status(403).json({ success: false, code: "v5_release_invalid", error: "Release V5 hiện tại không hợp lệ." });
+    if (!release) {
+      return res.status(404).json({ success: false, code: "v5_release_not_found", error: "Không tìm thấy Release V5." });
     }
 
-    const intro = buildV5IntroItems(content);
+    const introItems = buildV5IntroItems(release.snapshot);
 
     return res.status(200).json({
       success: true,
       course: {
-        slug: canonicalCourse.code,
-        title: canonicalCourse.default_title
-      },
-      intro: {
-        complete: true,
-        count: intro.count,
-        items: intro.items
+        code: canonicalCourse.code,
+        title: canonicalCourse.default_title,
+        introItems
       }
     });
   } catch (error) {
     console.error("[agency-lms-course-intro]", error);
-    return res.status(500).json({ success: false, error: "Không tải được Công thức & Hướng dẫn V5" });
+    return res.status(500).json({ success: false, error: "Failed to load course intro." });
   }
 }
 
@@ -388,49 +485,40 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
       return res.status(access.status).json({ success: false, code: access.code, error: access.error });
     }
 
-    const { canonicalCourse, membership, tenant } = access;
+    const { v5CourseId } = access;
+    if (!v5CourseId) {
+      return res.status(404).json({ success: false, code: "v5_course_not_found", error: "Không tìm thấy khóa V5." });
+    }
 
-    // Fetch canonical lessons for this course
-    const { data: lessons, error: lessonErr } = await client
-      .from("canonical_lessons")
-      .select("id, canonical_course_id, title, sort_order, is_free_preview, duration_seconds")
-      .eq("canonical_course_id", canonicalCourse.id)
-      .order("sort_order", { ascending: true });
+    const { data: config, error: configError } = await client
+      .from("v5_course_configs")
+      .select("course_id,status,published_release_id")
+      .eq("course_id", v5CourseId)
+      .maybeSingle();
 
-    if (lessonErr) throw lessonErr;
+    if (configError) throw configError;
+    if (!config || config.status !== "published" || !config.published_release_id) {
+      return res.status(403).json({ success: false, code: "v5_not_published", error: "Khóa V5 chưa được Publish." });
+    }
 
-    // Fetch student's progress in this agency
-    const { data: progress, error: progErr } = await client
-      .from("agency_lesson_progress")
-      .select("id, canonical_lesson_id, progress_percent, is_completed, last_position_seconds")
-      .eq("agency_id", tenant.agencyId)
-      .eq("membership_id", membership.id);
+    const { data: release, error: releaseError } = await client
+      .from("v5_releases")
+      .select("id,course_id,status,snapshot")
+      .eq("id", config.published_release_id)
+      .eq("course_id", v5CourseId)
+      .eq("status", "published")
+      .maybeSingle();
 
-    if (progErr) throw progErr;
+    if (releaseError) throw releaseError;
+    if (!release) {
+      return res.status(404).json({ success: false, code: "v5_release_not_found", error: "Không tìm thấy Release V5." });
+    }
 
-    const progressByLesson = new Map((progress || []).map(p => [p.canonical_lesson_id, p]));
-
-    const feedLessons = (lessons || []).map(l => {
-      const p = progressByLesson.get(l.id) || {};
-      return {
-        id: l.id,
-        title: l.title,
-        sortOrder: l.sort_order,
-        isFreePreview: l.is_free_preview,
-        durationSeconds: l.duration_seconds,
-        progressPercent: p.progress_percent || 0,
-        isCompleted: Boolean(p.is_completed),
-        lastPositionSeconds: p.last_position_seconds || 0
-      };
-    });
+    const feed = v5LearnerReleaseContent(release.snapshot);
 
     return res.status(200).json({
       success: true,
-      course: {
-        slug: canonicalCourse.code,
-        title: canonicalCourse.default_title
-      },
-      lessons: feedLessons
+      feed
     });
   } catch (error) {
     console.error("[agency-lms-v5-feed]", error);

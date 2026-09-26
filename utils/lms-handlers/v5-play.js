@@ -1,7 +1,7 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { issueV5PlaybackLease } from "../v5-playback-lease.js";
-import { isAgencyRequest, handleAgencyV5Play } from "../agency-lms-bridge.js";
+import { resolveRequestRoute, handleAgencyV5Play } from "../agency-lms-bridge.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -23,11 +23,22 @@ export default async function v5PlayHandler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   if (req.method !== "GET") return res.status(405).json({ success: false, error: "Method not allowed" });
 
-  // Milestone B6: Route through Agency V5 Bridge if request is on Agency tenant path
-  if (await isAgencyRequest(req)) {
+  // Milestone B6: Strict explicit routing model
+  const routeDecision = await resolveRequestRoute(req);
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false,
+      code: routeDecision.code,
+      error: routeDecision.error
+    });
+  }
+
+  // Agency domain route: routes to Agency V5 Play bridge (B1.1 RPC)
+  if (routeDecision.route === "AGENCY") {
     return handleAgencyV5Play(req, res);
   }
 
+  // Explicit Legacy Host Route: Continues to legacy V5 play
   try {
     const courseSlug = clean(req.query?.course);
     const assetId = clean(req.query?.asset);
@@ -44,19 +55,11 @@ export default async function v5PlayHandler(req, res) {
     if (!playbackProofKey) return res.status(400).json({ success: false, code: "v5_playback_proof_invalid", error: "Khóa proof V5 không hợp lệ." });
 
     const access = await requireV4CourseAccess(req, courseSlug);
-    if (!access.ok) return res.status(access.status).json({ success: false, code: access.code, error: access.error });
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
 
-    const course = access.course;
-    if (!course || clean(course.delivery_mode).toLowerCase() !== "v5") {
-      return res.status(404).json({ success: false, code: "v5_course_not_found", error: "Không tìm thấy khóa V5." });
-    }
-
-    // The published-release membership check stays inside Postgres so each lease
-    // does not pull the immutable release snapshot across Supabase egress.
-    // Asset metadata is independent, so run both reads concurrently.
     const [authorizationResult, assetResult] = await Promise.all([
       supabase.rpc("v5_authorize_playback_asset", {
-        p_course_id: course.id,
+        p_course_id: access.course.id,
         p_asset_id: assetId
       }),
       supabase
@@ -72,10 +75,18 @@ export default async function v5PlayHandler(req, res) {
     const releaseId = clean(authorizationResult.data);
     const asset = assetResult.data;
     if (!releaseId) {
-      return res.status(404).json({ success: false, code: "v5_media_not_linked", error: "Media không thuộc release V5 đang Publish." });
+      return res.status(404).json({
+        success: false,
+        code: "v5_media_not_linked",
+        error: "Media không thuộc release V5 đang Publish."
+      });
     }
     if (!asset || asset.status !== "ready" || asset.provider !== "r2" || !asset.r2_object_key) {
-      return res.status(404).json({ success: false, code: "v5_media_not_ready", error: "Media V5 chưa sẵn sàng." });
+      return res.status(404).json({
+        success: false,
+        code: "v5_media_not_ready",
+        error: "Media V5 chưa sẵn sàng."
+      });
     }
 
     const lease = issueV5PlaybackLease({
@@ -88,7 +99,7 @@ export default async function v5PlayHandler(req, res) {
       filename: asset.original_filename,
       bytes: asset.bytes,
       userAgent: req.headers["user-agent"] || "",
-      email: access.email,
+      email: access.student?.email || "",
       proofPublicJwk: playbackProofKey
     });
 
@@ -104,6 +115,10 @@ export default async function v5PlayHandler(req, res) {
   } catch (error) {
     console.error("[v5-play]", error);
     const status = error?.code === "v5_playback_not_configured" ? 503 : 500;
-    return res.status(status).json({ success: false, code: error?.code || "v5_play_failed", error: status === 503 ? error.message : "V5 playback server error" });
+    return res.status(status).json({
+      success: false,
+      code: error?.code || "v5_play_failed",
+      error: status === 503 ? error.message : "V5 playback server error"
+    });
   }
 }
