@@ -1,8 +1,8 @@
-# System B Milestone B1 Implementation Report: V5 Agency Playback RPC Security Lockdown
+# System B Milestone B1 & B1.1 Implementation Report: V5 Agency Playback RPC Security Lockdown & Hardening
 
 **Execution Date:** 2026-09-26  
 **Authoritative Plan:** `SYSTEM_B_MULTI_AGENCY_MASTER_IMPLEMENTATION_PLAN_V1_1.md`  
-**Execution Context:** Anti Execution Engine (Pre-Review Baseline for ChatGPT Work)  
+**Execution Context:** Anti Execution Engine (Post-Review Remediation for ChatGPT Work)  
 **Main Supabase Reference:** `yyiavtiwtekkocqpephr` (PostgreSQL 17.6)  
 **Local Test DB Reference:** `supabase_db_system-b-restore-main` (PostgreSQL 17.6 on Docker port 54332)
 
@@ -12,93 +12,100 @@
 
 | Metric | Verified Value | Status |
 | :--- | :--- | :--- |
-| **B0_SOURCE_CONTROL** | **PASS** (Commit `49c1fa8` on branch `feat/multi-agency-m0a-b1`) | PASS |
-| **M0A_HISTORY_REAPPLIED** | **NO** (Catalog verified, historical migrations untouched) | PASS |
-| **B1_LOCAL_SECURITY_TEST** | **PASS** (12/12 tests passed: 11 negatives + 1 positive) | PASS |
-| **B1_RPC_EXECUTE_PRIVILEGES** | `service_role, authenticated` (`PUBLIC` and `anon` revoked) | PASS |
-| **B1_CALLER_BINDING** | `auth.uid()` bound to `agency_memberships.user_id` (authenticated); verified membership context (service_role); GUC detached | PASS |
-| **B1_ASSET_RELEASE_BINDING** | Reuses existing `public.v5_authorize_playback_asset(v5_course_id, p_asset_id)` | PASS |
-| **B1_MAIN_APPLIED** | **YES** (Migration `20260926155000` applied & recorded on Main) | PASS |
-| **V5_RUNTIME_CHANGED** | **NO** (Zero changes to Next.js API, Worker, lease signing) | PASS |
-| **R2_MUTATIONS** | **0** (No bucket or object operations) | PASS |
-| **LEGACY_MUTATIONS** | **0** (Legacy Supabase untouched) | PASS |
-| **B1_RPC_LOCKDOWN** | **PASS** | **PASS** |
+| **B1_BASE** | **PASS** | PASS |
+| **B1_1_ROLE_FALLBACK_REMOVED** | **PASS** (`coalesce(auth.role(), current_user)` completely eliminated; fail-closed `v_db_role`) | PASS |
+| **B1_1_AUTHENTICATED_ROLE_BINDING** | **PASS** (Strictly requires DB role `authenticated`, explicit claim `authenticated`, non-null `auth.uid()`, binding to `user_id`) | PASS |
+| **B1_1_SERVICE_ROLE_BOUNDARY** | **PASS** (DB role must be `service_role`; rejects altered claims; validates explicit membership context) | PASS |
+| **B1_1_SECURITY_DEFINER_HARDENING** | **PASS** (Safe fixed `search_path = public, pg_temp`, schema qualification, zero manifest/R2 egress) | PASS |
+| **B1_1_PREVIOUS_RELEASE_NEGATIVE** | **PASS** (Asset from superseded release of same course rejected with `asset_not_in_release`) | PASS |
+| **B1_1_LOCAL_SECURITY_TEST** | **PASS** (20/20 test cases passing on isolated local target) | PASS |
+| **POSTGREST_RPC_TEST** | **NOT_AVAILABLE_WITH_CURRENT_LOCAL_TARGET** (Local restore target runs standalone Postgres container on port 54332 without attached PostgREST service container; simulated via exact transaction roles and JWT session claims) | DOCUMENTED |
+| **B1_1_MAIN_APPLIED** | **YES** (Migration `20260926163000` applied & recorded in schema_migrations on Main) | PASS |
+| **PUBLIC_EXECUTE** | `false` | PASS |
+| **ANON_EXECUTE** | `false` | PASS |
+| **AUTHENTICATED_EXECUTE** | `true` (Enforcing strict `auth.uid()` contract) | PASS |
+| **SERVICE_ROLE_EXECUTE** | `true` (Enforcing verified membership/entitlement context) | PASS |
+| **V5_RUNTIME_CHANGED** | **NO** | PASS |
+| **R2_MUTATIONS** | **0** | PASS |
+| **LEGACY_MUTATIONS** | **0** | PASS |
+| **ENTITLEMENT_GRANT_LIFECYCLE** | **DEFERRED_BEFORE_M0C** (Per owner direction, commerce lifecycle design deferred) | DEFERRED |
+| **B1_1_STATUS** | **PASS** | **PASS** |
 
 ---
 
-## 2. Security Defects Identified & Remediated
+## 2. Security Defects Remediated in B1.1
 
-In Milestone M0A, the initial definition of `public.v5_authorize_agency_playback` had several security limitations:
-1. **Unsafe Privilege Grants:** Function had default `EXECUTE` grant to `PUBLIC`, allowing anonymous clients to execute the function directly.
-2. **Untrusted Identity Proof:** Accepted `p_agency_id` and `p_membership_id` directly from caller without binding to `auth.uid()`, allowing attackers to guess foreign membership IDs.
-3. **Missing Asset Validation:** Ignored `p_asset_id` and did not verify whether the requested media asset belonged to the published release.
-4. **Data Egress Bloat:** Extracted and returned the full release manifest JSONB across the network wire.
+Following the review by ChatGPT Work, two blocking findings were remediated:
 
-### B1 Hardening Measures (`20260926155000_v5_agency_rpc_security_lockdown.sql`)
-1. **Privilege Revocation:** Explicitly executed `REVOKE ALL FROM PUBLIC, anon, authenticated;` followed by `GRANT EXECUTE TO service_role, authenticated;`.
-2. **Deterministic Caller Binding:**
-   - For `authenticated` sessions: Derives caller identity strictly from `auth.uid()`. Resolves active membership in `agency_memberships` where `user_id = auth.uid() AND agency_id = p_agency_id AND status = 'active'`. If a client attempts to supply a mismatched `p_membership_id`, it is rejected with `invalid_membership`.
-   - For `service_role` sessions: Requires explicit `p_membership_id`, verifying membership exists, belongs to `p_agency_id`, and is active (`cross_agency_forbidden` if mismatched).
-   - For `anon` sessions: Explicit defense-in-depth check immediately returns `unauthorized` in addition to Postgres permission denial.
-3. **Tenant GUC Detachment:** Completely eliminates reliance on `app.current_agency_id` or `current_setting()`. GUC spoofing has zero impact on authorization.
-4. **Canonical & V5 Release Hierarchy:** Validates:
-   - Active agency (`agencies.status = 'active'`)
-   - Canonical lesson exists (`canonical_lessons`)
-   - Canonical course is published (`canonical_courses.status = 'published'`)
-   - Active student entitlement exists (`student_entitlements.status = 'active'` and `expires_at > now()`)
-   - Underlying V5 course has an active published release (`v5_course_configs.status = 'published'` and `v5_releases.status = 'published'`)
-5. **Exact V5 Asset Release Validation:** Calls existing platform function `public.v5_authorize_playback_asset(v_v5_course_id, p_asset_id)`. If the asset is foreign or not part of the active release links, it returns `asset_not_in_release`.
-6. **Egress Protection:** Strips out the `manifest` object completely. Returns only lightweight authorization proof (`authorized`, `agency_id`, `membership_id`, `canonical_course_id`, `v5_course_id`, `release_id`, `asset_id`).
+### Blocker 1: Elimination of SECURITY DEFINER Role Fallback
+- **Vulnerability:** In B1, `v_caller_role` was assigned `coalesce(auth.role(), current_user)`. In a `SECURITY DEFINER` function, `current_user` evaluates to the function definer (`postgres`). When called without an active JWT role claim, the function defaulted to `postgres` and fell into a generic privileged `ELSE` branch.
+- **Remediation (`20260926163000_v5_agency_rpc_security_hardening_v2.sql`):**
+  - Completely removed `current_user` from role resolution.
+  - Implemented fail-closed detection:
+    ```sql
+    v_db_role := CASE 
+        WHEN current_setting('role', true) IS NOT NULL AND current_setting('role', true) <> 'none' 
+            THEN current_setting('role', true)
+        ELSE session_user
+    END;
+    ```
+  - Permitted caller classes restricted to exactly: `'authenticated'` and `'service_role'`.
+  - All other roles (including `postgres`, `anon`, `none`, or unexpected roles) immediately return `{ "authorized": false, "code": "unauthorized", "error": "Caller database role is not authorized" }`.
+  - Authenticated calls strictly enforce:
+    - `v_jwt_role IS NOT NULL`
+    - `v_jwt_role = 'authenticated'`
+    - `v_jwt_uid IS NOT NULL`
+    - Membership ownership bound to `auth.uid()`
+  - Service role calls enforce:
+    - If `v_jwt_role` is set, it must equal `'service_role'` (rejecting altered claims).
+    - Membership ID validated against agency, active status, and entitlement.
+
+### Blocker 2: Expanded Test Suite
+- Extended `scripts/verify-b1-rpc-lockdown.sql` from 12 to 20 comprehensive automated test assertions.
+- Added tests for missing role claim, altered role claims (`service_role`, `postgres`, `arbitrary_role`), missing `auth.uid()`, foreign membership IDs, previous release of the same course, unexpected DB role, and `service_role` positive authorization.
 
 ---
 
-## 3. Local Test Suite Verification (Isolated Test DB)
+## 3. Local Test Suite Verification (20/20 PASS)
 
-Executed test script `scripts/verify-b1-rpc-lockdown.sql` on `supabase_db_system-b-restore-main`:
+Executed on `supabase_db_system-b-restore-main`:
 
-| # | Test Scenario | Execution Context / Parameters | Expected Behavior | Observed Result | Verdict |
+| # | Test Scenario | Context & Parameters | Expected Result | Observed | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1** | **anon direct RPC** | `SET ROLE anon;` direct execution | Denied with `insufficient_privilege` | `insufficient_privilege` caught | **PASS** |
-| **2** | **Guessed Agency UUID** | Authenticated User 1 requesting Agency 2 | `authorized: false`, code `agency_membership_not_found` | `agency_membership_not_found` | **PASS** |
-| **3** | **Guessed Membership UUID** | Authenticated User 1 passing User 2 membership | `authorized: false`, code `invalid_membership` | `invalid_membership` | **PASS** |
-| **4** | **Cross-Agency Membership** | `service_role` passing Agency 2 membership for Agency 1 | `authorized: false`, code `cross_agency_forbidden` | `cross_agency_forbidden` | **PASS** |
-| **5** | **No Entitlement** | Authenticated User 2 requesting course without entitlement | `authorized: false`, code `entitlement_missing` | `entitlement_missing` | **PASS** |
-| **6** | **Revoked Entitlement** | Authenticated User 1 requesting course with revoked entitlement | `authorized: false`, code `entitlement_not_active` | `entitlement_not_active` | **PASS** |
-| **7** | **Foreign Asset** | Authenticated User 1 requesting random non-existent UUID | `authorized: false`, code `asset_not_in_release` | `asset_not_in_release` | **PASS** |
-| **8** | **Asset Outside Release** | Authenticated User 1 requesting asset from different course | `authorized: false`, code `asset_not_in_release` | `asset_not_in_release` | **PASS** |
-| **9** | **Unpublished Release** | Authenticated User 1 requesting archived course with NULL release | `authorized: false`, code `release_not_published` | `release_not_published` | **PASS** |
-| **10** | **Direct PostgREST RPC** | Schema privileges query on `anon` and `PUBLIC` | No execute privileges for `anon` or `PUBLIC` | `anon` and `PUBLIC` 0 execute rows | **PASS** |
-| **11** | **GUC Spoof Attempt** | Authenticated User 1 setting `app.current_agency_id = Agency 2` | Function ignores GUC, evaluates strictly from identity | GUC ignored, bound to identity | **PASS** |
-| **12** | **Positive Test** | Valid member + active entitlement + published course + valid asset | `authorized: true`, minimal proof, NO manifest | `authorized: true`, manifest omitted | **PASS** |
+| **1** | anon direct RPC | `SET ROLE anon;` | Denied with `insufficient_privilege` | Caught `insufficient_privilege` | **PASS** |
+| **2** | Auth + missing role claim | `SET ROLE authenticated;` (no role claim) | Denied with `Missing authenticated role claim` | `code: unauthorized` | **PASS** |
+| **3** | Auth + altered claim (service_role) | Role claim spoofed to `service_role` | Denied with `Role claim mismatch` | `code: unauthorized` | **PASS** |
+| **4** | Auth + altered claim (postgres) | Role claim spoofed to `postgres` | Denied with `Role claim mismatch` | `code: unauthorized` | **PASS** |
+| **5** | Auth + altered claim (arbitrary) | Role claim spoofed to `arbitrary_role` | Denied with `Role claim mismatch` | `code: unauthorized` | **PASS** |
+| **6** | Auth + missing auth.uid() | Role claim valid, `sub` missing | Denied with `Missing authenticated user identifier` | `code: unauthorized` | **PASS** |
+| **7** | Auth + foreign membership UUID | User 1 passing User 2 membership | Denied with `invalid_membership` | `code: invalid_membership` | **PASS** |
+| **8** | Auth + guessed agency UUID | User 1 requesting Agency 2 | Denied with `agency_membership_not_found` | `code: agency_membership_not_found` | **PASS** |
+| **9** | Cross-agency membership | `service_role` passing Agency 2 member for Agency 1 | Denied with `cross_agency_forbidden` | `code: cross_agency_forbidden` | **PASS** |
+| **10** | No entitlement | User 2 requesting unentitled course | Denied with `entitlement_missing` | `code: entitlement_missing` | **PASS** |
+| **11** | Revoked entitlement | User 1 requesting revoked entitlement course | Denied with `entitlement_not_active` | `code: entitlement_not_active` | **PASS** |
+| **12** | Foreign / nonexistent asset | Random UUID `00000000-0000-0000-0000-000000000000` | Denied with `asset_not_in_release` | `code: asset_not_in_release` | **PASS** |
+| **13** | Asset from another course | Valid asset from Course 2 requested for Course 1 | Denied with `asset_not_in_release` | `code: asset_not_in_release` | **PASS** |
+| **14** | Asset from PREVIOUS RELEASE of same course | Asset `b060270f-...` (v1) requested for Course 1 (v5 published) | Denied with `asset_not_in_release` | `code: asset_not_in_release` | **PASS** |
+| **15** | Unpublished release | Requesting archived course with NULL release | Denied with `release_not_published` | `code: release_not_published` | **PASS** |
+| **16** | Unexpected DB role | Direct postgres session without SET ROLE | Denied with `Caller database role is not authorized` | `code: unauthorized` | **PASS** |
+| **17** | Direct PostgREST privileges | Schema inspection of routine privileges | No EXECUTE granted to `anon` or `PUBLIC` | 0 rows for `anon` / `PUBLIC` | **PASS** |
+| **18** | GUC spoof attempt | Setting `app.current_agency_id` | GUC ignored completely, bound to identity | Identity bound | **PASS** |
+| **19** | Positive: authenticated | User 1 + active entitlement + published asset | Authorized: minimal proof, NO manifest | `authorized: true` | **PASS** |
+| **20** | Positive: service_role | Explicit context + active entitlement + published asset | Authorized: minimal proof, NO manifest | `authorized: true` | **PASS** |
 
 ---
 
 ## 4. Main Supabase Verification (`yyiavtiwtekkocqpephr`)
 
-### Migration Registration
-- File: `supabase/migrations/20260926155000_v5_agency_rpc_security_lockdown.sql`
-- Remote `supabase_migrations.schema_migrations` record: `version = '20260926155000'`
-- Migration status: Local and remote synchronized.
-
-### Privilege Verification on Main DB
-```sql
-SELECT has_function_privilege('anon', 'public.v5_authorize_agency_playback(uuid, uuid, uuid, uuid)', 'EXECUTE') AS anon_has_execute,
-       has_function_privilege('public', 'public.v5_authorize_agency_playback(uuid, uuid, uuid, uuid)', 'EXECUTE') AS public_has_execute,
-       has_function_privilege('authenticated', 'public.v5_authorize_agency_playback(uuid, uuid, uuid, uuid)', 'EXECUTE') AS auth_has_execute,
-       has_function_privilege('service_role', 'public.v5_authorize_agency_playback(uuid, uuid, uuid, uuid)', 'EXECUTE') AS service_has_execute;
-```
-**Results:**
-- `anon_has_execute`: `false`
-- `public_has_execute`: `false`
-- `auth_has_execute`: `true` (enforces safe `auth.uid()` contract)
-- `service_has_execute`: `true`
-
----
-
-## 5. Non-Interference Confirmation
-
-- **V5 Runtime:** Zero edits to `utils/lms-handlers/v5-play.js`, `utils/v5-playback-lease.js`, or any V5 application code.
-- **V5 Media / Storage:** Zero edits to R2 buckets, objects, or keys.
-- **Cloudflare Worker:** Worker code and routing untouched.
-- **Cryptographic Leases:** P-256 ECDSA signing, proof key format, and verification contracts remain identical.
-- **Legacy Supabase (`aqozjkfwzmyfunqvcyjv`):** Untouched.
+1. **Migration Registered:**
+   - File: `supabase/migrations/20260926163000_v5_agency_rpc_security_hardening_v2.sql`
+   - Remote record: `version = '20260926163000'` in `supabase_migrations.schema_migrations`.
+2. **Routine Privileges:**
+   - `public_execute`: `false`
+   - `anon_execute`: `false`
+   - `authenticated_execute`: `true`
+   - `service_role_execute`: `true`
+3. **Safe Negative Check on Main:**
+   - Executing `SELECT public.v5_authorize_agency_playback(...)` directly via database console:
+     `{"authorized": false, "code": "unauthorized", "error": "Caller database role is not authorized"}`.
+   - Proves that even `postgres` definer role cannot bypass authorization or enter a privileged path.
