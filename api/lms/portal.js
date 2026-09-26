@@ -41,7 +41,22 @@ export default async function handler(req, res) {
 
   // Agency domain route: only allow Agency-authorized endpoints
   if (routeDecision.route === "AGENCY") {
-    if (endpoint === "health") return healthHandler(req, res);
+    if (endpoint === "health") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({
+        status: "ok",
+        app: "ok",
+        service: "yeunauan-lms-clone",
+        tenant: {
+          agencyId: routeDecision.tenant.agencyId,
+          agencySlug: routeDecision.tenant.agencySlug,
+          agencyName: routeDecision.tenant.agencyName,
+          hostname: routeDecision.tenant.hostname
+        }
+      });
+    }
     if (endpoint === "student-dashboard" || endpoint === "learner-dashboard") {
       return handleAgencyLearnerDashboard(req, res);
     }
