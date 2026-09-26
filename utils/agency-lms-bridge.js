@@ -1,7 +1,7 @@
 // utils/agency-lms-bridge.js
 // System B Milestone B6 — Agency LMS & Existing V5 Playback Bridge
 // Authoritative Plan: SYSTEM_B_MULTI_AGENCY_MASTER_IMPLEMENTATION_PLAN_V1_1.md
-// Milestone M0B.1 Hardened Implementation
+// Milestone M0B.1 / Pre-M0C Remediation V2 Hardened Implementation
 
 import { supabase as defaultSupabase } from "./supabase.js";
 import { resolveTenant, getTrustedHost } from "./tenant-resolver.js";
@@ -9,6 +9,14 @@ import { requireAgencyMembership, requireAgencyRole } from "./agency-auth.js";
 import { issueV5PlaybackLease } from "./v5-playback-lease.js";
 import { v5LearnerReleaseContent } from "./v5-release-snapshot.js";
 import { buildV5IntroItems } from "./v5-intro-content.js";
+
+// Re-export trusted routing utilities from agency-routing.js
+export {
+  getLegacyHostAllowlist,
+  isExplicitLegacyHost,
+  resolveRequestRoute,
+  isAgencyRequest
+} from "./agency-routing.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -24,95 +32,6 @@ function proofPublicJwk(encodedValue) {
   } catch {
     return null;
   }
-}
-
-/**
- * Returns the list of explicitly configured Legacy hostnames.
- * Reads from process.env.LEGACY_HOST_ALLOWLIST.
- */
-export function getLegacyHostAllowlist() {
-  const raw = process.env.LEGACY_HOST_ALLOWLIST || "";
-  return raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/**
- * Checks whether the incoming hostname is an explicitly approved Legacy hostname.
- */
-export function isExplicitLegacyHost(host) {
-  if (!host) return false;
-  const allowlist = getLegacyHostAllowlist();
-  const normalizedHost = host.toLowerCase().split(":")[0];
-  return allowlist.includes(host.toLowerCase()) || allowlist.includes(normalizedHost);
-}
-
-/**
- * Resolves request routing mode:
- * 1. If host explicitly matches legacy allowlist -> { route: "LEGACY", host }
- * 2. Else -> resolves Agency tenant
- *    - If valid: { route: "AGENCY", tenant, host }
- *    - If invalid / unknown / conflicting / resolver error: { route: "DENY", status, code, error }
- * NO FALLBACK from unknown/invalid Agency host to Legacy!
- */
-export async function resolveRequestRoute(req, options = {}) {
-  let host;
-  try {
-    host = getTrustedHost(req);
-  } catch (err) {
-    return {
-      route: "DENY",
-      status: 400,
-      code: "invalid_host_header",
-      error: err.message || "Invalid or conflicting Host/Forwarded headers."
-    };
-  }
-
-  if (!host) {
-    return {
-      route: "DENY",
-      status: 400,
-      code: "missing_host_header",
-      error: "Host header is required."
-    };
-  }
-
-  // 1. Explicit Legacy Check
-  if (isExplicitLegacyHost(host)) {
-    return { route: "LEGACY", host };
-  }
-
-  // 2. Resolve Agency Tenant
-  try {
-    const resolved = await resolveTenant(req, options);
-    if (resolved.ok && resolved.tenant?.agencyId) {
-      return { route: "AGENCY", tenant: resolved.tenant, host };
-    }
-
-    return {
-      route: "DENY",
-      status: resolved.status || 404,
-      code: resolved.code || "unknown_tenant_host",
-      error: resolved.error || "Unknown or unmapped agency tenant domain."
-    };
-  } catch (err) {
-    return {
-      route: "DENY",
-      status: 500,
-      code: "tenant_resolution_error",
-      error: err.message || "Tenant resolution failed."
-    };
-  }
-}
-
-/**
- * Checks whether an incoming request is addressed to an Agency tenant domain.
- * Strictly checks that route === "AGENCY".
- */
-export async function isAgencyRequest(req, options = {}) {
-  const routeDecision = await resolveRequestRoute(req, options);
-  return routeDecision.route === "AGENCY";
 }
 
 /**
@@ -193,6 +112,13 @@ export async function requireAgencyCourseAccess(req, courseIdentifier, options =
  * Handles Agency-aware V5 Playback request (/api/lms/portal?endpoint=v5-play).
  * Enforces B1.1 Authorization RPC: v5_authorize_agency_playback.
  * Bridges tenant entitlement to existing V5 playback lease issuance without altering V5 architecture.
+ * 
+ * B6 Phase 6 Final Hardening:
+ * 1. No arbitrary "first lesson" fallback. Lesson ID is mandatory.
+ * 2. Real canonical lesson mapping verified to belong to the requested canonical course.
+ * 3. Calls v5_authorize_agency_playback RPC.
+ * 4. Verifies authorized canonical_course_id returned from RPC matches the requested course.
+ * 5. Issues existing ECDSA P-256 lease only after full verification.
  */
 export async function handleAgencyV5Play(req, res, options = {}) {
   res.setHeader("Cache-Control", "private, no-store");
@@ -205,8 +131,21 @@ export async function handleAgencyV5Play(req, res, options = {}) {
     const assetId = clean(req.query?.asset);
     const requestedLessonId = clean(req.query?.lesson);
 
+    if (!courseSlug) {
+      return res.status(400).json({ success: false, code: "missing_course", error: "Thiếu mã khóa học." });
+    }
+
     if (!assetId) {
       return res.status(400).json({ success: false, code: "missing_asset", error: "Thiếu media asset." });
+    }
+
+    // 1. B6 FIX: No arbitrary "first lesson" fallback!
+    if (!requestedLessonId) {
+      return res.status(400).json({
+        success: false,
+        code: "missing_lesson",
+        error: "Yêu cầu phát media phải cung cấp lesson ID bài học cụ thể (không chấp nhận fallback bài học đầu tiên)."
+      });
     }
 
     const proofHeader = clean(req.headers?.["x-v5-playback-key"]);
@@ -227,7 +166,7 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 1. Enforce strict Agency course access (no old email/HMAC fallback)
+    // 2. Enforce strict Agency course access (no old email/HMAC fallback)
     const access = await requireAgencyCourseAccess(req, courseSlug, options);
     if (!access.ok) {
       return res.status(access.status).json({ success: false, code: access.code, error: access.error });
@@ -242,32 +181,34 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 2. Resolve canonical lesson for this asset / course (F3: Real canonical lesson mapping required)
-    let lessonId = requestedLessonId;
-    if (!lessonId) {
-      // Look up canonical lesson linked to this course
-      const { data: lessonRow, error: lessonLookupErr } = await client
-        .from("canonical_lessons")
-        .select("id")
-        .eq("canonical_course_id", canonicalCourse.id)
-        .limit(1)
-        .maybeSingle();
+    // 3. Resolve real canonical lesson mapping & verify it belongs to requested canonical course
+    const { data: canonicalLesson, error: lessonLookupErr } = await client
+      .from("canonical_lessons")
+      .select("id, canonical_course_id, v5_lesson_id")
+      .eq("id", requestedLessonId)
+      .maybeSingle();
 
-      if (lessonLookupErr || !lessonRow) {
-        return res.status(404).json({
-          success: false,
-          code: "canonical_lesson_not_found",
-          error: "Không tìm thấy bài học canonical tương ứng với nội dung phát."
-        });
-      }
-      lessonId = lessonRow.id;
+    if (lessonLookupErr || !canonicalLesson) {
+      return res.status(404).json({
+        success: false,
+        code: "canonical_lesson_not_found",
+        error: "Không tìm thấy bài học canonical tương ứng với ID yêu cầu."
+      });
     }
 
-    // 3. Call B1.1 Authorization RPC: v5_authorize_agency_playback
+    if (canonicalLesson.canonical_course_id !== canonicalCourse.id) {
+      return res.status(403).json({
+        success: false,
+        code: "lesson_course_mismatch",
+        error: "Bài học yêu cầu không thuộc về khóa học được truy cập."
+      });
+    }
+
+    // 4. Call B1.1 Authorization RPC: v5_authorize_agency_playback
     const { data: authData, error: authError } = await client.rpc("v5_authorize_agency_playback", {
       p_agency_id: tenant.agencyId,
       p_membership_id: membership.id,
-      p_lesson_id: lessonId,
+      p_lesson_id: canonicalLesson.id,
       p_asset_id: assetId
     });
 
@@ -290,7 +231,16 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 4. Verify media asset readiness in v5_media_assets
+    // 5. B6 FIX: Verify returned/validated canonical course matches course resolved from courseSlug
+    if (authData.canonical_course_id !== canonicalCourse.id) {
+      return res.status(403).json({
+        success: false,
+        code: "authorized_course_mismatch",
+        error: "Mã khóa học được cấp phép không khớp với khóa học đang truy cập."
+      });
+    }
+
+    // 6. Verify media asset readiness in v5_media_assets
     const { data: asset, error: assetErr } = await client
       .from("v5_media_assets")
       .select("id,type,provider,r2_object_key,mime_type,original_filename,bytes,status")
@@ -307,7 +257,7 @@ export async function handleAgencyV5Play(req, res, options = {}) {
       });
     }
 
-    // 5. Issue existing V5 cryptographic playback lease (Preserved ECDSA P-256 lease)
+    // 7. Issue existing V5 cryptographic playback lease (Preserved ECDSA P-256 lease)
     const lease = issueV5PlaybackLease({
       version: 2,
       assetId: asset.id,
