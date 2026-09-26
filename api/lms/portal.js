@@ -17,6 +17,12 @@ import v5FeedHandler from "../../utils/lms-handlers/v5-feed.js";
 import v5PlayHandler from "../../utils/lms-handlers/v5-play.js";
 import v5CourseIntroHandler from "../../utils/lms-handlers/v5-course-intro.js";
 import healthHandler from "../../utils/lms-handlers/health.js";
+import {
+  isAgencyRequest,
+  handleAgencyLearnerDashboard,
+  handleAgencyV5Feed,
+  handleAgencyCourseIntro
+} from "../../utils/agency-lms-bridge.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
@@ -29,7 +35,14 @@ export default async function handler(req, res) {
   if (endpoint === "verify-entry-token") return verifyEntryTokenHandler(req, res);
   if (endpoint === "learning-mode") return learningModeHandler(req, res);
   if (endpoint === "v3-bootstrap") return v3BootstrapHandler(req, res);
-  if (endpoint === "student-dashboard") return studentDashboardHandler(req, res);
+
+  if (endpoint === "student-dashboard" || endpoint === "learner-dashboard") {
+    if (await isAgencyRequest(req)) {
+      return handleAgencyLearnerDashboard(req, res);
+    }
+    return studentDashboardHandler(req, res);
+  }
+
   if (endpoint === "legacy-entry-token") return legacyEntryTokenHandler(req, res);
   if (endpoint === "v4-course-intro") return v4CourseIntroHandler(req, res);
   if (endpoint === "v4-telegram-feed") return v4TelegramFeedHandler(req, res);
@@ -37,9 +50,22 @@ export default async function handler(req, res) {
   if (endpoint === "v4-telegram-play") return v4TelegramPlayHandler(req, res);
   if (endpoint === "v4-telegram-thumbnail") return v4TelegramThumbnailHandler(req, res);
   if (endpoint === "v4-telegram-warmup") return v4TelegramWarmupHandler(req, res);
-  if (endpoint === "v5-feed") return v5FeedHandler(req, res);
+
+  if (endpoint === "v5-feed") {
+    if (await isAgencyRequest(req)) {
+      return handleAgencyV5Feed(req, res);
+    }
+    return v5FeedHandler(req, res);
+  }
+
   if (endpoint === "v5-play") return v5PlayHandler(req, res);
-  if (endpoint === "v5-course-intro") return v5CourseIntroHandler(req, res);
+
+  if (endpoint === "v5-course-intro") {
+    if (await isAgencyRequest(req)) {
+      return handleAgencyCourseIntro(req, res);
+    }
+    return v5CourseIntroHandler(req, res);
+  }
 
   return res.status(404).json({ success: false, error: "LMS Portal Endpoint not found" });
 }

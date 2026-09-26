@@ -1,6 +1,7 @@
 import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { issueV5PlaybackLease } from "../v5-playback-lease.js";
+import { isAgencyRequest, handleAgencyV5Play } from "../agency-lms-bridge.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -21,6 +22,11 @@ function proofPublicJwk(encodedValue) {
 export default async function v5PlayHandler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   if (req.method !== "GET") return res.status(405).json({ success: false, error: "Method not allowed" });
+
+  // Milestone B6: Route through Agency V5 Bridge if request is on Agency tenant path
+  if (await isAgencyRequest(req)) {
+    return handleAgencyV5Play(req, res);
+  }
 
   try {
     const courseSlug = clean(req.query?.course);
