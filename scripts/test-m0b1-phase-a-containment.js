@@ -1,6 +1,7 @@
 // scripts/test-m0b1-phase-a-containment.js
-// Verification script for M0B.1 Phase A RPC Containment
-// Proves that authenticated users CANNOT invoke any of the 6 privileged write RPCs directly.
+// Verification script for M0B.1 / Pre-M0C Remediation V2 Phase 15 RPC Containment
+// Dynamically verifies that all privileged server-only RPC signatures are revoked
+// from BOTH anon and authenticated PostgREST roles.
 
 import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
@@ -18,12 +19,12 @@ const adminClient = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
-const publicClient = createClient(SUPABASE_URL, ANON_KEY, {
+const anonClient = createClient(SUPABASE_URL, ANON_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
 async function main() {
-  console.log("=== M0B.1 PHASE A RPC CONTAINMENT VERIFICATION ===");
+  console.log("=== PRE-M0C PHASE 15 PRIVILEGED RPC CONTAINMENT SUITE ===");
   console.log(`Target: ${SUPABASE_URL}\n`);
 
   const testEmail = `phase-a-test-${Date.now()}@example.com`;
@@ -41,7 +42,7 @@ async function main() {
     userId = userCreated.user.id;
 
     // 2. Sign in as authenticated user to get genuine signed JWT
-    const { data: signinData, error: signinError } = await publicClient.auth.signInWithPassword({
+    const { data: signinData, error: signinError } = await anonClient.auth.signInWithPassword({
       email: testEmail,
       password: testPassword
     });
@@ -55,8 +56,11 @@ async function main() {
     });
 
     const dummyUuid = "00000000-0000-0000-0000-000000000000";
+
+    // All known privileged server-only RPC signatures (covering all overloads)
     const targets = [
       {
+        name: "checkout_agency_offering",
         rpc: "checkout_agency_offering",
         params: {
           p_agency_id: dummyUuid,
@@ -67,6 +71,7 @@ async function main() {
         }
       },
       {
+        name: "approve_agency_order",
         rpc: "approve_agency_order",
         params: {
           p_agency_id: dummyUuid,
@@ -75,6 +80,7 @@ async function main() {
         }
       },
       {
+        name: "refund_agency_order",
         rpc: "refund_agency_order",
         params: {
           p_agency_id: dummyUuid,
@@ -83,6 +89,7 @@ async function main() {
         }
       },
       {
+        name: "recompute_effective_entitlement",
         rpc: "recompute_effective_entitlement",
         params: {
           p_agency_id: dummyUuid,
@@ -90,17 +97,31 @@ async function main() {
         }
       },
       {
+        name: "submit_agency_homework (canonical_lesson_id UUID overload)",
+        rpc: "submit_agency_homework",
+        params: {
+          p_agency_id: dummyUuid,
+          p_membership_id: dummyUuid,
+          p_canonical_course_id: dummyUuid,
+          p_canonical_lesson_id: dummyUuid,
+          p_title: "Test HW UUID",
+          p_content: {}
+        }
+      },
+      {
+        name: "submit_agency_homework (lesson_id TEXT overload)",
         rpc: "submit_agency_homework",
         params: {
           p_agency_id: dummyUuid,
           p_membership_id: dummyUuid,
           p_canonical_course_id: dummyUuid,
           p_lesson_id: "test",
-          p_title: "Test HW",
+          p_title: "Test HW TEXT",
           p_content: {}
         }
       },
       {
+        name: "grade_agency_homework",
         rpc: "grade_agency_homework",
         params: {
           p_agency_id: dummyUuid,
@@ -114,23 +135,55 @@ async function main() {
     ];
 
     let allDenied = true;
+
+    // Test anon PostgREST boundary
+    console.log("--- 1. Testing ANON PostgREST Access (Must All Be DENIED) ---");
     for (const t of targets) {
-      const { data, error } = await authUserClient.rpc(t.rpc, t.params);
-      if (error && error.message.includes("permission denied for function")) {
-        console.log(`[PASS] ${t.rpc}: DENIED as expected -> "${error.message}"`);
+      const { data, error } = await anonClient.rpc(t.rpc, t.params);
+      if (error && (error.message.includes("permission denied for function") || error.code === "42501")) {
+        console.log(`[PASS] anon -> ${t.name}: DENIED as expected`);
       } else {
-        console.error(`[FAIL] ${t.rpc} was NOT denied! Result:`, { data, error });
+        console.error(`[FAIL] anon -> ${t.name} was NOT denied! Result:`, { data, error });
         allDenied = false;
       }
     }
 
+    // Test authenticated PostgREST boundary
+    console.log("\n--- 2. Testing AUTHENTICATED PostgREST Access (Must All Be DENIED) ---");
+    for (const t of targets) {
+      const { data, error } = await authUserClient.rpc(t.rpc, t.params);
+      if (error && (error.message.includes("permission denied for function") || error.code === "42501")) {
+        console.log(`[PASS] auth -> ${t.name}: DENIED as expected`);
+      } else {
+        console.error(`[FAIL] auth -> ${t.name} was NOT denied! Result:`, { data, error });
+        allDenied = false;
+      }
+    }
+
+    // Test controlled service_role execution (Must NOT receive permission denied)
+    console.log("\n--- 3. Testing SERVICE_ROLE Execution (Controlled Positive Test) ---");
+    const { data: sData, error: sError } = await adminClient.rpc("checkout_agency_offering", {
+      p_agency_id: dummyUuid,
+      p_membership_id: dummyUuid,
+      p_offering_id: dummyUuid,
+      p_bank_account_id: null,
+      p_idempotency_order_code: "HEALTHCHECK"
+    });
+    // It should execute logic (and return agency_not_found), NOT permission denied!
+    if (sError && sError.message.includes("permission denied for function")) {
+      console.error("[FAIL] service_role failed with permission denied:", sError);
+      allDenied = false;
+    } else {
+      console.log(`[PASS] service_role -> checkout_agency_offering executed correctly (Result: ${JSON.stringify(sData)})`);
+    }
+
     if (!allDenied) {
-      console.error("\nPHASE_A_RPC_CONTAINMENT = FAIL");
+      console.error("\nPRIVILEGED_RPC_TEST_COVERAGE = FAIL");
       process.exit(1);
     }
 
     console.log("\n=======================================================");
-    console.log("PHASE_A_RPC_CONTAINMENT = PASS (All 6 RPCs denied to authenticated users)");
+    console.log("PRIVILEGED_RPC_TEST_COVERAGE = PASS (All 7 signatures denied to anon and auth)");
     console.log("=======================================================");
   } finally {
     if (userId) {
