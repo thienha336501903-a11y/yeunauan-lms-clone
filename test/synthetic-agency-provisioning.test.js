@@ -32,7 +32,7 @@ import {
 import { _clearTenantCache } from "../utils/tenant-resolver.js";
 
 test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/Concurrency -> Marker Safety -> Atomic Rollback -> Validation -> Request-Bound Commerce -> Auth -> Refund -> Deprovision)", async (t) => {
-  const rehearsalRunId = `run-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const rehearsalRunId = crypto.randomUUID();
   const nonce = Date.now().toString().slice(-6);
   const syntheticSlug = `syn-agency-${nonce}`;
   const syntheticCommerceHost = `commerce-${syntheticSlug}.local`;
@@ -61,6 +61,18 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
   if (!v5LessonId) {
     v5LessonId = "bd6919fd-6778-4ab9-adcd-b42c9e7f3e45";
   }
+
+  const ownerEmail = `owner@${syntheticSlug}.local`;
+  const ownerPassword = `OwnerPass_${nonce}!123`;
+  let ownerUserId = null;
+  const { data: ownerUserCreated, error: ownerCreateErr } = await supabase.auth.admin.createUser({
+    email: ownerEmail,
+    password: ownerPassword,
+    email_confirm: true
+  });
+  assert.ifError(ownerCreateErr);
+  ownerUserId = ownerUserCreated.user.id;
+  let secondCourseId = null;
 
   const syntheticManifest = {
     agency: {
@@ -100,7 +112,7 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         {
           code: `CANONICAL-${syntheticSlug}`,
           title: "Master Vietnamese Cuisine",
-          course_id: null,
+          course_id: realCourseId,
           lessons: [
             {
               title: "Lesson 1: Pho Master Stock",
@@ -276,6 +288,14 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         /Cannot deprovision tenant.*lacks matching synthetic test marker/
       );
 
+      // 3B. Wrong run_id => DENIED
+      await assert.rejects(
+        async () => {
+          await deprovisionAgency(syntheticSlug, { confirm: true, isTestTarget: true, rehearsalRunId: crypto.randomUUID() });
+        },
+        /Cannot deprovision tenant.*lacks matching synthetic test marker/
+      );
+
       // Clean up normal agency fixture
       await supabase.from("agency_ui_profiles").delete().eq("agency_id", normAg.id);
       await supabase.from("agencies").delete().eq("id", normAg.id);
@@ -298,9 +318,10 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         }
       ];
       failManifest.learning.courses[0].code = `FAIL-CC-${nonce}`;
-      failManifest.learning.courses[0].course_id = null;
+      failManifest.learning.courses[0].course_id = realCourseId;
+      failManifest.learning.courses[0].lessons[0].v5_lesson_id = v5LessonId;
       failManifest.offerings[0].items[0].canonical_course_code = `FAIL-CC-${nonce}`;
-      failManifest.principals = [{ email: `admin@fail-${nonce}.local`, role: "agency_owner" }];
+      failManifest.principals = [{ email: ownerEmail, role: "agency_owner" }];
 
       let caughtErr = null;
       try {
@@ -450,15 +471,32 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       // (2) Default bank account
       await supabase.from("agency_bank_accounts").update({ bank_code: "BIDV", account_number: "999999999" }).eq("id", bankAccountId);
 
-      // (3) Offering items - add a new item
-      const dummyCourseId = crypto.randomUUID();
-      await supabase.from("agency_offering_items").insert({
+      // (3) Offering items - use a second VALID existing canonical course
+      const { data: secondCcList } = await supabase
+        .from("canonical_courses")
+        .select("id")
+        .not("course_id", "is", null)
+        .eq("status", "published")
+        .neq("code", `CANONICAL-${syntheticSlug}`)
+        .limit(1);
+      assert.ok(secondCcList && secondCcList.length > 0, "Must have an existing second canonical course");
+      secondCourseId = secondCcList[0].id;
+
+      const { data: insItem, error: insItemErr } = await supabase.from("agency_offering_items").insert({
         agency_id: agencyId,
         offering_id: offeringId,
-        canonical_course_id: dummyCourseId,
+        canonical_course_id: secondCourseId,
         item_type: "canonical_course",
         sort_order: 2
-      });
+      }).select("id").single();
+      assert.ifError(insItemErr);
+      assert.ok(insItem);
+
+      // Verify order_items BEFORE retry
+      const { data: storedOrderItemsBefore } = await supabase
+        .from("order_items")
+        .select("id, canonical_course_id")
+        .eq("order_id", orderId);
 
       // 6.5 Retry checkout -> Returns original STORED snapshot (immutable quote, bank, and items)
       const retryRes = await checkoutOffering(studentReq, {
@@ -472,12 +510,12 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       assert.equal(retryRes.order.bankCode, bank.bank_code, "Bank must match stored historical snapshot");
       assert.equal(retryRes.order.accountNumber, bank.account_number, "Account must match stored historical snapshot");
 
-      // Verify stored order items has strictly 1 item (the snapshot taken at checkout time)
-      const { data: storedOrderItems } = await supabase
+      // Verify stored order items after retry == before retry
+      const { data: storedOrderItemsAfter } = await supabase
         .from("order_items")
         .select("id, canonical_course_id")
         .eq("order_id", orderId);
-      assert.equal(storedOrderItems.length, 1, "Order items must reflect immutable snapshot taken at checkout, ignoring post-checkout mutations");
+      assert.deepEqual(storedOrderItemsAfter, storedOrderItemsBefore, "order_items before retry must equal order_items after retry");
 
       // 6.6 Staff Approves Order via application request helper with staff JWT
       const staffReq = {
@@ -515,6 +553,10 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         .eq("id", entList[0].id)
         .single();
       assert.equal(entAfterRefund.status, "revoked");
+
+      // Verify agency readiness confirms true for synthetic tenant
+      const readinessCheck = await verifyAgencyReadiness(syntheticSlug);
+      assert.equal(readinessCheck.ok, true, "verifyAgencyReadiness must be true for synthetic tenant");
     });
 
     // -------------------------------------------------------------------------
@@ -567,6 +609,12 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       }
 
       // Clean up synthetic auth users
+      if (secondCourseId) {
+        try { await supabase.from("canonical_courses").delete().eq("id", secondCourseId); } catch (_) {}
+      }
+      if (ownerUserId) {
+        try { await supabase.auth.admin.deleteUser(ownerUserId); } catch (_) {}
+      }
       if (studentUserId) {
         try { await supabase.auth.admin.deleteUser(studentUserId); } catch (_) {}
       }

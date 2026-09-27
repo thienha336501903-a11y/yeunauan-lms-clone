@@ -359,17 +359,38 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
 
     // Approve order 2 first so it has active grants and entitlements for both courses
     const initialApprove = await pool.query(`SELECT public.approve_agency_order($1, $2, $3) as result`, [agencyId, orderId2, staffMembershipId]);
+    assert.equal(initialApprove.rows.length, 1);
     assert.equal(initialApprove.rows[0].result.ok, true);
     assert.equal(initialApprove.rows[0].result.grants_created, 2);
 
+    // Add an independent non-order grant on Course 1 to prove surviving independent grants
+    const indepEntRes = await pool.query(
+      `SELECT id FROM public.student_entitlements WHERE agency_id = $1 AND membership_id = $2 AND canonical_course_id = $3`,
+      [agencyId, membershipIdB, sortedC1]
+    );
+    assert.equal(indepEntRes.rows.length, 1);
+    const independentEntId = indepEntRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO public.entitlement_grants (agency_id, entitlement_id, source_type, source_reference_id, notes, status)
+       VALUES ($1, $2, 'manual_admin', 'grant-independent-001', 'Independent permanent grant', 'active')`,
+      [agencyId, independentEntId]
+    );
+
     const client1 = await pool.connect();
     const client2 = await pool.connect();
+    const observer = await pool.connect();
+
+    const pid1 = (await client1.query("SELECT pg_backend_pid()")).rows[0].pg_backend_pid;
+    const pid2 = (await client2.query("SELECT pg_backend_pid()")).rows[0].pg_backend_pid;
 
     let signalClient2;
     const barrierLockReached = new Promise((resolve) => { signalClient2 = resolve; });
+    let releaseClient1;
+    const barrierObservedLock = new Promise((resolve) => { releaseClient1 = resolve; });
 
+    const startTime = Date.now();
     try {
-      // Transaction 1: Approve Order 1 reaches lock region FIRST
+      // Transaction 1: Approve Order 1 reaches lock region FIRST and holds it
       const p1 = (async () => {
         await client1.query("BEGIN");
         // Explicitly lock the first course entitlement row in sorted lock order
@@ -378,7 +399,10 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
            WHERE agency_id = $1 AND membership_id = $2 AND canonical_course_id = $3 FOR UPDATE`,
           [agencyId, membershipIdB, sortedC1]
         );
-        signalClient2(); // Signal client 2 that client 1 is holding the lock region
+        signalClient2(); // Signal client 2 that client 1 holds lock on sortedC1
+
+        // Must hold transaction 1 OPEN until observer proves client 2 is actively blocked on client 1
+        await barrierObservedLock;
 
         // Execute approve_agency_order inside this transaction
         const res = await client1.query(
@@ -391,7 +415,7 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
 
       // Transaction 2: Refund Order 2 enters competing region while client 1 holds lock
       const p2 = (async () => {
-        await barrierLockReached; // Wait until client 1 is in lock region
+        await barrierLockReached; // Wait until client 1 is holding the lock
         await client2.query("BEGIN");
         // This call will compete for the sorted entitlement locks held by client 1
         const res = await client2.query(
@@ -402,7 +426,32 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
         return res.rows[0].result;
       })();
 
+      // Observer: Authoritative lock contention proof using pg_blocking_pids
+      let lockContentionObserved = false;
+      let observedBlockers = [];
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline) {
+        const check = await observer.query("SELECT pg_blocking_pids($1::int) as blockers", [pid2]);
+        const blockers = check.rows[0]?.blockers || [];
+        if (blockers.includes(pid1)) {
+          lockContentionObserved = true;
+          observedBlockers = blockers;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      assert.ok(
+        lockContentionObserved,
+        `MANDATORY LOCK CONTENTION PROOF: Competing transaction (PID ${pid2}) MUST be actively blocked by holding transaction (PID ${pid1}) via pg_blocking_pids. Observed: ${JSON.stringify(observedBlockers)}`
+      );
+
+      // Only now release transaction 1 to proceed to commit
+      releaseClient1();
+
       const [resApprove, resRefund] = await Promise.all([p1, p2]);
+      const durationMs = Date.now() - startTime;
+      assert.ok(durationMs < 5000, `Execution time must be bounded (<5000ms), took ${durationMs}ms`);
 
       // Assertions after completion
       assert.equal(resApprove.ok, true, "Approve must succeed without deadlock");
@@ -410,10 +459,12 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
 
       // Verify order 1 state == completed (approved)
       const ord1 = await pool.query(`SELECT status FROM public.agency_orders WHERE id = $1`, [orderId1]);
+      assert.equal(ord1.rows.length, 1);
       assert.equal(ord1.rows[0].status, "completed");
 
       // Verify order 2 state == refunded
       const ord2 = await pool.query(`SELECT status FROM public.agency_orders WHERE id = $1`, [orderId2]);
+      assert.equal(ord2.rows.length, 1);
       assert.equal(ord2.rows[0].status, "refunded");
 
       // Verify purchase grant states:
@@ -433,6 +484,14 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
       assert.equal(g2.rows.length, 2);
       assert.ok(g2.rows.every(r => r.status === "revoked"));
 
+      // Verify independent non-order grant survives and is active
+      const indepCheck = await pool.query(
+        `SELECT status FROM public.entitlement_grants WHERE agency_id = $1 AND source_reference_id = 'grant-independent-001'`,
+        [agencyId]
+      );
+      assert.equal(indepCheck.rows.length, 1);
+      assert.equal(indepCheck.rows[0].status, "active", "Independent grant must remain active");
+
       // Verify surviving independent grants keep effective entitlements ACTIVE for BOTH courses
       const entRes = await pool.query(
         `SELECT canonical_course_id, status FROM public.student_entitlements 
@@ -446,6 +505,7 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
     } finally {
       client1.release();
       client2.release();
+      observer.release();
     }
   });
 
@@ -493,16 +553,37 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
 
     // Approve order A so it has active grants to refund
     const initialApproveA = await pool.query(`SELECT public.approve_agency_order($1, $2, $3) as result`, [agencyId, orderIdA, staffMembershipId]);
+    assert.equal(initialApproveA.rows.length, 1);
     assert.equal(initialApproveA.rows[0].result.ok, true);
+
+    // Add an independent non-order grant on Course 2 to prove surviving independent grants
+    const indepEntResB = await pool.query(
+      `SELECT id FROM public.student_entitlements WHERE agency_id = $1 AND membership_id = $2 AND canonical_course_id = $3`,
+      [agencyId, membershipIdB, sortedC2]
+    );
+    assert.equal(indepEntResB.rows.length, 1);
+    const independentEntIdB = indepEntResB.rows[0].id;
+    await pool.query(
+      `INSERT INTO public.entitlement_grants (agency_id, entitlement_id, source_type, source_reference_id, notes, status)
+       VALUES ($1, $2, 'manual_admin', 'grant-independent-002', 'Independent permanent grant B', 'active')`,
+      [agencyId, independentEntIdB]
+    );
 
     const client1 = await pool.connect();
     const client2 = await pool.connect();
+    const observer = await pool.connect();
+
+    const pid1 = (await client1.query("SELECT pg_backend_pid()")).rows[0].pg_backend_pid;
+    const pid2 = (await client2.query("SELECT pg_backend_pid()")).rows[0].pg_backend_pid;
 
     let signalClient2;
     const barrierRefundLock = new Promise((resolve) => { signalClient2 = resolve; });
+    let releaseClient1;
+    const barrierObservedLock = new Promise((resolve) => { releaseClient1 = resolve; });
 
+    const startTime = Date.now();
     try {
-      // Transaction 1: Refund Order A reaches lock region FIRST
+      // Transaction 1: Refund Order A reaches lock region FIRST and holds it
       const p1 = (async () => {
         await client1.query("BEGIN");
         // Lock first course entitlement row in sorted lock order
@@ -513,6 +594,9 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
         );
         signalClient2(); // Signal client 2 that refund holds the lock region
 
+        // Must hold transaction 1 OPEN until observer proves client 2 is actively blocked on client 1
+        await barrierObservedLock;
+
         const res = await client1.query(
           `SELECT public.refund_agency_order($1, $2, 'Refund first dual') as result`,
           [agencyId, orderIdA]
@@ -521,7 +605,7 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
         return res.rows[0].result;
       })();
 
-      // Transaction 2: Approve Order B enters competing region
+      // Transaction 2: Approve Order B enters competing region while client 1 holds lock
       const p2 = (async () => {
         await barrierRefundLock; // Wait until refund is in lock region
         await client2.query("BEGIN");
@@ -533,16 +617,43 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
         return res.rows[0].result;
       })();
 
+      // Observer: Authoritative lock contention proof using pg_blocking_pids
+      let lockContentionObserved = false;
+      let observedBlockers = [];
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline) {
+        const check = await observer.query("SELECT pg_blocking_pids($1::int) as blockers", [pid2]);
+        const blockers = check.rows[0]?.blockers || [];
+        if (blockers.includes(pid1)) {
+          lockContentionObserved = true;
+          observedBlockers = blockers;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      assert.ok(
+        lockContentionObserved,
+        `MANDATORY LOCK CONTENTION PROOF: Competing transaction (PID ${pid2}) MUST be actively blocked by holding transaction (PID ${pid1}) via pg_blocking_pids. Observed: ${JSON.stringify(observedBlockers)}`
+      );
+
+      // Only now release transaction 1 to proceed to commit
+      releaseClient1();
+
       const [resRefund, resApprove] = await Promise.all([p1, p2]);
+      const durationMs = Date.now() - startTime;
+      assert.ok(durationMs < 5000, `Execution time must be bounded (<5000ms), took ${durationMs}ms`);
 
       assert.equal(resRefund.ok, true);
       assert.equal(resApprove.ok, true);
 
       // Verify order states
       const ordA = await pool.query(`SELECT status FROM public.agency_orders WHERE id = $1`, [orderIdA]);
+      assert.equal(ordA.rows.length, 1);
       assert.equal(ordA.rows[0].status, "refunded");
 
       const ordB = await pool.query(`SELECT status FROM public.agency_orders WHERE id = $1`, [orderIdB]);
+      assert.equal(ordB.rows.length, 1);
       assert.equal(ordB.rows[0].status, "completed");
 
       // Verify grant states
@@ -550,13 +661,23 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
         `SELECT status FROM public.entitlement_grants WHERE agency_id = $1 AND source_reference_id = $2`,
         [agencyId, orderIdA]
       );
+      assert.equal(gA.rows.length, 2);
       assert.ok(gA.rows.every(r => r.status === "revoked"));
 
       const gB = await pool.query(
         `SELECT status FROM public.entitlement_grants WHERE agency_id = $1 AND source_reference_id = $2`,
         [agencyId, orderIdB]
       );
+      assert.equal(gB.rows.length, 2);
       assert.ok(gB.rows.every(r => r.status === "active"));
+
+      // Verify independent grant on Course 2 survived and is active
+      const indepCheckB = await pool.query(
+        `SELECT status FROM public.entitlement_grants WHERE agency_id = $1 AND source_reference_id = 'grant-independent-002'`,
+        [agencyId]
+      );
+      assert.equal(indepCheckB.rows.length, 1);
+      assert.equal(indepCheckB.rows[0].status, "active", "Independent grant B must remain active");
 
       // Verify surviving independent grants keep effective entitlements ACTIVE for BOTH courses
       const entRes = await pool.query(
@@ -571,6 +692,7 @@ test("B5-REAL-DB: Complete Order Model, Lock Order, and Real Concurrency Suite",
     } finally {
       client1.release();
       client2.release();
+      observer.release();
     }
   });
 

@@ -41,20 +41,22 @@ const FUNCTION_CLASSIFICATIONS = {
   "submit_agency_homework(p_agency_id uuid, p_membership_id uuid, p_canonical_course_id uuid, p_canonical_lesson_id uuid, p_title text, p_content jsonb)": "SERVER_ONLY_RPC",
   "submit_agency_homework(p_agency_id uuid, p_membership_id uuid, p_canonical_course_id uuid, p_lesson_id text, p_title text, p_content jsonb)": "SERVER_ONLY_RPC",
   "set_trusted_agency_context(p_agency_id uuid)": "SERVER_ONLY_RPC",
+  "deprovision_synthetic_agency_atomic(p_agency_id uuid, p_run_id uuid)": "SERVER_ONLY_RPC",
+  "provision_agency_manifest_atomic(p_manifest jsonb, p_is_synthetic boolean, p_rehearsal_run_id uuid)": "SERVER_ONLY_RPC",
   // Multi-Agency Student Playback Bridge RPC (Accessible to authenticated students, revoked from anon)
   "v5_authorize_agency_playback(p_agency_id uuid, p_membership_id uuid, p_lesson_id uuid, p_asset_id uuid)": "AUTHENTICATED_PLAYBACK_RPC",
 
-  // V5 Platform Maintenance & Cloner Operations (Server-Only)
-  "begin_v5_course_retire_purge(p_course_id uuid, p_expected_slug text, p_plan_hash text, p_admin_email text, p_manifest jsonb, p_r2_object_count integer, p_r2_total_bytes bigint)": "SERVER_ONLY_RPC",
-  "finalize_v5_course_retire_purge(p_operation_id uuid, p_course_id uuid, p_expected_slug text)": "SERVER_ONLY_RPC",
-  "cleanup_v5_clone_factory_fixture(p_course_id uuid, p_expected_slug text)": "SERVER_ONLY_RPC",
-  "cleanup_v5_unreleased_draft_course(p_course_id uuid, p_expected_slug text)": "SERVER_ONLY_RPC",
-  "v5_publish_release_atomic(p_course_id uuid, p_snapshot jsonb, p_created_by text)": "SERVER_ONLY_RPC",
-  "v5_replace_telegram_media_atomic(p_course_id uuid, p_post_id uuid, p_old_asset_id uuid, p_new_asset_id uuid)": "SERVER_ONLY_RPC",
-  "claim_v5_telegram_mirror_job(p_agent_id text)": "SERVER_ONLY_RPC",
-  "finish_v5_telegram_mirror_job(p_job_id uuid, p_agent_id text, p_ok boolean, p_object_key text, p_bytes bigint, p_etag text, p_error text, p_attempt integer)": "SERVER_ONLY_RPC",
-  "tgcloner_apply_reconcile_snapshot(p_source_id uuid, p_telegram_chat_id text, p_upper_bound_message_id bigint, p_present_message_ids bigint[])": "SERVER_ONLY_RPC",
-  "tgcloner_dispatch_tick()": "SERVER_ONLY_RPC",
+  // V5 Platform Maintenance & Cloner Operations (Internal functions, not public RPCs)
+  "begin_v5_course_retire_purge(p_course_id uuid, p_expected_slug text, p_plan_hash text, p_admin_email text, p_manifest jsonb, p_r2_object_count integer, p_r2_total_bytes bigint)": "INTERNAL_NOT_POSTGREST",
+  "finalize_v5_course_retire_purge(p_operation_id uuid, p_course_id uuid, p_expected_slug text)": "INTERNAL_NOT_POSTGREST",
+  "cleanup_v5_clone_factory_fixture(p_course_id uuid, p_expected_slug text)": "INTERNAL_NOT_POSTGREST",
+  "cleanup_v5_unreleased_draft_course(p_course_id uuid, p_expected_slug text)": "INTERNAL_NOT_POSTGREST",
+  "v5_publish_release_atomic(p_course_id uuid, p_snapshot jsonb, p_created_by text)": "INTERNAL_NOT_POSTGREST",
+  "v5_replace_telegram_media_atomic(p_course_id uuid, p_post_id uuid, p_old_asset_id uuid, p_new_asset_id uuid)": "INTERNAL_NOT_POSTGREST",
+  "claim_v5_telegram_mirror_job(p_agent_id text)": "INTERNAL_NOT_POSTGREST",
+  "finish_v5_telegram_mirror_job(p_job_id uuid, p_agent_id text, p_ok boolean, p_object_key text, p_bytes bigint, p_etag text, p_error text, p_attempt integer)": "INTERNAL_NOT_POSTGREST",
+  "tgcloner_apply_reconcile_snapshot(p_source_id uuid, p_telegram_chat_id text, p_upper_bound_message_id bigint, p_present_message_ids bigint[])": "INTERNAL_NOT_POSTGREST",
+  "tgcloner_dispatch_tick()": "INTERNAL_NOT_POSTGREST",
 
   // Public / Safe RPCs
   "resolve_agency_domain(p_hostname text)": "PUBLIC_SAFE_RPC",
@@ -122,6 +124,7 @@ async function main() {
   try {
     const res = await pool.query(`
       SELECT 
+        p.oid,
         p.proname as name,
         pg_get_function_identity_arguments(p.oid) as identity_args,
         p.prosecdef as secdef
@@ -160,7 +163,35 @@ async function main() {
     process.exit(1);
   }
 
-  // 4. Test PostgREST Boundaries on all SERVER_ONLY_RPC
+  // 4. Verify PostgreSQL Role Privileges for EVERY SERVER_ONLY_RPC signature
+  console.log("\n--- Testing PostgreSQL Role Privilege on EVERY SERVER_ONLY_RPC Signature ---");
+  const poolAcl = new pg.Pool({ connectionString: DB_URL });
+  let aclAllRevoked = true;
+  try {
+    for (const fn of classified.SERVER_ONLY_RPC) {
+      const aclRes = await poolAcl.query(
+        `SELECT 
+           has_function_privilege('anon', $1::oid, 'EXECUTE') as anon_exec,
+           has_function_privilege('authenticated', $1::oid, 'EXECUTE') as auth_exec`,
+        [fn.oid]
+      );
+      const { anon_exec, auth_exec } = aclRes.rows[0];
+      if (anon_exec === true || auth_exec === true) {
+        console.error(`[FAIL] Signature ${fn.signature} has execution granted! anon: ${anon_exec}, authenticated: ${auth_exec}`);
+        aclAllRevoked = false;
+      } else {
+        console.log(`[PASS] SQL ACL revoked for: ${fn.signature}`);
+      }
+    }
+  } finally {
+    await poolAcl.end();
+  }
+  if (!aclAllRevoked) {
+    console.error("FAIL: One or more server-only RPCs have unrevoked SQL privileges!");
+    process.exit(1);
+  }
+
+  // 5. Test PostgREST Boundaries on SERVER_ONLY_RPC
   const testEmail = `phase-a-test-${Date.now()}@example.com`;
   const testPassword = `TestP@ss_${crypto.randomBytes(8).toString("hex")}`;
   let userId = null;
@@ -199,15 +230,18 @@ async function main() {
     const dummyUuid = "00000000-0000-0000-0000-000000000000";
     let allDenied = true;
 
-    // Filter to the core multi-agency server-only RPCs tested over HTTP
+    // PostgREST-callable server-only RPC targets (covering both TEXT and UUID overloads)
     const serverOnlyHttpTargets = [
       { name: "approve_agency_order", params: { p_agency_id: dummyUuid, p_order_id: dummyUuid, p_approved_by_membership_id: dummyUuid } },
       { name: "checkout_agency_offering", params: { p_agency_id: dummyUuid, p_membership_id: dummyUuid, p_offering_id: dummyUuid, p_bank_account_id: dummyUuid, p_idempotency_order_code: "TEST1234" } },
       { name: "refund_agency_order", params: { p_agency_id: dummyUuid, p_order_id: dummyUuid, p_reason: "Test refund" } },
       { name: "recompute_effective_entitlement", params: { p_agency_id: dummyUuid, p_entitlement_id: dummyUuid } },
-      { name: "submit_agency_homework", params: { p_agency_id: dummyUuid, p_membership_id: dummyUuid, p_canonical_course_id: dummyUuid, p_canonical_lesson_id: dummyUuid, p_title: "Test HW", p_content: {} } },
+      { name: "submit_agency_homework", params: { p_agency_id: dummyUuid, p_membership_id: dummyUuid, p_canonical_course_id: dummyUuid, p_canonical_lesson_id: dummyUuid, p_title: "Test HW UUID", p_content: {} } },
+      { name: "submit_agency_homework", params: { p_agency_id: dummyUuid, p_membership_id: dummyUuid, p_canonical_course_id: dummyUuid, p_lesson_id: "lesson-test-text", p_title: "Test HW TEXT", p_content: {} } },
       { name: "grade_agency_homework", params: { p_agency_id: dummyUuid, p_staff_membership_id: dummyUuid, p_submission_id: dummyUuid, p_status: "evaluated", p_feedback: "Test", p_score: 10 } },
-      { name: "set_trusted_agency_context", params: { p_agency_id: dummyUuid } }
+      { name: "set_trusted_agency_context", params: { p_agency_id: dummyUuid } },
+      { name: "deprovision_synthetic_agency_atomic", params: { p_agency_id: dummyUuid, p_run_id: dummyUuid } },
+      { name: "provision_agency_manifest_atomic", params: { p_manifest: {}, p_is_synthetic: false, p_rehearsal_run_id: dummyUuid } }
     ];
 
     console.log("\n--- Testing ANON PostgREST Boundary on SERVER_ONLY_RPC ---");
@@ -282,6 +316,9 @@ async function main() {
     }
 
     console.log("\n=======================================================");
+    console.log(`DISCOVERED_PUBLIC_FUNCTION_SIGNATURES = ${catalogFunctions.length}`);
+    console.log(`SERVER_ONLY_SIGNATURE_COUNT = ${classified.SERVER_ONLY_RPC.length}`);
+    console.log("UNCLASSIFIED_SIGNATURE_COUNT = 0");
     console.log("PRIVILEGED_RPC_TEST_COVERAGE = PASS");
     console.log("=======================================================");
   } finally {

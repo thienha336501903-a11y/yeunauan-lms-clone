@@ -19,7 +19,8 @@ import { supabase } from "../utils/supabase.js";
 import { createClient } from "@supabase/supabase-js";
 import {
   applyAgencyProvisioning,
-  deprovisionAgency
+  deprovisionAgency,
+  verifyAgencyReadiness
 } from "../utils/agency-provisioner.js";
 import { requireAgencyMembership } from "../utils/agency-auth.js";
 import {
@@ -33,7 +34,7 @@ import {
 import { _clearTenantCache } from "../utils/tenant-resolver.js";
 
 test("SECOND-TENANT-ISOLATION: Strict Two-Way Request-Bound Boundary Enforcement Across Tenants", async (t) => {
-  const rehearsalRunId = `second-tenant-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const rehearsalRunId = crypto.randomUUID();
   const nonce = Date.now().toString().slice(-6);
   const slugA = `tenant-a-${nonce}`;
   const slugB = `tenant-b-${nonce}`;
@@ -43,29 +44,28 @@ test("SECOND-TENANT-ISOLATION: Strict Two-Way Request-Bound Boundary Enforcement
   const hostB1 = `shop-${slugB}.local`;
   const hostB2 = `lms-${slugB}.local`;
 
-  // Dynamic lookup of existing V5 courses & published releases
-  const { data: v5Configs } = await supabase
-    .from("v5_course_configs")
-    .select("course_id, published_release_id")
-    .eq("status", "published")
-    .limit(2);
+  // Exact two distinct V5 published courses, releases, lessons, and assets
+  const courseIdA = "a645f117-2320-452f-8538-154b80484218";
+  const lessonIdA = "45192be0-e62e-4d88-848e-6e3ea828a75a";
+  const assetIdA = "ab79016b-e024-40f3-8ea1-50962e1c22a5";
 
-  const courseIdA = v5Configs && v5Configs.length > 0 ? v5Configs[0].course_id : null;
-  const courseIdB = v5Configs && v5Configs.length > 1 ? v5Configs[1].course_id : null;
+  const courseIdB = "119bc49d-4227-4dde-af9c-f74a66842497";
+  const lessonIdB = "d2dd9349-e112-44d7-8b8f-848fa3cdb396";
+  const assetIdB = "a9cee883-780e-457b-87a2-0939204f64e5";
 
-  let lessonIdA = null;
-  let lessonIdB = null;
-
-  if (v5Configs && v5Configs.length > 0) {
-    const { data: relA } = await supabase.from("v5_releases").select("snapshot").eq("id", v5Configs[0].published_release_id).maybeSingle();
-    lessonIdA = relA?.snapshot?.lessons?.[0]?.id || "bd6919fd-6778-4ab9-adcd-b42c9e7f3e45";
-  }
-  if (v5Configs && v5Configs.length > 1) {
-    const { data: relB } = await supabase.from("v5_releases").select("snapshot").eq("id", v5Configs[1].published_release_id).maybeSingle();
-    lessonIdB = relB?.snapshot?.lessons?.[0]?.id || "45192be0-e62e-4d88-848e-6e3ea828a75a";
-  }
-  if (!lessonIdA) lessonIdA = "bd6919fd-6778-4ab9-adcd-b42c9e7f3e45";
-  if (!lessonIdB) lessonIdB = "45192be0-e62e-4d88-848e-6e3ea828a75a";
+  // Pre-create Auth owner principals for preflight
+  const ownerAEmail = `admin@${slugA}.local`;
+  const { data: ownerUserA } = await supabase.auth.admin.createUser({
+    email: ownerAEmail,
+    password: `OwnerA_${nonce}!123`,
+    email_confirm: true
+  });
+  const ownerBEmail = `admin@${slugB}.local`;
+  const { data: ownerUserB } = await supabase.auth.admin.createUser({
+    email: ownerBEmail,
+    password: `OwnerB_${nonce}!123`,
+    email_confirm: true
+  });
 
   const manifestA = {
     agency: { slug: slugA, name: "Tenant Alpha Culinary", status: "active" },
@@ -211,7 +211,7 @@ test("SECOND-TENANT-ISOLATION: Strict Two-Way Request-Bound Boundary Enforcement
         async () => {
           await applyAgencyProvisioning(collisionManifest, { isSynthetic: true, rehearsalRunId });
         },
-        /SECURITY VIOLATION: Domain collision detected/
+        /Domain collision detected/
       );
 
       // Verify NO partial agency row was created for Beta!
@@ -381,6 +381,39 @@ test("SECOND-TENANT-ISOLATION: Strict Two-Way Request-Bound Boundary Enforcement
       assert.ok(Array.isArray(listB));
       assert.ok(listB.length >= 1);
       assert.equal(listB[0].agency_id, agencyIdB);
+
+      // Verify both tenants pass readiness gates
+      const readyA = await verifyAgencyReadiness(slugA);
+      assert.equal(readyA.ok, true, "Alpha tenant must pass verifyAgencyReadiness");
+      const readyB = await verifyAgencyReadiness(slugB);
+      assert.equal(readyB.ok, true, "Beta tenant must pass verifyAgencyReadiness");
+
+      // Positive Playback Authorization with valid current-release assets
+      const authUserClientA = createClient(
+        process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${userJwtA}` } } }
+      );
+      const positivePlaybackA = await authUserClientA.rpc("v5_authorize_agency_playback", {
+        p_agency_id: agencyIdA,
+        p_membership_id: memberIdA,
+        p_lesson_id: canonicalLessonIdA,
+        p_asset_id: assetIdA
+      });
+      assert.equal(positivePlaybackA.data?.authorized, true, "Student A on Tenant A with valid asset must be authorized");
+
+      const authUserClientB = createClient(
+        process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${userJwtB}` } } }
+      );
+      const positivePlaybackB = await authUserClientB.rpc("v5_authorize_agency_playback", {
+        p_agency_id: agencyIdB,
+        p_membership_id: memberIdB,
+        p_lesson_id: canonicalLessonIdB,
+        p_asset_id: assetIdB
+      });
+      assert.equal(positivePlaybackB.data?.authorized, true, "Student B on Tenant B with valid asset must be authorized");
     });
 
     // -------------------------------------------------------------------------
@@ -423,22 +456,35 @@ test("SECOND-TENANT-ISOLATION: Strict Two-Way Request-Bound Boundary Enforcement
       assert.equal(crossOrderB.ok, false);
       assert.equal(crossOrderB.status, 403);
 
-      // 6.3 Cross-tenant Playback RPC denial (A cannot playback B lesson; B cannot playback A lesson)
-      const crossPlaybackA = await supabase.rpc("v5_authorize_agency_playback", {
+      // 6.3 Cross-tenant Playback RPC denial with VALID current-release assets
+      const authUserClientA = createClient(
+        process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${userJwtA}` } } }
+      );
+      const authUserClientB = createClient(
+        process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${userJwtB}` } } }
+      );
+
+      // Student A attempting to playback Tenant B's REAL valid asset on Tenant B -> DENIED
+      const crossPlaybackA = await authUserClientA.rpc("v5_authorize_agency_playback", {
         p_agency_id: agencyIdB,
         p_membership_id: memberIdA,
         p_lesson_id: canonicalLessonIdB,
-        p_asset_id: crypto.randomUUID()
+        p_asset_id: assetIdB
       });
-      assert.equal(crossPlaybackA.data.authorized, false);
+      assert.equal(crossPlaybackA.data?.authorized, false, "Cross-tenant playback A on B must be denied");
 
-      const crossPlaybackB = await supabase.rpc("v5_authorize_agency_playback", {
+      // Student B attempting to playback Tenant A's REAL valid asset on Tenant A -> DENIED
+      const crossPlaybackB = await authUserClientB.rpc("v5_authorize_agency_playback", {
         p_agency_id: agencyIdA,
         p_membership_id: memberIdB,
         p_lesson_id: canonicalLessonIdA,
-        p_asset_id: crypto.randomUUID()
+        p_asset_id: assetIdA
       });
-      assert.equal(crossPlaybackB.data.authorized, false);
+      assert.equal(crossPlaybackB.data?.authorized, false, "Cross-tenant playback B on A must be denied");
 
       // 6.4 Cross-tenant Homework denial
       // A cannot submit homework to B
