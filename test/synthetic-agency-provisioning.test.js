@@ -64,9 +64,8 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       v5LessonId = v5Rel.snapshot.lessons[0].id;
     }
   }
-  if (!v5LessonId) {
-    v5LessonId = "bd6919fd-6778-4ab9-adcd-b42c9e7f3e45";
-  }
+  assert.ok(realCourseId, "Isolated fixture database must contain at least one published V5 course config");
+  assert.ok(v5LessonId, "Published V5 release fixture must contain a real lesson ID");
 
   const ownerEmail = `owner@${syntheticSlug}.local`;
   const ownerPassword = `OwnerPass_${nonce}!123`;
@@ -226,6 +225,29 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
           environment_fingerprint: "forbidden"
         });
       assert.ok(directFixtureInsertError, "Direct service_role fixture registry INSERT must be denied");
+
+      // Even the database owner cannot mutate authority fields: the trigger is
+      // the second enforcement layer beneath table ACLs.
+      const ownerDb = new pg.Client({ connectionString: process.env.PRE_M0C_TEST_DATABASE_URL });
+      await ownerDb.connect();
+      try {
+        await assert.rejects(
+          ownerDb.query(
+            "UPDATE public.agency_test_fixtures SET run_id = $1 WHERE agency_id = $2",
+            [crypto.randomUUID(), agencyId]
+          ),
+          /Immutable authority.*run_id/i
+        );
+        await assert.rejects(
+          ownerDb.query(
+            "UPDATE public.agency_test_fixtures SET environment_fingerprint = $1 WHERE agency_id = $2",
+            ["tampered-fingerprint", agencyId]
+          ),
+          /Immutable authority.*environment_fingerprint/i
+        );
+      } finally {
+        await ownerDb.end();
+      }
     });
 
     // -------------------------------------------------------------------------
@@ -286,6 +308,18 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         homework_variant: "photo_submission",
         feature_flags: { synthetic_rehearsal: false }
       });
+
+      // Database ACL must forbid retroactively registering an ordinary Agency
+      // as a synthetic fixture through direct service_role table DML.
+      const { error: retroFixtureErr } = await supabase
+        .from("agency_test_fixtures")
+        .insert({
+          agency_id: normAg.id,
+          run_id: crypto.randomUUID(),
+          created_by_tool: "retroactive-forbidden",
+          environment_fingerprint: process.env.PRE_M0C_TEST_ENVIRONMENT_FINGERPRINT
+        });
+      assert.ok(retroFixtureErr, "Direct service_role retroactive fixture registration must be denied");
 
       // 2. Caller attempting to pass --synthetic on existing non-synthetic agency must be DENIED
       const normalManifest = JSON.parse(JSON.stringify(syntheticManifest));
