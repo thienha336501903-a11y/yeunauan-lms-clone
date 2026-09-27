@@ -765,16 +765,48 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       assert.notEqual(newDefault.id, bankAccountId);
       assert.notEqual(newDefault.account_number, historicalOrder.accountNumber);
 
-      // (3) Offering items - use a second VALID existing canonical course
-      const { data: secondCcList } = await supabase
+      // (3) Offering items - choose a second canonical course only after
+      // proving its V5 current-release + lesson readiness.
+      const { data: secondCcCandidates, error: secondCcErr } = await supabase
         .from("canonical_courses")
-        .select("id")
+        .select("id, code, course_id")
         .not("course_id", "is", null)
         .eq("status", "published")
         .neq("code", `CANONICAL-${syntheticSlug}`)
-        .limit(1);
-      assert.ok(secondCcList && secondCcList.length > 0, "Must have an existing second canonical course");
-      secondCourseId = secondCcList[0].id;
+        .limit(20);
+      assert.ifError(secondCcErr);
+
+      let secondReadyCourse = null;
+      for (const candidate of secondCcCandidates || []) {
+        const [{ data: cfg }, { data: lessons }] = await Promise.all([
+          supabase
+            .from("v5_course_configs")
+            .select("published_release_id, status")
+            .eq("course_id", candidate.course_id)
+            .eq("status", "published")
+            .maybeSingle(),
+          supabase
+            .from("canonical_lessons")
+            .select("id, v5_lesson_id")
+            .eq("canonical_course_id", candidate.id)
+            .not("v5_lesson_id", "is", null)
+            .limit(1)
+        ]);
+        if (!cfg?.published_release_id || !lessons?.length) continue;
+        const { data: release } = await supabase
+          .from("v5_releases")
+          .select("id, status")
+          .eq("id", cfg.published_release_id)
+          .eq("course_id", candidate.course_id)
+          .eq("status", "published")
+          .maybeSingle();
+        if (release) {
+          secondReadyCourse = candidate;
+          break;
+        }
+      }
+      assert.ok(secondReadyCourse, "Must have a second canonical course with valid current published V5 release and lesson mapping");
+      secondCourseId = secondReadyCourse.id;
 
       const { data: insItem, error: insItemErr } = await supabase.from("agency_offering_items").insert({
         agency_id: agencyId,
