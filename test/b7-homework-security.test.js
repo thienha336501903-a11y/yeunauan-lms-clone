@@ -65,8 +65,14 @@ test("B7.HOMEWORK-1: Untrusted caller-provided membership context is strictly re
   );
 });
 
-test("B7.HOMEWORK-2: Direct PostgREST table write is REVOKED for authenticated users", async () => {
-  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) return;
+test("B7.HOMEWORK-2: Direct PostgREST table write is REVOKED for authenticated users", async (t) => {
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
+    if (process.env.CI || process.env.REQUIRE_INTEGRATION_TESTS === "true") {
+      assert.fail("MISSING_ENVIRONMENT: SUPABASE_URL, ANON_KEY, or SERVICE_KEY missing in CI/gate");
+    }
+    t.skip("SKIP_ENVIRONMENT: Missing required Supabase credentials");
+    return;
+  }
 
   const adminClient = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
@@ -138,6 +144,20 @@ test("B7.HOMEWORK-2: Direct PostgREST table write is REVOKED for authenticated u
       updateError.code === "42501" ||
       updateError.status === 403,
       `Expected permission denied, got: ${updateError.message}`
+    );
+
+    // 3. Direct DELETE -> MUST FAIL
+    const { data: deleteData, error: deleteError } = await authClient
+      .from("agency_homework_submissions")
+      .delete()
+      .eq("id", dummyUuid);
+
+    assert.ok(deleteError, "Direct DELETE by authenticated user must be denied");
+    assert.ok(
+      deleteError.message.includes("permission denied") ||
+      deleteError.code === "42501" ||
+      deleteError.status === 403,
+      `Expected permission denied on DELETE, got: ${deleteError.message}`
     );
   } finally {
     if (userId) {
