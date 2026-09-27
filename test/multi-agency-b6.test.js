@@ -271,7 +271,8 @@ test("B6.4-CROSS-TENANT-PLAYBACK-DENIED: User with entitlement in Agency 1 canno
     },
     query: {
       course: "pho-bo-mastery",
-      asset: "asset-pho-video-01"
+      asset: "asset-pho-video-01",
+      lesson: "lesson-knife-1"
     }
   };
 
