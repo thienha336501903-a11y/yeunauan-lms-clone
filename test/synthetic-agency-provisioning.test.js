@@ -471,6 +471,8 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       }
 
       // 5. TRUE concurrent different-slug race for an initially UNOWNED hostname.
+      // Use two independent PostgreSQL connections and an explicit JS barrier
+      // so both transactions begin the same provisioning call concurrently.
       const raceHost = `race-unowned-${nonce}.local`;
       const raceSlugA = `race-a-${nonce}`;
       const raceSlugB = `race-b-${nonce}`;
@@ -505,10 +507,44 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
         }];
       }
 
-      const raceResults = await Promise.allSettled([
-        applyAgencyProvisioning(raceManifestA, { isSynthetic: true, rehearsalRunId }),
-        applyAgencyProvisioning(raceManifestB, { isSynthetic: true, rehearsalRunId })
-      ]);
+      const racePool = new pg.Pool({ connectionString: process.env.PRE_M0C_TEST_DATABASE_URL, max: 3 });
+      const raceClientA = await racePool.connect();
+      const raceClientB = await racePool.connect();
+      let releaseRace;
+      const raceBarrier = new Promise((resolve) => { releaseRace = resolve; });
+
+      const invokeRace = async (client, manifest) => {
+        await client.query("BEGIN");
+        await client.query("SET LOCAL statement_timeout = '10000ms'");
+        try {
+          await raceBarrier;
+          const out = await client.query(
+            "SELECT public.provision_agency_manifest_atomic($1::jsonb, true, $2::uuid) AS result",
+            [JSON.stringify(manifest), rehearsalRunId]
+          );
+          await client.query("COMMIT");
+          return out.rows[0].result;
+        } catch (error) {
+          try { await client.query("ROLLBACK"); } catch {}
+          throw error;
+        }
+      };
+
+      let raceResults;
+      try {
+        const racePromiseA = invokeRace(raceClientA, raceManifestA);
+        const racePromiseB = invokeRace(raceClientB, raceManifestB);
+        releaseRace();
+        raceResults = await Promise.allSettled([racePromiseA, racePromiseB]);
+      } finally {
+        releaseRace?.();
+        try { await raceClientA.query("ROLLBACK"); } catch {}
+        try { await raceClientB.query("ROLLBACK"); } catch {}
+        raceClientA.release();
+        raceClientB.release();
+        await racePool.end();
+      }
+
       const winners = raceResults.filter((result) => result.status === "fulfilled");
       const losers = raceResults.filter((result) => result.status === "rejected");
       assert.equal(winners.length, 1, "Exactly one race participant must win");
@@ -516,14 +552,18 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       assert.match(String(losers[0].reason?.message || losers[0].reason), /domain_ownership_conflict|Domain collision/i);
 
       const winner = winners[0].value;
-      const loserSlug = winner.slug === raceSlugA ? raceSlugB : raceSlugA;
+      const winnerSlug = winner.slug;
+      const winnerAgencyId = winner.agency_id;
+      const loserManifest = winnerSlug === raceSlugA ? raceManifestB : raceManifestA;
+      const loserSlug = loserManifest.agency.slug;
+
       const { data: raceDomainRows, error: raceDomainErr } = await supabase
         .from("agency_domains")
         .select("agency_id, hostname")
         .eq("hostname", raceHost);
       assert.ifError(raceDomainErr);
       assert.equal(raceDomainRows.length, 1, "Race hostname must exist exactly once");
-      assert.equal(raceDomainRows[0].agency_id, winner.agencyId, "Hostname ownership must remain with winner");
+      assert.equal(raceDomainRows[0].agency_id, winnerAgencyId, "Hostname ownership must remain with winner");
 
       const { data: loserAgency, error: loserAgencyErr } = await supabase
         .from("agencies")
@@ -533,15 +573,17 @@ test("SYNTHETIC-AGENCY-REHEARSAL: Full Lifecycle (Plan -> Apply -> Idempotency/C
       assert.ifError(loserAgencyErr);
       assert.equal(loserAgency, null, "Losing race tenant must leave zero agency rows");
 
-      // Since the atomic transaction rolls back the agency row itself, all
-      // tenant-owned FK rows for the loser must be absent as well.
-      for (const table of ["agency_domains", "agency_ui_profiles", "agency_bank_accounts", "agency_offerings", "agency_memberships", "agency_test_fixtures"]) {
-        const { data, error } = await supabase.from(table).select("agency_id").eq("agency_id", crypto.randomUUID());
-        assert.ifError(error);
-        assert.equal(data.length, 0);
-      }
+      const loserSpecificChecks = await Promise.all([
+        supabase.from("agency_offerings").select("id", { count: "exact", head: true }).eq("slug", loserManifest.offerings[0].slug),
+        supabase.from("agency_bank_accounts").select("id", { count: "exact", head: true }).eq("account_number", loserManifest.bank_accounts[0].account_number),
+        supabase.from("canonical_courses").select("id", { count: "exact", head: true }).eq("code", loserManifest.learning.courses[0].code)
+      ]);
+      for (const check of loserSpecificChecks) assert.ifError(check.error);
+      assert.equal(loserSpecificChecks[0].count || 0, 0, "Loser offering must roll back");
+      assert.equal(loserSpecificChecks[1].count || 0, 0, "Loser bank row must roll back");
+      assert.equal(loserSpecificChecks[2].count || 0, 0, "Loser canonical-course insert must roll back");
 
-      await deprovisionAgency(winner.slug, { confirm: true, rehearsalRunId });
+      await deprovisionAgency(winnerSlug, { confirm: true, rehearsalRunId });
 
     });
 
