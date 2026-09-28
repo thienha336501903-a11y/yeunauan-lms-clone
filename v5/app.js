@@ -273,7 +273,7 @@ function assetHtml(asset, index, total, canonicalLessonId = '') {
     const duration = formatDuration(asset.duration_ms);
     const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id, canonicalLessonId) : '';
     const poster = thumbnail ? `<img class="video-poster-image" loading="lazy" data-v5-image data-src="${esc(thumbnail)}" alt="">` : `<div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>`;
-    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
+    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}" role="button" tabindex="0" aria-label="Phát video">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
   }
   if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
   return `<a class="doc" href="${esc(url)}" target="_blank" rel="noopener"><span class="doc-icon">📄</span><span class="doc-copy"><span class="doc-name">${esc(asset.original_filename || 'Tài liệu')}</span><span class="doc-size">${esc(formatBytes(asset.bytes))} · Mở tài liệu</span></span></a>`;
@@ -585,7 +585,23 @@ function resumeSavedVideo() {
 function openLightbox(source) { $('lightImage').src = source; $('lightbox').classList.add('open'); $('lightbox').setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; }
 function closeLightbox() { $('lightbox').classList.remove('open'); $('lightbox').setAttribute('aria-hidden', 'true'); $('lightImage').removeAttribute('src'); document.body.style.overflow = ''; }
 function wireMedia() {
-  document.querySelectorAll('[data-kind="video"]').forEach(cell => cell.querySelector('[data-v5-start]')?.addEventListener('click', () => startVideo(cell)));
+  document.querySelectorAll('[data-kind="video"]').forEach(cell => {
+    const start = () => startVideo(cell);
+    cell.querySelector('[data-v5-start]')?.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      start();
+    });
+    cell.addEventListener('click', event => {
+      if (event.target.closest('[data-v5-start]')) return;
+      start();
+    });
+    cell.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      start();
+    });
+  });
   document.querySelectorAll('[data-kind="image"]').forEach(cell => cell.addEventListener('click', async () => {
     try { await ensureMediaWorker(); openLightbox(cell.dataset.src); } catch {}
   }));
