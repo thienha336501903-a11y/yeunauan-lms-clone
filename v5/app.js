@@ -19,13 +19,23 @@ const playbackDebug = new URLSearchParams(location.search).get('v5debug') === '1
 let playbackDebugPanel = null;
 let playbackDebugStartedAt = null;
 let playbackDebugEntries = [];
+let playbackDebugState = {};
 
 function tracePlayback(stage, detail = {}) {
   if (!playbackDebug) return;
   if (stage === 'start') {
     playbackDebugStartedAt = performance.now();
     playbackDebugEntries = [];
+    playbackDebugState = { play: 'pending', metadata: false, playing: false, advanced: false, requests: 0 };
   }
+  if (stage === 'play resolved' || stage === 'retry resolved') playbackDebugState.play = 'resolved';
+  if (stage === 'play rejected' || stage === 'retry rejected') playbackDebugState.play = `rejected:${detail.name}`;
+  if (stage === 'video loadedmetadata') playbackDebugState.metadata = true;
+  if (stage === 'video playing') playbackDebugState.playing = true;
+  if (stage === 'video advanced') playbackDebugState.advanced = true;
+  if (stage === 'SW fetch') playbackDebugState.requests += 1;
+  if (stage === 'SW upstream response') playbackDebugState.upstream = `${detail.status} ${detail.range || ''}`;
+  if (stage === 'video after 10s' || stage === 'video after 20s') playbackDebugState[stage.slice(6)] = detail;
   if (!playbackDebugPanel) {
     playbackDebugPanel = document.createElement('div');
     playbackDebugPanel.setAttribute('aria-label', 'Chẩn đoán phát video V5');
@@ -35,10 +45,11 @@ function tracePlayback(stage, detail = {}) {
   }
   const elapsed = playbackDebugStartedAt === null ? '-' : `${Math.round(performance.now() - playbackDebugStartedAt)}ms`;
   playbackDebugEntries.push(`${elapsed} ${stage} ${JSON.stringify(detail)}`);
-  const lines = playbackDebugEntries.length > 17
-    ? [...playbackDebugEntries.slice(0, 11), `... ${playbackDebugEntries.length - 16} events ...`, ...playbackDebugEntries.slice(-5)]
+  const lines = playbackDebugEntries.length > 13
+    ? [...playbackDebugEntries.slice(0, 8), `... ${playbackDebugEntries.length - 12} events ...`, ...playbackDebugEntries.slice(-4)]
     : playbackDebugEntries;
-  playbackDebugPanel.textContent = `V5 playback diagnostic (không chứa token)\n${lines.join('\n')}`;
+  const state = playbackDebugState;
+  playbackDebugPanel.textContent = `V5 playback diagnostic (không chứa token)\nplay=${state.play} metadata=${state.metadata} playing=${state.playing} advanced=${state.advanced} requests=${state.requests}\n10s=${JSON.stringify(state['after 10s'] || null)} 20s=${JSON.stringify(state['after 20s'] || null)}\nupstream=${state.upstream || '-'}\n${lines.join('\n')}`;
 }
 
 function playbackSnapshot(video) {
