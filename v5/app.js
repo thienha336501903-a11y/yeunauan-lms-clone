@@ -41,6 +41,18 @@ function tracePlayback(stage, detail = {}) {
   playbackDebugPanel.textContent = `V5 playback diagnostic (không chứa token)\n${lines.join('\n')}`;
 }
 
+function playbackSnapshot(video) {
+  const time = video.currentTime;
+  let bufferedAhead = 0;
+  for (let i = 0; i < video.buffered.length; i++) {
+    if (video.buffered.start(i) <= time && video.buffered.end(i) >= time) {
+      bufferedAhead = video.buffered.end(i) - time;
+      break;
+    }
+  }
+  return { time: Math.round(time * 10) / 10, bufferedAhead: Math.round(bufferedAhead * 10) / 10, paused: video.paused, ready: video.readyState, network: video.networkState, error: video.error?.code || 0 };
+}
+
 if (playbackDebug && 'serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data?.type === 'v5-playback-diagnostic') tracePlayback(`SW ${event.data.stage}`, event.data.detail);
@@ -584,6 +596,17 @@ async function startVideo(cell, { resume = false } = {}) {
     video.addEventListener('contextmenu', event => event.preventDefault());
     if (playbackDebug) for (const name of ['loadstart', 'loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'suspend', 'error', 'pause']) {
       video.addEventListener(name, () => tracePlayback(`video ${name}`, { ready: video.readyState, network: video.networkState, error: video.error?.code || 0 }));
+    }
+    if (playbackDebug) {
+      let advanced = false;
+      video.addEventListener('timeupdate', () => {
+        if (!advanced && video.currentTime > .25) {
+          advanced = true;
+          tracePlayback('video advanced', playbackSnapshot(video));
+        }
+      });
+      setTimeout(() => { if (video.isConnected) tracePlayback('video after 10s', playbackSnapshot(video)); }, 10000);
+      setTimeout(() => { if (video.isConnected) tracePlayback('video after 20s', playbackSnapshot(video)); }, 20000);
     }
     if (resumeAt > .5) video.addEventListener('loadedmetadata', () => {
       const target = Math.min(resumeAt, Math.max(0, video.duration - 1));
