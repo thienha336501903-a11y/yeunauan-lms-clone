@@ -650,7 +650,14 @@ async function load() {
   try {
     const response = await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(activeCourse)}`, { cache: 'no-store', credentials: 'include' });
     const payload = await response.json().catch(() => ({}));
-    if (response.status === 401) { location.replace(`/v3?return=v5&course=${encodeURIComponent(activeCourse)}`); return; }
+    if (response.status === 401) {
+      const params = new URLSearchParams({
+        course: activeCourse,
+        return: 'v5'
+      });
+      location.replace(`/my-courses.html?${params.toString()}`);
+      return;
+    }
     if (!response.ok || !payload.success) throw new Error(payload.error || `HTTP ${response.status}`);
     render(payload);
   } catch (error) { $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`; }
