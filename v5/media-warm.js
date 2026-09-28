@@ -22,7 +22,8 @@ async function mediaController() {
 
 async function warmLease(cell) {
   const assetId = String(cell?.dataset?.assetId || '').trim();
-  if (!assetId || warmed.has(assetId)) return true;
+  const lessonId = String(cell?.dataset?.canonicalLessonId || '').trim();
+  if (!assetId || !lessonId || warmed.has(assetId)) return true;
   if (warming.has(assetId)) return warming.get(assetId);
 
   const request = (async () => {
@@ -33,7 +34,7 @@ async function warmLease(cell) {
     // in-memory cache. This never fetches media bytes; it only moves the
     // existing short V5 lease work ahead of the user's Play tap.
     if (typeof MessageChannel === 'undefined') {
-      controller.postMessage({ type: WARM_MESSAGE, course: COURSE, assetId });
+      controller.postMessage({ type: WARM_MESSAGE, course: COURSE, lessonId, assetId });
       warmed.add(assetId);
       cell.dataset.v5LeaseReady = '1';
       return true;
@@ -47,7 +48,7 @@ async function warmLease(cell) {
         resolve(event.data?.ok === true);
       };
     });
-    controller.postMessage({ type: WARM_MESSAGE, course: COURSE, assetId }, [channel.port2]);
+    controller.postMessage({ type: WARM_MESSAGE, course: COURSE, lessonId, assetId }, [channel.port2]);
     const ok = await acknowledged;
     if (ok) {
       warmed.add(assetId);
