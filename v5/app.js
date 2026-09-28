@@ -566,6 +566,7 @@ async function startVideo(cell, { resume = false } = {}) {
     });
     video.addEventListener('playing', () => {
       cell.dataset.loading = '';
+      cell.dataset.playRetry = '';
       if (!resume && unfinishedVideo(videoProgress) && String(videoProgress.assetId) === String(cell.dataset.assetId)) clearVideoProgress(cell.dataset.assetId);
     }, { once: true });
     cell.replaceChildren(video);
@@ -574,7 +575,10 @@ async function startVideo(cell, { resume = false } = {}) {
     markSeen(targetId);
     video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
     const playAttempt = video.play();
-    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => { cell.dataset.loading = ''; });
+    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+      cell.dataset.loading = '';
+      cell.dataset.playRetry = '1';
+    });
   } catch (error) {
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
@@ -603,18 +607,30 @@ function closeLightbox() { $('lightbox').classList.remove('open'); $('lightbox')
 function wireMedia() {
   document.querySelectorAll('[data-kind="video"]').forEach(cell => {
     const start = () => startVideo(cell);
+    const retry = () => {
+      const video = cell.querySelector('video');
+      if (!video || cell.dataset.playRetry !== '1') return false;
+      cell.dataset.loading = '1';
+      const playAttempt = video.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+        cell.dataset.loading = '';
+        cell.dataset.playRetry = '1';
+      });
+      return true;
+    };
     cell.querySelector('[data-v5-start]')?.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
       start();
     });
     cell.addEventListener('click', event => {
-      if (event.target.closest('[data-v5-start]') || cell.querySelector('video')) return;
+      if (event.target.closest('[data-v5-start]')) return;
+      if (cell.querySelector('video')) { retry(); return; }
       start();
     });
     cell.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
-      if (cell.querySelector('video')) return;
+      if (cell.querySelector('video')) { retry(); return; }
       event.preventDefault();
       start();
     });
