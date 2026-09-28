@@ -609,11 +609,12 @@ function wireMedia() {
       start();
     });
     cell.addEventListener('click', event => {
-      if (event.target.closest('[data-v5-start]')) return;
+      if (event.target.closest('[data-v5-start]') || cell.querySelector('video')) return;
       start();
     });
     cell.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (cell.querySelector('video')) return;
       event.preventDefault();
       start();
     });
