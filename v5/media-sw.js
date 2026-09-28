@@ -43,8 +43,8 @@ async function proofIdentity() {
   return proofIdentityPromise;
 }
 
-function cacheKey(course, assetId) {
-  return `${course}:${assetId}`;
+function cacheKey(course, lessonId, assetId) {
+  return `${course}:${lessonId || ''}:${assetId}`;
 }
 
 function playbackRange(rawRange, mimeType, method = "GET") {
@@ -85,8 +85,9 @@ function playbackRange(rawRange, mimeType, method = "GET") {
   return isVideo ? `bytes=0-${STARTUP_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
-async function issueLease(course, assetId) {
+async function issueLease(course, lessonId, assetId) {
   const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
+  if (lessonId) params.set("lesson", lessonId);
   const proof = await proofIdentity();
   const response = await fetch(`/api/lms/portal?${params}`, {
     method: "GET",
@@ -109,13 +110,13 @@ async function issueLease(course, assetId) {
   };
 }
 
-async function fetchLease(course, assetId, force = false) {
-  const key = cacheKey(course, assetId);
+async function fetchLease(course, lessonId, assetId, force = false) {
+  const key = cacheKey(course, lessonId, assetId);
   const current = leases.get(key);
   if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
   if (!force && leaseRequests.has(key)) return leaseRequests.get(key);
 
-  const request = issueLease(course, assetId).then(lease => {
+  const request = issueLease(course, lessonId, assetId).then(lease => {
     leases.set(key, lease);
     return lease;
   });
@@ -170,14 +171,14 @@ async function upstreamRequest(request, lease) {
   });
 }
 
-async function proxyMedia(request, course, assetId) {
+async function proxyMedia(request, course, lessonId, assetId) {
   try {
-    let lease = await fetchLease(course, assetId, false);
+    let lease = await fetchLease(course, lessonId, assetId, false);
     let upstream = await upstreamRequest(request, lease);
 
     if ([401, 403, 410].includes(upstream.status)) {
-      leases.delete(cacheKey(course, assetId));
-      lease = await fetchLease(course, assetId, true);
+      leases.delete(cacheKey(course, lessonId, assetId));
+      lease = await fetchLease(course, lessonId, assetId, true);
       upstream = await upstreamRequest(request, lease);
     }
 
@@ -199,10 +200,11 @@ self.addEventListener("message", event => {
   const data = event.data || {};
   if (data.type !== "v5-warm-lease") return;
   const course = clean(data.course);
+  const lessonId = clean(data.lessonId);
   const assetId = clean(data.assetId);
-  if (!course || !assetId) return;
+  if (!course || !lessonId || !assetId) return;
   const reply = event.ports?.[0] || null;
-  const task = fetchLease(course, assetId, false)
+  const task = fetchLease(course, lessonId, assetId, false)
     .then(() => { try { reply?.postMessage({ ok: true }); } catch {} })
     .catch(error => { try { reply?.postMessage({ ok: false, status: Number(error?.status || 0) }); } catch {} });
   event.waitUntil(task);
@@ -217,9 +219,10 @@ self.addEventListener("fetch", event => {
   }
   const assetId = decodeURIComponent(url.pathname.slice(MEDIA_PREFIX.length)).trim();
   const course = clean(url.searchParams.get("course"));
-  if (!assetId || !course) {
+  const lessonId = clean(url.searchParams.get("lesson"));
+  if (!assetId || !course || !lessonId) {
     event.respondWith(new Response("Missing V5 media identity", { status: 400 }));
     return;
   }
-  event.respondWith(proxyMedia(event.request, course, assetId));
+  event.respondWith(proxyMedia(event.request, course, lessonId, assetId));
 });
