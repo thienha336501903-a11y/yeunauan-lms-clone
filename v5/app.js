@@ -17,19 +17,28 @@ let observer = null;
 let mediaWorkerPromise = null;
 const playbackDebug = new URLSearchParams(location.search).get('v5debug') === '1';
 let playbackDebugPanel = null;
+let playbackDebugStartedAt = null;
+let playbackDebugEntries = [];
 
 function tracePlayback(stage, detail = {}) {
   if (!playbackDebug) return;
+  if (stage === 'start') {
+    playbackDebugStartedAt = performance.now();
+    playbackDebugEntries = [];
+  }
   if (!playbackDebugPanel) {
     playbackDebugPanel = document.createElement('div');
     playbackDebugPanel.setAttribute('aria-label', 'Chẩn đoán phát video V5');
-    playbackDebugPanel.style.cssText = 'position:fixed;bottom:5px;left:5px;right:5px;z-index:150;max-height:34vh;overflow:hidden;padding:7px;background:#111e;color:#fff;font:11px/1.35 monospace;pointer-events:none;white-space:pre-wrap;word-break:break-word';
+    playbackDebugPanel.style.cssText = 'position:fixed;bottom:5px;left:5px;right:5px;z-index:150;max-height:55vh;overflow:hidden;padding:7px;background:#111e;color:#fff;font:11px/1.35 monospace;pointer-events:none;white-space:pre-wrap;word-break:break-word';
     playbackDebugPanel.textContent = 'V5 playback diagnostic (không chứa token)\n';
     document.body.append(playbackDebugPanel);
   }
-  const lines = playbackDebugPanel.textContent.split('\n').slice(-17);
-  lines.push(`${new Date().toLocaleTimeString()} ${stage} ${JSON.stringify(detail)}`);
-  playbackDebugPanel.textContent = lines.join('\n');
+  const elapsed = playbackDebugStartedAt === null ? '-' : `${Math.round(performance.now() - playbackDebugStartedAt)}ms`;
+  playbackDebugEntries.push(`${elapsed} ${stage} ${JSON.stringify(detail)}`);
+  const lines = playbackDebugEntries.length > 17
+    ? [...playbackDebugEntries.slice(0, 11), `... ${playbackDebugEntries.length - 16} events ...`, ...playbackDebugEntries.slice(-5)]
+    : playbackDebugEntries;
+  playbackDebugPanel.textContent = `V5 playback diagnostic (không chứa token)\n${lines.join('\n')}`;
 }
 
 if (playbackDebug && 'serviceWorker' in navigator) {
@@ -746,6 +755,7 @@ async function load() {
         course: activeCourse,
         return: 'v5'
       });
+      if (playbackDebug) params.set('v5debug', '1');
       location.replace(`/my-courses.html?${params.toString()}`);
       return;
     }

@@ -27,11 +27,11 @@ test('V5 acceptance: visual mosaics cover 1 through 6+ and video preserves portr
 });
 
 test('V5 acceptance: documents remain separate links and protected media is demand-driven', () => {
-  assert.match(app, /post\.fileAssets\.map\(asset => assetHtml\(asset, 0, 1\)\)/);
+  assert.match(app, /post\.fileAssets\.map\(asset => assetHtml\(asset, 0, 1, canonicalLessonId\)\)/);
   assert.match(app, /return `<a class="doc" href=/);
   assert.match(app, /video\.controls = true; video\.playsInline = true; video\.preload = 'none'/);
   assert.doesNotMatch(app, /nofullscreen/);
-  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId\)/);
+  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId, cell\.dataset\.canonicalLessonId \|\| ''\)/);
 });
 
 test('V5 acceptance: search, outline bottom sheet, progress/resume and lightbox keyboard close are wired', () => {
