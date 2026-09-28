@@ -41,6 +41,11 @@ export default async function handler(req, res) {
 
   // Agency domain route: only allow Agency-authorized endpoints
   if (routeDecision.route === "AGENCY") {
+    // Public OAuth bootstrap config is required before a learner can authenticate
+    // on an Agency host. It exposes only the public Google OAuth client ID.
+    if (endpoint === "public-config") {
+      return publicConfigHandler(req, res);
+    }
     if (endpoint === "health") {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
