@@ -6,7 +6,7 @@
 import { supabase as defaultSupabase } from "./supabase.js";
 import { resolveTenant, getTrustedHost } from "./tenant-resolver.js";
 import { requireAgencyMembership, requireAgencyRole } from "./agency-auth.js";
-import { issueV5PlaybackLease } from "./v5-playback-lease.js";
+import { issueV5PlaybackLease, isV5PlaybackConfigured } from "./v5-playback-lease.js";
 import { v5LearnerReleaseContent } from "./v5-release-snapshot.js";
 import { buildV5IntroItems } from "./v5-intro-content.js";
 
@@ -490,11 +490,104 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
       return res.status(404).json({ success: false, code: "v5_release_not_found", error: "Không tìm thấy Release V5." });
     }
 
-    const feed = v5LearnerReleaseContent(release.snapshot);
+    const content = v5LearnerReleaseContent(release.snapshot);
+    if (!content) {
+      return res.status(403).json({
+        success: false,
+        code: "v5_release_invalid",
+        error: "Release V5 hiện tại không hợp lệ."
+      });
+    }
 
+    const { data: canonicalLessons, error: canonicalLessonError } = await client
+      .from("canonical_lessons")
+      .select("id,v5_lesson_id")
+      .eq("canonical_course_id", access.canonicalCourse.id);
+    if (canonicalLessonError) throw canonicalLessonError;
+
+    const canonicalByV5Lesson = new Map(
+      (canonicalLessons || [])
+        .filter((row) => row.v5_lesson_id)
+        .map((row) => [String(row.v5_lesson_id), String(row.id)])
+    );
+
+    const lessons = content.lessons.map((lesson) => ({
+      ...lesson,
+      canonical_lesson_id: canonicalByV5Lesson.get(String(lesson.id)) || null
+    }));
+
+    const playbackConfigured = isV5PlaybackConfigured();
+    let assets = [];
+    if (content.assetIds.length) {
+      const { data: assetRows, error: assetError } = await client
+        .from("v5_media_assets")
+        .select("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height,thumbnail_asset_id")
+        .in("id", content.assetIds)
+        .eq("status", "ready");
+      if (assetError) throw assetError;
+
+      const primaryAssets = assetRows || [];
+      const thumbnailIds = [...new Set(
+        primaryAssets.map((asset) => asset.thumbnail_asset_id).filter(Boolean).map(String)
+      )];
+
+      let thumbnailRows = [];
+      if (thumbnailIds.length) {
+        const { data: rows, error: thumbnailError } = await client
+          .from("v5_media_assets")
+          .select("id,type,provider,r2_object_key,original_filename,bytes,status,mime_type,duration_ms,width,height")
+          .in("id", thumbnailIds)
+          .eq("status", "ready");
+        if (thumbnailError) throw thumbnailError;
+        thumbnailRows = rows || [];
+      }
+
+      const playableThumbnailIds = new Set(
+        thumbnailRows
+          .filter((asset) => asset.provider === "r2" && asset.r2_object_key)
+          .map((asset) => String(asset.id))
+      );
+
+      assets = [...primaryAssets, ...thumbnailRows].map((asset) => ({
+        id: asset.id,
+        type: asset.type,
+        thumbnail_asset_id: playableThumbnailIds.has(String(asset.thumbnail_asset_id || ""))
+          ? asset.thumbnail_asset_id
+          : null,
+        original_filename: asset.original_filename,
+        bytes: asset.bytes,
+        mime_type: asset.mime_type || "",
+        duration_ms: Number(asset.duration_ms || 0),
+        width: Number(asset.width || 0),
+        height: Number(asset.height || 0),
+        playback_ready: Boolean(
+          playbackConfigured &&
+          asset.provider === "r2" &&
+          asset.r2_object_key
+        )
+      }));
+    }
+
+    const authoringMode = content.config?.settings?.authoring_mode || "lesson";
     return res.status(200).json({
       success: true,
-      feed
+      course: {
+        slug: access.canonicalCourse.code,
+        title: access.canonicalCourse.default_title || access.canonicalCourse.code,
+        subtitle: "",
+        imageUrl: access.canonicalCourse.curriculum_metadata?.image_url ||
+          access.canonicalCourse.curriculum_metadata?.imageUrl ||
+          ""
+      },
+      sourceMode: clean(content.config?.source_mode) || "direct",
+      settings: content.config?.settings || { authoring_mode: authoringMode },
+      authoringMode,
+      releaseId: release.id,
+      playbackConfigured,
+      lessons,
+      posts: content.posts,
+      links: content.links,
+      assets
     });
   } catch (error) {
     console.error("[agency-lms-v5-feed]", error);
