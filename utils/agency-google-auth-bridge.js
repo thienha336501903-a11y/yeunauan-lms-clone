@@ -16,6 +16,7 @@
 // - Never exposes service_role credentials to the browser.
 // - Downstream Agency auth still verifies the Supabase session with auth.getUser().
 
+import { createClient } from "@supabase/supabase-js";
 import { supabase as defaultSupabase } from "./supabase.js";
 
 function clean(value) {
@@ -149,7 +150,25 @@ export async function bridgeGoogleAccessTokenToSupabaseSession(req, res, tenant,
     return { ok: false, status: 500, code: "session_mint_failed", error: "Unable to create Supabase authentication session." };
   }
 
-  const { data: verified, error: verifyError } = await client.auth.verifyOtp({
+  // IMPORTANT: redeem the OTP on an isolated Supabase client. Redeeming on
+  // the shared service-role singleton can replace that client's in-memory auth
+  // context with the learner session and make subsequent privileged reads look
+  // like user-scoped/RLS reads.
+  const exchangeUrl = process.env.SUPABASE_URL || "";
+  const exchangeKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  if (!exchangeUrl || !exchangeKey) {
+    return { ok: false, status: 500, code: "session_exchange_not_configured", error: "Supabase Auth exchange is not configured." };
+  }
+
+  const exchangeClient = createClient(exchangeUrl, exchangeKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+
+  const { data: verified, error: verifyError } = await exchangeClient.auth.verifyOtp({
     type: "magiclink",
     token_hash: tokenHash
   });
