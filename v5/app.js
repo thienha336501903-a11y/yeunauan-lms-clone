@@ -20,7 +20,11 @@ function isTimelineMode() {
 }
 const progressKey = () => isTimelineMode() ? `v5_timeline_progress_${activeCourse || 'unknown'}` : `v5_progress_${activeCourse || 'unknown'}`;
 const videoProgressKey = () => `v5_video_progress_${activeCourse || 'unknown'}`;
-const mediaUrl = assetId => `/v5/media/${encodeURIComponent(assetId)}?course=${encodeURIComponent(activeCourse)}`;
+const mediaUrl = (assetId, canonicalLessonId = '') => {
+  const params = new URLSearchParams({ course: activeCourse });
+  if (canonicalLessonId) params.set('lesson', canonicalLessonId);
+  return `/v5/media/${encodeURIComponent(assetId)}?${params.toString()}`;
+};
 
 function linkify(value) {
   return esc(value).replace(/(https?:\/\/[^\s<]+)/gi, match => {
@@ -261,24 +265,25 @@ function renderOutline() {
   }));
 }
 
-function assetHtml(asset, index, total) {
+function assetHtml(asset, index, total, canonicalLessonId = '') {
   if (!asset.playback_ready) return `<div class="unavailable">${esc(asset.original_filename || asset.type)} — media chưa sẵn sàng phát.</div>`;
-  const url = mediaUrl(asset.id);
+  const url = mediaUrl(asset.id, canonicalLessonId);
   const more = total > 6 && index === 5 ? `<span class="more-overlay">+${total - 6}</span>` : '';
   if (asset.type === 'video') {
     const duration = formatDuration(asset.duration_ms);
-    const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id) : '';
+    const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id, canonicalLessonId) : '';
     const poster = thumbnail ? `<img class="video-poster-image" loading="lazy" data-v5-image data-src="${esc(thumbnail)}" alt="">` : `<div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>`;
-    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
+    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
   }
-  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
+  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
   return `<a class="doc" href="${esc(url)}" target="_blank" rel="noopener"><span class="doc-icon">📄</span><span class="doc-copy"><span class="doc-name">${esc(asset.original_filename || 'Tài liệu')}</span><span class="doc-size">${esc(formatBytes(asset.bytes))} · Mở tài liệu</span></span></a>`;
 }
 
 function postHtml(post, lesson, firstPost) {
   const visuals = post.visualAssets.slice(0, 6);
-  const visualHtml = visuals.length ? `<div class="media-grid ${post.mosaic}">${visuals.map((asset, index) => assetHtml(asset, index, post.visualAssets.length)).join('')}</div>` : '';
-  const filesHtml = post.fileAssets.map(asset => assetHtml(asset, 0, 1)).join('');
+  const canonicalLessonId = String(lesson?.canonical_lesson_id || '');
+  const visualHtml = visuals.length ? `<div class="media-grid ${post.mosaic}">${visuals.map((asset, index) => assetHtml(asset, index, post.visualAssets.length, canonicalLessonId)).join('')}</div>` : '';
+  const filesHtml = post.fileAssets.map(asset => assetHtml(asset, 0, 1, canonicalLessonId)).join('');
   const source = post.sourceTitle || data.course?.title || 'Kênh bài học';
   const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
   const showLessonChip = !isTimeline && firstPost;
@@ -551,7 +556,7 @@ async function startVideo(cell, { resume = false } = {}) {
     activeVideo = video;
     const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
     markSeen(targetId);
-    video.src = mediaUrl(cell.dataset.assetId);
+    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
     const playAttempt = video.play();
     if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => { cell.dataset.loading = ''; });
   } catch (error) {
