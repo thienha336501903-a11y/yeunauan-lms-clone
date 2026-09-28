@@ -24,6 +24,7 @@ import {
   handleAgencyV5Play,
   handleAgencyCourseIntro
 } from "../../utils/agency-lms-bridge.js";
+import { bridgeGoogleAccessTokenToSupabaseSession } from "../../utils/agency-google-auth-bridge.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
@@ -63,6 +64,25 @@ export default async function handler(req, res) {
       });
     }
     if (endpoint === "student-dashboard" || endpoint === "learner-dashboard") {
+      // The shared learner page authenticates the human with Google GIS.
+      // Agency authorization itself remains Supabase-session-only: on the
+      // Google callback request, exchange the verified Google identity for a
+      // real Supabase session, then continue through requireAgencyMembership().
+      if (req.method === "POST" && req.body?.accessToken) {
+        const bridge = await bridgeGoogleAccessTokenToSupabaseSession(
+          req,
+          res,
+          routeDecision.tenant,
+          options
+        );
+        if (!bridge.ok) {
+          return res.status(bridge.status || 401).json({
+            success: false,
+            code: bridge.code,
+            error: bridge.error
+          });
+        }
+      }
       return handleAgencyLearnerDashboard(req, res);
     }
     if (endpoint === "v5-feed") {
