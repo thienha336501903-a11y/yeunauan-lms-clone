@@ -14,6 +14,7 @@ let activeSearchResultIndex = -1;
 let activeVideo = null;
 let videoProgress = null;
 let observer = null;
+let mediaWorkerPromise = null;
 
 function isTimelineMode() {
   return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
@@ -492,17 +493,32 @@ function clearSearch() {
   setMobileSearch(false);
 }
 
-async function ensureMediaWorker() {
-  if (!('serviceWorker' in navigator)) throw new Error('Trình duyệt này không hỗ trợ phát media V5 an toàn.');
-  await navigator.serviceWorker.register('/v5/media-sw.js', { scope: '/v5/', updateViaCache: 'none' });
-  await navigator.serviceWorker.ready;
-  if (navigator.serviceWorker.controller) return;
-  await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Không thể kích hoạt bộ phát media V5. Hãy tải lại trang.')), 5000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+function ensureMediaWorker() {
+  if (!('serviceWorker' in navigator)) return Promise.reject(new Error('Trình duyệt này không hỗ trợ phát media V5 an toàn.'));
+  if (mediaWorkerPromise) return mediaWorkerPromise;
+  mediaWorkerPromise = (async () => {
+    await navigator.serviceWorker.register('/v5/media-sw.js', { scope: '/v5/', updateViaCache: 'none' });
+    await navigator.serviceWorker.ready;
+    if (navigator.serviceWorker.controller) return;
+    await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Không thể kích hoạt bộ phát media V5. Hãy tải lại trang.')), 5000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+  })().catch(error => {
+    mediaWorkerPromise = null;
+    throw error;
+  });
+  return mediaWorkerPromise;
 }
 
 async function hydrateProtectedImages() {
   await ensureMediaWorker();
-  document.querySelectorAll('img[data-v5-image][data-src]').forEach(image => {
+  const images = [...document.querySelectorAll('img[data-v5-image][data-src]')];
+  const first = images.find(image => image.closest('[data-kind="image"]')) || images[0];
+  if (first) {
+    first.loading = 'eager';
+    first.fetchPriority = 'high';
+    first.decoding = 'async';
+  }
+  images.forEach(image => {
+    if (image !== first) image.decoding = 'async';
     if (!image.getAttribute('src')) image.setAttribute('src', image.dataset.src);
   });
 }
@@ -664,6 +680,9 @@ async function load() {
   activeCourse = new URLSearchParams(location.search).get('course') || '';
   if (!activeCourse) { $('stateCard').innerHTML = 'Thiếu mã khóa học.<br><a href="/my-courses.html">Về danh sách khóa học</a>'; return; }
   try {
+    // Start protected-media setup in parallel with the feed request so first
+    // viewport images do not wait for SW registration after render.
+    ensureMediaWorker().catch(() => {});
     const response = await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(activeCourse)}`, { cache: 'no-store', credentials: 'include' });
     const payload = await response.json().catch(() => ({}));
     if (response.status === 401) {
