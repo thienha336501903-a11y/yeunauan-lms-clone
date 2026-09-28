@@ -317,17 +317,42 @@ export async function handleAgencyLearnerDashboard(req, res, options = {}) {
     if (entErr) throw entErr;
 
     const courseIds = (entitlements || []).map(e => e.canonical_course_id);
-    let courses = [];
+    let courseRows = [];
     if (courseIds.length > 0) {
-      const { data: courseRows, error: courseErr } = await client
+      const { data, error: courseErr } = await client
         .from("canonical_courses")
-        .select("id, code, default_title, status, curriculum_metadata")
+        .select("id, code, default_title, status, curriculum_metadata, course_id")
         .in("id", courseIds)
         .eq("status", "published");
 
       if (courseErr) throw courseErr;
-      courses = courseRows || [];
+      courseRows = data || [];
     }
+
+    // The shared my-courses / legacy-post UI consumes the historical learner
+    // dashboard shape. Keep Agency authorization canonical, but adapt the
+    // response DTO so an entitled Agency learner can actually enter the V5 UI.
+    const courseById = new Map(courseRows.map((course) => [course.id, course]));
+    const courses = (entitlements || [])
+      .map((entitlement) => {
+        const course = courseById.get(entitlement.canonical_course_id);
+        if (!course) return null;
+        const metadata = course.curriculum_metadata || {};
+        return {
+          id: course.id,
+          slug: course.code,
+          title: course.default_title || course.code,
+          description: metadata.description || "",
+          imageUrl: metadata.image_url || metadata.imageUrl || null,
+          deliveryMode: course.course_id ? "v5" : "lms",
+          state: "ready",
+          createdAt: entitlement.created_at,
+          updatedAt: entitlement.created_at,
+          expiredAt: entitlement.expires_at || null,
+          originalLessonEntryVisible: true
+        };
+      })
+      .filter(Boolean);
 
     const { data: devices, error: devErr } = await client
       .from("student_devices")
@@ -339,6 +364,7 @@ export async function handleAgencyLearnerDashboard(req, res, options = {}) {
 
     return res.status(200).json({
       success: true,
+      email: user.email || "",
       agency: {
         id: tenant.agencyId,
         slug: tenant.agencySlug,
