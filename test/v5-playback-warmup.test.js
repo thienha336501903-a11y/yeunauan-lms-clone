@@ -11,7 +11,7 @@ const worker = fs.readFileSync(new URL('../cloudflare/v5-media-worker/src/index.
 
 test('V5 warms only playback leases before Play and does not preload media bytes', () => {
   assert.match(index, /\/v5\/media-warm\.js/);
-  assert.match(warm, /postMessage\(\{ type: WARM_MESSAGE, course: COURSE, assetId \}/);
+  assert.match(warm, /postMessage\(\{ type: WARM_MESSAGE, course: COURSE, lessonId, assetId \}/);
   assert.match(warm, /rootMargin: '700px 0px'/);
   assert.match(warm, /const IMMEDIATE_WARM_BUDGET = 2/);
   assert.match(warm, /warmFirstVideoCells\(\)/);
@@ -33,7 +33,7 @@ test('V5 service worker prewarms proof identity and deduplicates concurrent leas
   assert.match(sw, /const leaseRequests = new Map\(\)/);
   assert.match(sw, /leaseRequests\.has\(key\)/);
   assert.match(sw, /data\.type !== "v5-warm-lease"/);
-  assert.match(sw, /const task = fetchLease\(course, assetId, false\)/);
+  assert.match(sw, /const task = fetchLease\(course, lessonId, assetId, false\)/);
   assert.match(sw, /reply\?\.postMessage\(\{ ok: true \}\)/);
   assert.match(sw, /event\.waitUntil\(task\)/);
 });

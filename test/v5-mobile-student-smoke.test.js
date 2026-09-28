@@ -13,7 +13,7 @@ test('V5 student renderer keeps the mobile playback contract', () => {
   assert.match(app, /video\.playsInline = true; video\.preload = 'none'/);
   assert.doesNotMatch(app, /<video[^>]+\ssrc=/);
   assert.match(app, /data-v5-start/);
-  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId\)/);
+  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId, cell\.dataset\.canonicalLessonId \|\| ''\)/);
   assert.match(app, /if \(activeVideo\) releaseVideo\(activeVideo\)/);
   assert.match(app, /navigator\.serviceWorker\.register\('\/v5\/media-sw\.js'/);
   assert.match(app, /credentials: 'include'/);
@@ -25,7 +25,7 @@ test('V5 mobile Play keeps the tap activation when the protected-media worker al
   assert.match(start, /if \(!navigator\.serviceWorker\?\.controller\) await ensureMediaWorker\(\)/);
   assert.doesNotMatch(start, /try \{\s*await ensureMediaWorker\(\)/);
   assert.match(start, /video\.src = mediaUrl\(cell\.dataset\.assetId/);
-  assert.match(start, /playAttempt\.catch\(\(\) => \{[\s\S]*cell\.dataset\.playRetry = '1'/);
+  assert.match(start, /playAttempt\.catch\(error => \{[\s\S]*cell\.dataset\.playRetry = '1'/);
 });
 
 test('V5 mobile retry reuses the existing player instead of restarting it', () => {

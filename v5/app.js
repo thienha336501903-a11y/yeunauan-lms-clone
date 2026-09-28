@@ -15,6 +15,28 @@ let activeVideo = null;
 let videoProgress = null;
 let observer = null;
 let mediaWorkerPromise = null;
+const playbackDebug = new URLSearchParams(location.search).get('v5debug') === '1';
+let playbackDebugPanel = null;
+
+function tracePlayback(stage, detail = {}) {
+  if (!playbackDebug) return;
+  if (!playbackDebugPanel) {
+    playbackDebugPanel = document.createElement('div');
+    playbackDebugPanel.setAttribute('aria-label', 'Chẩn đoán phát video V5');
+    playbackDebugPanel.style.cssText = 'position:fixed;bottom:5px;left:5px;right:5px;z-index:150;max-height:34vh;overflow:hidden;padding:7px;background:#111e;color:#fff;font:11px/1.35 monospace;pointer-events:none;white-space:pre-wrap;word-break:break-word';
+    playbackDebugPanel.textContent = 'V5 playback diagnostic (không chứa token)\n';
+    document.body.append(playbackDebugPanel);
+  }
+  const lines = playbackDebugPanel.textContent.split('\n').slice(-17);
+  lines.push(`${new Date().toLocaleTimeString()} ${stage} ${JSON.stringify(detail)}`);
+  playbackDebugPanel.textContent = lines.join('\n');
+}
+
+if (playbackDebug && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type === 'v5-playback-diagnostic') tracePlayback(`SW ${event.data.stage}`, event.data.detail);
+  });
+}
 
 function isTimelineMode() {
   return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
@@ -531,6 +553,7 @@ function releaseVideo(video) {
 }
 
 async function startVideo(cell, { resume = false } = {}) {
+  tracePlayback('start', { controlled: !!navigator.serviceWorker?.controller, activation: navigator.userActivation?.isActive ?? null, leaseReady: cell.dataset.v5LeaseReady === '1', loading: cell.dataset.loading || '', retry: cell.dataset.playRetry || '' });
   if (cell.dataset.loading === '1') return;
   cell.dataset.loading = '1';
   const button = cell.querySelector('[data-v5-start]');
@@ -550,6 +573,9 @@ async function startVideo(cell, { resume = false } = {}) {
     if (posterSource) video.poster = posterSource;
     video.setAttribute('controlsList', 'nodownload noremoteplayback'); video.setAttribute('disableRemotePlayback', '');
     video.addEventListener('contextmenu', event => event.preventDefault());
+    if (playbackDebug) for (const name of ['loadstart', 'loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'suspend', 'error', 'pause']) {
+      video.addEventListener(name, () => tracePlayback(`video ${name}`, { ready: video.readyState, network: video.networkState, error: video.error?.code || 0 }));
+    }
     if (resumeAt > .5) video.addEventListener('loadedmetadata', () => {
       const target = Math.min(resumeAt, Math.max(0, video.duration - 1));
       if (!(target > .5)) return;
@@ -573,13 +599,19 @@ async function startVideo(cell, { resume = false } = {}) {
     activeVideo = video;
     const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
     markSeen(targetId);
-    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
+    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '') + (playbackDebug ? '&v5debug=1' : '');
     const playAttempt = video.play();
-    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
-      cell.dataset.loading = '';
-      cell.dataset.playRetry = '1';
-    });
+    tracePlayback('play called', { controlled: !!navigator.serviceWorker?.controller, activation: navigator.userActivation?.isActive ?? null });
+    if (playAttempt && typeof playAttempt.catch === 'function') {
+      if (playbackDebug) playAttempt.then(() => tracePlayback('play resolved'), () => {});
+      playAttempt.catch(error => {
+        tracePlayback('play rejected', { name: error?.name || 'unknown', ready: video.readyState, network: video.networkState, mediaError: video.error?.code || 0 });
+        cell.dataset.loading = '';
+        cell.dataset.playRetry = '1';
+      });
+    }
   } catch (error) {
+    tracePlayback('start exception', { name: error?.name || 'unknown' });
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
   }
@@ -609,21 +641,28 @@ function wireMedia() {
     const start = () => startVideo(cell);
     const retry = () => {
       const video = cell.querySelector('video');
+      tracePlayback('retry gesture', { hasVideo: !!video, eligible: cell.dataset.playRetry === '1', loading: cell.dataset.loading || '' });
       if (!video || cell.dataset.playRetry !== '1') return false;
       cell.dataset.loading = '1';
       const playAttempt = video.play();
-      if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
-        cell.dataset.loading = '';
-        cell.dataset.playRetry = '1';
-      });
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        if (playbackDebug) playAttempt.then(() => tracePlayback('retry resolved'), () => {});
+        playAttempt.catch(error => {
+          tracePlayback('retry rejected', { name: error?.name || 'unknown', mediaError: video.error?.code || 0 });
+          cell.dataset.loading = '';
+          cell.dataset.playRetry = '1';
+        });
+      }
       return true;
     };
     cell.querySelector('[data-v5-start]')?.addEventListener('click', event => {
+      tracePlayback('button click');
       event.preventDefault();
       event.stopPropagation();
       start();
     });
     cell.addEventListener('click', event => {
+      tracePlayback('cell click', { target: event.target.tagName, hasVideo: !!cell.querySelector('video') });
       if (event.target.closest('[data-v5-start]')) return;
       if (cell.querySelector('video')) { retry(); return; }
       start();
