@@ -24,8 +24,17 @@ test('V5 mobile Play keeps the tap activation when the protected-media worker al
   const start = app.slice(app.indexOf('async function startVideo'), app.indexOf('function openLightbox'));
   assert.match(start, /if \(!navigator\.serviceWorker\?\.controller\) await ensureMediaWorker\(\)/);
   assert.doesNotMatch(start, /try \{\s*await ensureMediaWorker\(\)/);
-  assert.match(start, /video\.src = mediaUrl\(cell\.dataset\.assetId\);\s*const playAttempt = video\.play\(\)/);
-  assert.match(start, /playAttempt\.catch\(\(\) => \{ cell\.dataset\.loading = ''; \}\)/);
+  assert.match(start, /video\.src = mediaUrl\(cell\.dataset\.assetId/);
+  assert.match(start, /playAttempt\.catch\(\(\) => \{[\s\S]*cell\.dataset\.playRetry = '1'/);
+});
+
+test('V5 mobile retry reuses the existing player instead of restarting it', () => {
+  const app = read('v5/app.js');
+  const wire = app.slice(app.indexOf('function wireMedia'), app.indexOf('function wireObservers'));
+  assert.match(wire, /cell\.dataset\.playRetry !== '1'/);
+  assert.match(wire, /const playAttempt = video\.play\(\)/);
+  assert.match(wire, /if \(cell\.querySelector\('video'\)\) \{ retry\(\); return; \}/);
+  assert.doesNotMatch(wire, /releaseVideo\(/);
 });
 
 test('V5 media service worker preserves byte-range playback on mobile browsers', () => {
