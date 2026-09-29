@@ -23,12 +23,14 @@ export const REQUIRED_SURFACES = Object.freeze([
     surface: "storefront",
     description: "Public storefront catalog, offerings, and UI profile resolution",
     entrypoints: [
-      ref("commerce", "api/config.js", ["getAgencyCommerceConfig"])
+      ref("commerce", "api/config.js", ["getAgencyCommerceConfig"]),
+      ref("commerce", "api/hero.js", ["agency_legacy_hero_prohibited"])
     ],
     agencyModules: [
       ref("commerce", "utils/agency-routing.js"),
       ref("commerce", "utils/agency-commerce.js", ["agency_offerings", "agency_bank_accounts"]),
       ref("commerce", "utils/ui-variant-engine.js", ["STOREFRONT"]),
+      ref("commerce", "index.html", ["agency-storefront.html", "/api/hero"]),
       ref("commerce", "agency-storefront.html", ["/api/config", "offerings"])
     ]
   },
@@ -73,7 +75,9 @@ export const REQUIRED_SURFACES = Object.freeze([
     surface: "learning/player",
     description: "Canonical courses & lessons hierarchy, learning UI cinema/card variants",
     entrypoints: [
-      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro", "agency-progress"])
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro", "agency-progress"]),
+      ref("lms", "api/learning.js", ["legacy-post.html"]),
+      ref("lms", "api/legacy-post-redirect.js", ["agency_legacy_post_redirect_prohibited"])
     ],
     agencyModules: [
       ref("lms", "utils/agency-lms-bridge.js", ["canonical_lessons", "v5LearnerReleaseContent"]),
@@ -198,15 +202,16 @@ export function auditFileContent(filePath, content) {
 
 export function traceTransitiveLocalImports(filePath, rootDir, visited = new Set()) {
   const fullPath = path.resolve(rootDir, filePath);
-  if (visited.has(fullPath) || !exists(fullPath)) return visited;
+  if (visited.has(fullPath)) return visited;
   visited.add(fullPath);
+  if (!exists(fullPath)) return visited;
 
   try {
     const content = fs.readFileSync(fullPath, "utf8");
-    const importRegex = /(?:import\s+.*?from\s+["'](\.[^"']+)["']|import\(["'](\.[^"']+)["']\)|from\s+["'](\.[^"']+)["'])/g;
+    const importRegex = /(?:import\s+.*?from\s+["'](\.[^"']+)["']|import\(["'](\.[^"']+)["']\)|from\s+["'](\.[^"']+)["']|import\s+["'](\.[^"']+)["'])/g;
     let match;
     while ((match = importRegex.exec(content)) !== null) {
-      const relPath = match[1] || match[2] || match[3];
+      const relPath = match[1] || match[2] || match[3] || match[4];
       if (!relPath) continue;
 
       const dir = path.dirname(fullPath);
@@ -215,7 +220,7 @@ export function traceTransitiveLocalImports(filePath, rootDir, visited = new Set
         if (exists(resolved + ".js")) resolved += ".js";
         else if (exists(path.join(resolved, "index.js"))) resolved = path.join(resolved, "index.js");
       }
-      if (exists(resolved) && !visited.has(resolved)) {
+      if (!visited.has(resolved)) {
         traceTransitiveLocalImports(path.relative(rootDir, resolved), rootDir, visited);
       }
     }
@@ -379,6 +384,10 @@ export function generateLegacyDependencyMatrix(rootDir = process.cwd()) {
       for (const absolute of traced) {
         const rel = path.relative(repoDir, absolute);
         const tracedKey = fileKey(mod.repo, rel);
+        if (!exists(absolute)) {
+          addMissing(missingEvidence, mod.repo, rel, "missing_import", `Required Agency module import '${rel}' cannot be resolved.`);
+          continue;
+        }
         if (auditedFiles.includes(tracedKey)) continue;
         auditedFiles.push(tracedKey);
         violations.push(...auditFileContent(tracedKey, fs.readFileSync(absolute, "utf8")));

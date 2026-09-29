@@ -1,31 +1,18 @@
 import { cloneConfig } from "../utils/clone-config.js";
-import { resolveTenant } from "../utils/tenant-resolver.js";
-
-async function isAgencyRequest(req, options = {}) {
-  const resolved = await resolveTenant(req, options);
-  if (resolved?.ok && resolved?.tenant?.agencyId) return true;
-  if (Number(resolved?.status || 0) >= 500) {
-    const error = new Error("Agency tenant resolution is unavailable.");
-    error.statusCode = 503;
-    throw error;
-  }
-  return false;
-}
+import { resolveRequestRoute } from "../utils/agency-routing.js";
 
 export default async function handler(req, res) {
-  try {
-    if (await isAgencyRequest(req, req.__options || {})) {
-      return res.status(403).json({
-        success: false,
-        code: "agency_legacy_post_blocked",
-        error: "Legacy post redirect is not available on an Agency domain."
-      });
-    }
-  } catch {
-    return res.status(503).json({
+  const routeDecision = await resolveRequestRoute(req, req.__options || {});
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false, code: routeDecision.code, error: routeDecision.error
+    });
+  }
+  if (routeDecision.route === "AGENCY") {
+    return res.status(404).json({
       success: false,
-      code: "agency_route_check_failed",
-      error: "Unable to validate tenant boundary."
+      code: "agency_legacy_post_redirect_prohibited",
+      error: "Legacy post redirects are unavailable on Agency hosts."
     });
   }
 

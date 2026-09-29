@@ -7,18 +7,7 @@ import {
 import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
 import { grantEnrollment, requireV4Course } from "../utils/lms-handlers/admin-v4-enrollments.js";
 import { cloneConfig } from "../utils/clone-config.js";
-import { resolveTenant } from "../utils/tenant-resolver.js";
-
-async function isAgencyRequest(req, options = {}) {
-  const resolved = await resolveTenant(req, options);
-  if (resolved?.ok && resolved?.tenant?.agencyId) return true;
-  if (Number(resolved?.status || 0) >= 500) {
-    const error = new Error("Agency tenant resolution is unavailable.");
-    error.statusCode = 503;
-    throw error;
-  }
-  return false;
-}
+import { resolveRequestRoute } from "../utils/agency-routing.js";
 
 function v4StudentUrl(courseSlug) {
   return `${cloneConfig().lmsPublicUrl}/v4-entry.html?course=${encodeURIComponent(courseSlug)}`;
@@ -114,19 +103,17 @@ function legacyV5Forbidden(res) {
 }
 
 export default async function handler(req, res) {
-  try {
-    if (await isAgencyRequest(req, req.__options || {})) {
-      return res.status(403).json({
-        success: false,
-        code: "agency_legacy_sync_blocked",
-        error: "Legacy sync is not available on an Agency domain."
-      });
-    }
-  } catch (error) {
-    return res.status(Number(error.statusCode || 503)).json({
+  const routeDecision = await resolveRequestRoute(req, req.__options || {});
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false, code: routeDecision.code, error: routeDecision.error
+    });
+  }
+  if (routeDecision.route === "AGENCY") {
+    return res.status(403).json({
       success: false,
-      code: "agency_route_check_failed",
-      error: "Unable to validate tenant boundary."
+      code: "agency_legacy_sync_blocked",
+      error: "Legacy sync is not available on an Agency domain."
     });
   }
 
