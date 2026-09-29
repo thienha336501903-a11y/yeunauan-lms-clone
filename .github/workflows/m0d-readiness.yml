@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: thienha336501903-a11y/yeunauan-commerce-clone
-          ref: feat/m0d-zero-legacy-verification
+          ref: feat/m0d-zero-legacy-proof
           path: yeunauan-commerce-clone
           persist-credentials: false
 
@@ -46,7 +46,7 @@ jobs:
 
       - name: Commerce Agency auth regression
         working-directory: yeunauan-commerce-clone
-        run: node --test test/agency-google-auth-bridge.test.js
+        run: node --test test/agency-google-auth-bridge.test.js test/m0d-agency-commerce-flow.test.js
 
       - name: LMS auth routing and V5 regression
         working-directory: yeunauan-lms-clone
@@ -58,6 +58,7 @@ jobs:
           node --check yeunauan-lms-clone/api/lms/admin.js
           node --check yeunauan-lms-clone/api/lms/portal.js
           node --check yeunauan-lms-clone/utils/m0d-dependency-checker.js
+          node --check yeunauan-commerce-clone/api/config.js
           node --check yeunauan-commerce-clone/api/register.js
           node --check yeunauan-commerce-clone/api/orders.js
           node --check yeunauan-commerce-clone/utils/agency-google-auth-bridge.js
