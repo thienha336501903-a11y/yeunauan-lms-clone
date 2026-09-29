@@ -15,7 +15,8 @@ const { evaluateCourseDeleteEligibility, invalidateStorageCache } = await import
 const { computeDeletePlanHash } = await import("../utils/lms-handlers/admin-v5-course-delete.js");
 const adminV5CourseDeleteHandler = (await import("../utils/lms-handlers/admin-v5-course-delete.js")).default;
 const { deleteR2Object } = await import("../utils/v5-r2.js");
-const { supabase } = await import("../utils/supabase.js");
+const { getServiceRoleClient } = await import("../utils/supabase.js");
+const supabase = getServiceRoleClient();
 const { createAdminSession } = await import("../utils/lms.js");
 
 const migrationSql = fs.readFileSync(

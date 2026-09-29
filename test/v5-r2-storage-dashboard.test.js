@@ -11,7 +11,8 @@ import fs from "node:fs";
 
 const { parseListBucketResult, isR2Configured } = await import("../utils/v5-r2.js");
 const { getV5StorageSnapshot, invalidateStorageCache } = await import("../utils/v5-course-storage.js");
-const { supabase } = await import("../utils/supabase.js");
+const { getServiceRoleClient } = await import("../utils/supabase.js");
+const supabase = getServiceRoleClient();
 
 const courseIdA = "11111111-1111-4111-8111-111111111111";
 const courseIdB = "22222222-2222-4222-8222-222222222222";
