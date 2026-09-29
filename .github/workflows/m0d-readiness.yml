@@ -8,6 +8,9 @@ on:
       - "api/lms/agency-admin.js"
       - "test/m0d-agency-admin-entrypoint.test.js"
       - "test/m0d-agency-progress.test.js"
+      - "test/m0d-direct-legacy-route-block.test.js"
+      - "api/sync.js"
+      - "api/legacy-post-redirect.js"
       - "utils/agency-lms-bridge.js"
       - "api/lms/portal.js"
       - "v5/app.js"
@@ -56,7 +59,7 @@ jobs:
 
       - name: LMS M0D dependency and readiness suites
         working-directory: yeunauan-lms-clone
-        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js test/m0d-agency-admin-entrypoint.test.js test/m0d-agency-progress.test.js
+        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js test/m0d-agency-commerce-flow.test.js test/agency-google-auth-bridge.test.js test/m0d-agency-admin-entrypoint.test.js test/m0d-agency-progress.test.js test/m0d-direct-legacy-route-block.test.js
 
       - name: Commerce M0D dependency and readiness suites
         if: always()
