@@ -12,41 +12,44 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const ref = (repo, file) => Object.freeze({ repo, file });
+const ref = (repo, file, requiredTokens = []) => Object.freeze({
+  repo,
+  file,
+  requiredTokens: Object.freeze([...requiredTokens])
+});
 
 export const REQUIRED_SURFACES = Object.freeze([
   {
     surface: "storefront",
     description: "Public storefront catalog, offerings, and UI profile resolution",
     entrypoints: [
-      ref("lms", "api/lms/portal.js"),
-      ref("commerce", "api/config.js"),
-      ref("commerce", "api/courses.js")
+      ref("commerce", "api/config.js", ["getAgencyCommerceConfig"])
     ],
     agencyModules: [
-      ref("lms", "utils/agency-routing.js"),
       ref("commerce", "utils/agency-routing.js"),
-      ref("commerce", "utils/agency-commerce.js"),
-      ref("commerce", "utils/ui-variant-engine.js")
+      ref("commerce", "utils/agency-commerce.js", ["agency_offerings", "agency_bank_accounts"]),
+      ref("commerce", "utils/ui-variant-engine.js", ["STOREFRONT"]),
+      ref("commerce", "agency-checkout.html", ["/api/config", "offerings"])
     ]
   },
   {
     surface: "checkout",
     description: "Server-side quote, VietQR generation, checkout RPC, immutable order snapshot",
     entrypoints: [
-      ref("commerce", "api/orders.js"),
-      ref("commerce", "api/register.js")
+      ref("commerce", "api/register.js", ["bridgeGoogleAccessTokenToSupabaseSession", "checkoutOffering"]),
+      ref("commerce", "api/orders.js", ["getAgencyOrder"])
     ],
     agencyModules: [
-      ref("commerce", "utils/agency-commerce.js"),
-      ref("commerce", "utils/agency-routing.js")
+      ref("commerce", "utils/agency-commerce.js", ["checkout_agency_offering", "generateVietQrUrl"]),
+      ref("commerce", "utils/agency-routing.js"),
+      ref("commerce", "agency-checkout.html", ["vietQrUrl", "/api/register"])
     ]
   },
   {
     surface: "agency admin",
     description: "Role-gated management, agency order approval, refund state machine",
     entrypoints: [
-      ref("lms", "api/lms/admin.js")
+      ref("lms", "api/lms/admin.js", ["listAgencyOrders", "approveAgencyOrder", "refundAgencyOrder"])
     ],
     agencyModules: [
       ref("lms", "utils/agency-auth.js"),
@@ -58,11 +61,11 @@ export const REQUIRED_SURFACES = Object.freeze([
     surface: "learner",
     description: "Authenticated student dashboard, active entitlements list, identity validation",
     entrypoints: [
-      ref("lms", "api/lms/portal.js")
+      ref("lms", "api/lms/portal.js", ["handleAgencyLearnerDashboard"])
     ],
     agencyModules: [
       ref("lms", "utils/agency-auth.js"),
-      ref("lms", "utils/agency-lms-bridge.js"),
+      ref("lms", "utils/agency-lms-bridge.js", ["student_entitlements"]),
       ref("lms", "utils/tenant-db-resolver.js")
     ]
   },
@@ -70,32 +73,32 @@ export const REQUIRED_SURFACES = Object.freeze([
     surface: "learning/player",
     description: "Canonical courses & lessons hierarchy, learning UI cinema/card variants",
     entrypoints: [
-      ref("lms", "api/lms/portal.js")
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro"])
     ],
     agencyModules: [
-      ref("lms", "utils/agency-lms-bridge.js"),
-      ref("lms", "utils/ui-variant-engine.js")
+      ref("lms", "utils/agency-lms-bridge.js", ["canonical_lessons", "v5LearnerReleaseContent"]),
+      ref("lms", "utils/ui-variant-engine.js", ["LEARNING"])
     ]
   },
   {
     surface: "homework",
     description: "Tenant homework submissions, reviews, grading, canonical lesson binding",
     entrypoints: [
-      ref("lms", "api/lms/portal.js")
+      ref("lms", "api/lms/portal.js", ["listAgencyHomework", "submitAgencyHomework", "gradeAgencyHomework"])
     ],
     agencyModules: [
-      ref("lms", "utils/agency-homework.js")
+      ref("lms", "utils/agency-homework.js", ["submit_agency_homework", "grade_agency_homework"])
     ]
   },
   {
     surface: "V5 playback",
     description: "ECDSA P-256 signed playback leases, B1.1 agency playback authorization",
     entrypoints: [
-      ref("lms", "api/lms/portal.js")
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Play"])
     ],
     agencyModules: [
-      ref("lms", "utils/agency-lms-bridge.js"),
-      ref("lms", "utils/v5-playback-lease.js")
+      ref("lms", "utils/agency-lms-bridge.js", ["v5_authorize_agency_playback"]),
+      ref("lms", "utils/v5-playback-lease.js", ["issueV5PlaybackLease"])
     ]
   }
 ]);
@@ -260,6 +263,10 @@ export function auditEntrypointRouting(filePath, content) {
   };
 }
 
+function missingRequiredTokens(source, requiredTokens = []) {
+  return (requiredTokens || []).filter(token => !String(source || "").includes(token));
+}
+
 function addMissing(missingEvidence, repo, file, kind, description) {
   missingEvidence.push({
     repo,
@@ -315,6 +322,15 @@ export function generateLegacyDependencyMatrix(rootDir = process.cwd()) {
           count: 1
         });
       } else {
+        const missingTokens = missingRequiredTokens(routing.agencyBranch, ep.requiredTokens);
+        if (missingTokens.length) {
+          violations.push({
+            file: key,
+            pattern: "missing_agency_surface_operation",
+            description: `Agency branch is missing required surface operations: ${missingTokens.join(", ")}`,
+            count: missingTokens.length
+          });
+        }
         violations.push(...auditFileContent(key, routing.agencyBranch));
       }
     }
@@ -347,6 +363,15 @@ export function generateLegacyDependencyMatrix(rootDir = process.cwd()) {
       const key = fileKey(mod.repo, mod.file);
       if (!auditedFiles.includes(key)) auditedFiles.push(key);
       const source = fs.readFileSync(fullPath, "utf8");
+      const missingTokens = missingRequiredTokens(source, mod.requiredTokens);
+      if (missingTokens.length) {
+        violations.push({
+          file: key,
+          pattern: "missing_agency_surface_operation",
+          description: `Required Agency module evidence is missing: ${missingTokens.join(", ")}`,
+          count: missingTokens.length
+        });
+      }
       violations.push(...auditFileContent(key, source));
 
       const traced = traceTransitiveLocalImports(mod.file, repoDir);
