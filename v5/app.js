@@ -153,7 +153,7 @@ function syncAgencyProgress(targetId, lastPositionSeconds = 0, { force = false }
 }
 
 async function hydrateAgencyProgress() {
-  if (!data?.agencyMode || isTimelineMode()) return;
+  if (!data?.agencyMode) return;
   try {
     const response = await fetch(`/api/lms/portal?endpoint=agency-progress&course=${encodeURIComponent(activeCourse)}`, {
       credentials: 'include',
@@ -170,19 +170,20 @@ async function hydrateAgencyProgress() {
     );
     let changed = false;
     for (const lesson of lessons) {
-      if (completedCanonical.has(String(lesson.canonical_lesson_id || '')) && !seen.has(String(lesson.id))) {
-        seen.add(String(lesson.id));
-        lastSeen = String(lesson.id);
+      if (!completedCanonical.has(String(lesson.canonical_lesson_id || ''))) continue;
+      const ids = isTimelineMode() ? (lesson.posts || []).map(post => String(post.id)) : [String(lesson.id)];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        lastSeen = id;
         changed = true;
       }
     }
     if (changed) {
       saveProgress();
       renderOutline();
-      renderFeed();
       updateProgressUI();
       applyFilter();
-      hydrateProtectedImages().catch(() => {});
     }
   } catch {}
 }
