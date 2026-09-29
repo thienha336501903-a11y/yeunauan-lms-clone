@@ -7,6 +7,7 @@ import {
 import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
 import { grantEnrollment, requireV4Course } from "../utils/lms-handlers/admin-v4-enrollments.js";
 import { cloneConfig } from "../utils/clone-config.js";
+import { isAgencyRequest } from "../utils/agency-routing.js";
 
 function v4StudentUrl(courseSlug) {
   return `${cloneConfig().lmsPublicUrl}/v4-entry.html?course=${encodeURIComponent(courseSlug)}`;
@@ -113,6 +114,17 @@ export default async function handler(req, res) {
 
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, error: "Method not allowed" });
+  }
+
+  // M0D: an Agency host must never enter the Legacy sync dispatcher, even
+  // when a caller knows the internal sync secret. Explicit Legacy behavior
+  // remains unchanged for non-Agency hosts until M0E.
+  if (await isAgencyRequest(req, req.__options || {})) {
+    return res.status(404).json({
+      success: false,
+      code: "agency_legacy_sync_blocked",
+      error: "Legacy sync is not available on Agency tenant domains."
+    });
   }
 
   // Verify internal sync secret without leaking comparison timing.
