@@ -183,8 +183,6 @@ async function hydrateAgencyProgress() {
       updateProgressUI();
       applyFilter();
       hydrateProtectedImages().catch(() => {});
-      wireMedia();
-      wireObservers();
     }
   } catch {}
 }
