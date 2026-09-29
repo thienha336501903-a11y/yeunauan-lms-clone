@@ -25,6 +25,11 @@ import {
   handleAgencyCourseIntro
 } from "../../utils/agency-lms-bridge.js";
 import { bridgeGoogleAccessTokenToSupabaseSession } from "../../utils/agency-google-auth-bridge.js";
+import {
+  listAgencyHomework,
+  submitAgencyHomework,
+  gradeAgencyHomework
+} from "../../utils/agency-homework.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
@@ -93,6 +98,64 @@ export default async function handler(req, res) {
     }
     if (endpoint === "v5-course-intro") {
       return handleAgencyCourseIntro(req, res);
+    }
+    if (endpoint === "agency-homework-list") {
+      if (req.method !== "GET") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      try {
+        const rows = await listAgencyHomework(req, {
+          courseId: req.query?.courseId,
+          canonicalLessonId: req.query?.lessonId || req.query?.canonicalLessonId,
+          status: req.query?.status
+        }, options);
+        if (rows?.ok === false) {
+          return res.status(rows.status || 403).json({ success: false, code: rows.code, error: rows.error });
+        }
+        return res.status(200).json({ success: true, submissions: rows || [] });
+      } catch (error) {
+        return res.status(error?.status || 500).json({
+          success: false,
+          code: error?.code || "agency_homework_list_failed",
+          error: error?.message || "Unable to list Agency homework."
+        });
+      }
+    }
+    if (endpoint === "agency-homework-submit") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      try {
+        const result = await submitAgencyHomework(req, req.body || {}, options);
+        if (result?.ok === false) {
+          return res.status(result.status || 403).json({ success: false, code: result.code, error: result.error });
+        }
+        return res.status(200).json({ success: true, ...result });
+      } catch (error) {
+        return res.status(error?.status || 500).json({
+          success: false,
+          code: error?.code || "agency_homework_submit_failed",
+          error: error?.message || "Unable to submit Agency homework."
+        });
+      }
+    }
+    if (endpoint === "agency-homework-grade") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      try {
+        const result = await gradeAgencyHomework(req, req.body || {}, options);
+        if (result?.ok === false) {
+          return res.status(result.status || 403).json({ success: false, code: result.code, error: result.error });
+        }
+        return res.status(200).json({ success: true, ...result });
+      } catch (error) {
+        return res.status(error?.status || 500).json({
+          success: false,
+          code: error?.code || "agency_homework_grade_failed",
+          error: error?.message || "Unable to grade Agency homework."
+        });
+      }
     }
     return res.status(404).json({
       success: false,
