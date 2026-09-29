@@ -272,7 +272,7 @@ export async function listAgencyOrders(req, options = {}) {
 
   const { data, error } = await client
     .from("agency_orders")
-    .select("id, agency_id, membership_id, offering_id, status, order_code, total_amount_vnd, currency, bank_code_snapshot, account_number_snapshot, account_holder_snapshot, transfer_content_snapshot, created_at, updated_at")
+    .select("id, agency_id, membership_id, offering_id, status, order_code, total_amount_vnd, snapshot_bank_code, snapshot_account_number, snapshot_account_holder, snapshot_transfer_content, snapshot_price_vnd, created_at, updated_at")
     .eq("agency_id", tenant.agencyId)
     .order("created_at", { ascending: false })
     .limit(limit);
