@@ -24,7 +24,8 @@ function sendResult(res, result) {
       error: result?.error || "Agency admin request failed."
     });
   }
-  return res.status(result.status || 200).json({ success: true, ...result });
+  const httpStatus = Number.isInteger(result?.status) ? result.status : 200;
+  return res.status(httpStatus).json({ success: true, ...result });
 }
 
 export default async function handler(req, res) {
