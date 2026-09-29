@@ -44,74 +44,77 @@ export default async function handler(req, res) {
     });
   }
 
-  if (routeDecision.route !== "AGENCY") {
+  // Keep the Agency branch explicit so M0D can audit the exact execution
+  // surface independently from all Legacy admin handlers.
+  if (routeDecision.route === "AGENCY") {
+    if (endpoint === "profile") {
+      if (req.method !== "GET") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
+      }
+
+      const roleResult = await requireAgencyRole(req, ADMIN_ROLES, options);
+      if (!roleResult.ok) return sendResult(res, roleResult);
+
+      const { tenant, membership, user } = roleResult;
+      return res.status(200).json({
+        success: true,
+        agency: {
+          id: tenant.agencyId,
+          slug: tenant.agencySlug,
+          name: tenant.agencyName,
+          hostname: tenant.hostname
+        },
+        member: {
+          id: membership.id,
+          userId: user.id,
+          email: user.email || "",
+          displayName: membership.display_name,
+          role: membership.role,
+          status: membership.status
+        }
+      });
+    }
+
+    if (endpoint === "order-approve") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
+      }
+
+      const orderId = clean(req.body?.orderId || req.query?.orderId);
+      if (!orderId) {
+        return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
+      }
+
+      const result = await approveAgencyOrder(req, orderId, options);
+      return sendResult(res, result);
+    }
+
+    if (endpoint === "order-refund") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
+      }
+
+      const orderId = clean(req.body?.orderId || req.query?.orderId);
+      if (!orderId) {
+        return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
+      }
+
+      const reason = clean(req.body?.reason) || "Customer refund";
+      const result = await refundAgencyOrder(req, orderId, reason, options);
+      return sendResult(res, result);
+    }
+
     return res.status(404).json({
       success: false,
-      code: "agency_admin_not_available",
-      error: "Agency admin endpoints are available only on an active Agency domain."
+      code: "agency_admin_endpoint_not_found",
+      error: "Requested Agency admin endpoint is not supported."
     });
   }
 
-  if (endpoint === "profile") {
-    if (req.method !== "GET") {
-      return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
-    }
-
-    const roleResult = await requireAgencyRole(req, ADMIN_ROLES, options);
-    if (!roleResult.ok) return sendResult(res, roleResult);
-
-    const { tenant, membership, user } = roleResult;
-    return res.status(200).json({
-      success: true,
-      agency: {
-        id: tenant.agencyId,
-        slug: tenant.agencySlug,
-        name: tenant.agencyName,
-        hostname: tenant.hostname
-      },
-      member: {
-        id: membership.id,
-        userId: user.id,
-        email: user.email || "",
-        displayName: membership.display_name,
-        role: membership.role,
-        status: membership.status
-      }
-    });
-  }
-
-  if (endpoint === "order-approve") {
-    if (req.method !== "POST") {
-      return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
-    }
-
-    const orderId = clean(req.body?.orderId || req.query?.orderId);
-    if (!orderId) {
-      return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
-    }
-
-    const result = await approveAgencyOrder(req, orderId, options);
-    return sendResult(res, result);
-  }
-
-  if (endpoint === "order-refund") {
-    if (req.method !== "POST") {
-      return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed." });
-    }
-
-    const orderId = clean(req.body?.orderId || req.query?.orderId);
-    if (!orderId) {
-      return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
-    }
-
-    const reason = clean(req.body?.reason) || "Customer refund";
-    const result = await refundAgencyOrder(req, orderId, reason, options);
-    return sendResult(res, result);
-  }
-
+  // Explicit Legacy hosts are intentionally NOT delegated to api/lms/admin.js.
   return res.status(404).json({
     success: false,
-    code: "agency_admin_endpoint_not_found",
-    error: "Requested Agency admin endpoint is not supported."
+    code: "agency_admin_not_available",
+    error: "Agency admin endpoints are available only on an active Agency domain."
   });
 }
