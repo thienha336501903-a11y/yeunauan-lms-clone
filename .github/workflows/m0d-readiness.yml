@@ -7,6 +7,10 @@ on:
       - "utils/m0d-dependency-checker.js"
       - "api/lms/agency-admin.js"
       - "test/m0d-agency-admin-entrypoint.test.js"
+      - "test/m0d-agency-progress.test.js"
+      - "utils/agency-lms-bridge.js"
+      - "api/lms/portal.js"
+      - "v5/app.js"
       - "scripts/check-m0d-readiness.js"
       - "test/m0d-dependency-checker.test.js"
       - "test/m0d-readiness.test.js"
@@ -52,7 +56,7 @@ jobs:
 
       - name: LMS M0D dependency and readiness suites
         working-directory: yeunauan-lms-clone
-        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
+        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js test/m0d-agency-admin-entrypoint.test.js test/m0d-agency-progress.test.js
 
       - name: Commerce M0D dependency and readiness suites
         if: always()
