@@ -53,13 +53,16 @@ jobs:
         run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
 
       - name: Commerce M0D dependency and readiness suites
+        if: always()
         working-directory: yeunauan-commerce-clone
         run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
 
       - name: LMS M0D JSON evidence
+        if: always()
         working-directory: yeunauan-lms-clone
         run: node scripts/check-m0d-readiness.js --json
 
       - name: Commerce M0D JSON evidence
+        if: always()
         working-directory: yeunauan-commerce-clone
         run: node scripts/check-m0d-readiness.js --json
