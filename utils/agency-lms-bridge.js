@@ -571,6 +571,7 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
     const authoringMode = content.config?.settings?.authoring_mode || "lesson";
     return res.status(200).json({
       success: true,
+      agencyMode: true,
       course: {
         slug: access.canonicalCourse.code,
         title: access.canonicalCourse.default_title || access.canonicalCourse.code,
@@ -593,4 +594,168 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
     console.error("[agency-lms-v5-feed]", error);
     return res.status(500).json({ success: false, error: "Failed to load V5 feed." });
   }
+}
+
+
+/**
+ * M0D Agency-scoped lesson progress seam.
+ *
+ * Legacy lesson_progress is intentionally untouched. Agency requests persist
+ * only against agency_lesson_progress after the normal membership +
+ * entitlement + canonical-course authorization chain succeeds.
+ */
+export async function handleAgencyLessonProgress(req, res, options = {}) {
+  res.setHeader("Cache-Control", "private, no-store");
+
+  if (req.method !== "GET" && req.method !== "POST") {
+    return res.status(405).json({
+      success: false,
+      code: "method_not_allowed",
+      error: "Method not allowed."
+    });
+  }
+
+  const client = options.supabaseClient || defaultSupabase;
+  const courseSlug = clean(req.query?.course || req.body?.course);
+  if (!courseSlug) {
+    return res.status(400).json({
+      success: false,
+      code: "missing_course",
+      error: "Thiếu mã khóa học."
+    });
+  }
+
+  const access = await requireAgencyCourseAccess(req, courseSlug, options);
+  if (!access.ok) {
+    return res.status(access.status).json({
+      success: false,
+      code: access.code,
+      error: access.error
+    });
+  }
+
+  const { tenant, membership, canonicalCourse } = access;
+
+  if (req.method === "GET") {
+    const { data: lessonRows, error: lessonError } = await client
+      .from("canonical_lessons")
+      .select("id")
+      .eq("canonical_course_id", canonicalCourse.id);
+
+    if (lessonError) {
+      return res.status(500).json({
+        success: false,
+        code: "progress_lesson_lookup_failed",
+        error: "Unable to resolve course lessons."
+      });
+    }
+
+    const lessonIds = (lessonRows || []).map((row) => row.id).filter(Boolean);
+    if (!lessonIds.length) {
+      return res.status(200).json({ success: true, progress: [] });
+    }
+
+    const { data: rows, error } = await client
+      .from("agency_lesson_progress")
+      .select("canonical_lesson_id, progress_percent, is_completed, last_position_seconds, updated_at")
+      .eq("agency_id", tenant.agencyId)
+      .eq("membership_id", membership.id)
+      .in("canonical_lesson_id", lessonIds);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        code: "progress_read_failed",
+        error: "Unable to load lesson progress."
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      progress: rows || []
+    });
+  }
+
+  const canonicalLessonId = clean(req.body?.canonicalLessonId);
+  const progressPercent = Number(req.body?.progressPercent);
+  const lastPositionSeconds = Number(req.body?.lastPositionSeconds ?? 0);
+
+  if (!canonicalLessonId) {
+    return res.status(400).json({
+      success: false,
+      code: "missing_canonical_lesson",
+      error: "canonicalLessonId is required."
+    });
+  }
+
+  if (!Number.isFinite(progressPercent) || progressPercent < 0 || progressPercent > 100) {
+    return res.status(400).json({
+      success: false,
+      code: "invalid_progress_percent",
+      error: "progressPercent must be between 0 and 100."
+    });
+  }
+
+  if (!Number.isFinite(lastPositionSeconds) || lastPositionSeconds < 0) {
+    return res.status(400).json({
+      success: false,
+      code: "invalid_progress_position",
+      error: "lastPositionSeconds must be zero or greater."
+    });
+  }
+
+  const { data: canonicalLesson, error: lessonError } = await client
+    .from("canonical_lessons")
+    .select("id, canonical_course_id")
+    .eq("id", canonicalLessonId)
+    .eq("canonical_course_id", canonicalCourse.id)
+    .maybeSingle();
+
+  if (lessonError) {
+    return res.status(500).json({
+      success: false,
+      code: "progress_lesson_lookup_failed",
+      error: "Unable to validate canonical lesson."
+    });
+  }
+
+  if (!canonicalLesson) {
+    return res.status(403).json({
+      success: false,
+      code: "progress_lesson_course_mismatch",
+      error: "Canonical lesson does not belong to the authorized course."
+    });
+  }
+
+  const isCompleted = req.body?.isCompleted === true || progressPercent >= 100;
+  const row = {
+    agency_id: tenant.agencyId,
+    membership_id: membership.id,
+    canonical_lesson_id: canonicalLesson.id,
+    progress_percent: Math.round(progressPercent),
+    is_completed: isCompleted,
+    last_position_seconds: Math.floor(lastPositionSeconds),
+    updated_at: new Date().toISOString()
+  };
+
+  const { data: saved, error: saveError } = await client
+    .from("agency_lesson_progress")
+    .upsert(row, {
+      onConflict: "agency_id,membership_id,canonical_lesson_id"
+    })
+    .select("canonical_lesson_id, progress_percent, is_completed, last_position_seconds, updated_at")
+    .single();
+
+  if (saveError) {
+    return res.status(500).json({
+      success: false,
+      code: "progress_write_failed",
+      error: "Unable to save lesson progress."
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    progress: saved
+  });
 }

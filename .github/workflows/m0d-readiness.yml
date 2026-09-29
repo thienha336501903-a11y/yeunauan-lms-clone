@@ -1,0 +1,77 @@
+name: M0D Zero-Legacy Readiness
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "utils/m0d-dependency-checker.js"
+      - "api/lms/agency-admin.js"
+      - "test/m0d-agency-admin-entrypoint.test.js"
+      - "test/m0d-agency-progress.test.js"
+      - "test/m0d-direct-legacy-route-block.test.js"
+      - "api/sync.js"
+      - "api/legacy-post-redirect.js"
+      - "utils/agency-lms-bridge.js"
+      - "api/lms/portal.js"
+      - "v5/app.js"
+      - "scripts/check-m0d-readiness.js"
+      - "test/m0d-dependency-checker.test.js"
+      - "test/m0d-readiness.test.js"
+      - ".github/workflows/m0d-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-repo-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout LMS candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: yeunauan-lms-clone
+
+      - name: Checkout Commerce M0D candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: thienha336501903-a11y/yeunauan-commerce-clone
+          ref: feat/m0d-zero-legacy-proof
+          path: yeunauan-commerce-clone
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            yeunauan-lms-clone/package-lock.json
+            yeunauan-commerce-clone/package-lock.json
+
+      - name: Install LMS dependencies
+        working-directory: yeunauan-lms-clone
+        run: npm ci
+
+      - name: Install Commerce dependencies
+        working-directory: yeunauan-commerce-clone
+        run: npm ci
+
+      - name: LMS M0D dependency and readiness suites
+        working-directory: yeunauan-lms-clone
+        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js test/m0d-agency-commerce-flow.test.js test/agency-google-auth-bridge.test.js test/m0d-agency-admin-entrypoint.test.js test/m0d-agency-progress.test.js test/m0d-direct-legacy-route-block.test.js
+
+      - name: Commerce M0D dependency and readiness suites
+        if: always()
+        working-directory: yeunauan-commerce-clone
+        run: node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
+
+      - name: LMS M0D JSON evidence
+        if: always()
+        working-directory: yeunauan-lms-clone
+        run: node scripts/check-m0d-readiness.js --json
+
+      - name: Commerce M0D JSON evidence
+        if: always()
+        working-directory: yeunauan-commerce-clone
+        run: node scripts/check-m0d-readiness.js --json

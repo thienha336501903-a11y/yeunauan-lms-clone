@@ -22,7 +22,8 @@ import {
   handleAgencyLearnerDashboard,
   handleAgencyV5Feed,
   handleAgencyV5Play,
-  handleAgencyCourseIntro
+  handleAgencyCourseIntro,
+  handleAgencyLessonProgress
 } from "../../utils/agency-lms-bridge.js";
 import { bridgeGoogleAccessTokenToSupabaseSession } from "../../utils/agency-google-auth-bridge.js";
 
@@ -93,6 +94,9 @@ export default async function handler(req, res) {
     }
     if (endpoint === "v5-course-intro") {
       return handleAgencyCourseIntro(req, res);
+    }
+    if (endpoint === "agency-progress") {
+      return handleAgencyLessonProgress(req, res, options);
     }
     return res.status(404).json({
       success: false,
