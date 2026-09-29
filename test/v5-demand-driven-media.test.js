@@ -9,7 +9,7 @@ test('V5 course render does not attach video sources before an explicit Play act
   assert.doesNotMatch(app, /<video[^>]+\ssrc=/);
   assert.match(app, /data-v5-start/);
   assert.match(app, /startVideo\(cell\)/);
-  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId\)/);
+  assert.match(app, /video\.src = mediaUrl\(cell\.dataset\.assetId, cell\.dataset\.canonicalLessonId \|\| ''\)/);
 });
 
 test('V5 keeps at most one active video source and releases it on navigation', () => {

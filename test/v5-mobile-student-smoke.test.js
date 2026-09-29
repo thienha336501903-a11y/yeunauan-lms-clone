@@ -25,7 +25,7 @@ test('V5 mobile Play keeps the tap activation when the protected-media worker al
   assert.match(start, /if \(!navigator\.serviceWorker\?\.controller\) await ensureMediaWorker\(\)/);
   assert.doesNotMatch(start, /try \{\s*await ensureMediaWorker\(\)/);
   assert.match(start, /video\.src = mediaUrl\(cell\.dataset\.assetId/);
-  assert.match(start, /playAttempt\.catch\(error => \{[\s\S]*cell\.dataset\.playRetry = '1'/);
+  assert.match(start, /playAttempt\.catch\(\(\) => \{[\s\S]*cell\.dataset\.playRetry = '1'/);
 });
 
 test('V5 mobile retry reuses the existing player instead of restarting it', () => {

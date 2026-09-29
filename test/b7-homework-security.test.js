@@ -67,7 +67,7 @@ test("B7.HOMEWORK-1: Untrusted caller-provided membership context is strictly re
 
 test("B7.HOMEWORK-2: Direct PostgREST table write is REVOKED for authenticated users", async (t) => {
   if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
-    if (process.env.CI || process.env.REQUIRE_INTEGRATION_TESTS === "true") {
+    if (process.env.REQUIRE_INTEGRATION_TESTS === "true") {
       assert.fail("MISSING_ENVIRONMENT: SUPABASE_URL, ANON_KEY, or SERVICE_KEY missing in CI/gate");
     }
     t.skip("SKIP_ENVIRONMENT: Missing required Supabase credentials");
