@@ -31,11 +31,26 @@ function lowerEmail(value) {
 }
 
 function isVerifiedGoogleEmail(value) {
-  return value === true;
+  return value === true || value === "true";
 }
 
-function googleTokenAudience(tokenInfo) {
-  return clean(tokenInfo?.audience || tokenInfo?.aud || tokenInfo?.issued_to);
+function googleTokenClientMatches(tokenInfo, googleClientId) {
+  const clientClaims = {
+    azp: clean(tokenInfo?.azp),
+    issuedTo: clean(tokenInfo?.issued_to),
+    aud: clean(tokenInfo?.aud),
+    audience: clean(tokenInfo?.audience)
+  };
+
+  // azp is the modern "authorized party" field; issued_to is the older
+  // tokeninfo equivalent. At least one requester identity must be present.
+  const requestedBy = clientClaims.azp || clientClaims.issuedTo;
+  if (!requestedBy || requestedBy !== googleClientId) return false;
+
+  // Reject any other client-identifying claim that is present but conflicts.
+  return Object.values(clientClaims).every(
+    (value) => !value || value === googleClientId
+  );
 }
 
 function googleTokenUnexpired(tokenInfo) {
@@ -77,8 +92,8 @@ export async function verifyGoogleAccessToken(accessToken, options = {}) {
     }
 
     const tokenInfo = await tokenInfoResponse.json();
-    if (googleTokenAudience(tokenInfo) !== googleClientId) {
-      return { ok: false, status: 401, code: "google_token_audience_mismatch", error: "Google sign-in token was issued to a different OAuth client." };
+    if (!googleTokenClientMatches(tokenInfo, googleClientId)) {
+      return { ok: false, status: 401, code: "google_token_audience_mismatch", error: "Google sign-in token was issued to or requested by a different OAuth client." };
     }
 
     if (!googleTokenUnexpired(tokenInfo)) {
