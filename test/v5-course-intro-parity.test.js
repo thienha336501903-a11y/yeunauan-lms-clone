@@ -41,7 +41,7 @@ test("B. INTRO PAGE: legacy-post.html accepts v5 deliveryMode and configures cor
   assert.match(page, /loadV5Intro/);
   assert.match(page, /endpoint=v5-course-intro/);
   // V5 green button goes directly to /learning?course=<slug> without legacy-entry-token
-  assert.match(page, /if\(mode==='v5'\)\{\s*location\.assign\(`\/learning\?course=\$\{encodeURIComponent\(slug\)\}`\);\s*return;\s*\}/);
+  assert.match(page, /if\(mode==='v5'\)\{\s*location\.assign\(`\/v5-sw-bootstrap\.html\?course=\$\{encodeURIComponent\(slug\)\}`\);\s*return;\s*\}/);
   // V4/LMS still invokes legacy-entry-token
   assert.match(page, /endpoint=legacy-entry-token/);
   // originalLessonEntryVisible toggle is respected
@@ -400,7 +400,7 @@ test("REGRESSION 10: V4 behavior unchanged", () => {
 
 test("REGRESSION 11: /learning bootstrap and playback unchanged", () => {
   const page = read("legacy-post.html");
-  assert.match(page, /if\(mode==='v5'\)\{\s*location\.assign\(`\/learning\?course=\$\{encodeURIComponent\(slug\)\}`\);\s*return;\s*\}/);
+  assert.match(page, /if\(mode==='v5'\)\{\s*location\.assign\(`\/v5-sw-bootstrap\.html\?course=\$\{encodeURIComponent\(slug\)\}`\);\s*return;\s*\}/);
   const swBootstrap = read("v5-sw-bootstrap.html");
   assert.match(swBootstrap, /\/v5\/media-sw\.js/);
 });
