@@ -82,16 +82,33 @@ export async function upsertAgencyLessonProgress(req, payload = {}, options = {}
     };
   }
 
-  const completed = payload.isCompleted === true;
-  const progressPercent = completed ? 100 : clampInt(payload.progressPercent, 0, 100);
+  const requestedCompleted = payload.isCompleted === true;
+  const requestedPercent = requestedCompleted ? 100 : clampInt(payload.progressPercent, 0, 100);
   const lastPositionSeconds = clampInt(payload.lastPositionSeconds, 0, 86400 * 7);
+
+  // Progress is monotonic: a replay / lower client percentage must not erase
+  // completion already recorded for this tenant membership + canonical lesson.
+  const { data: existing, error: existingError } = await client
+    .from("agency_lesson_progress")
+    .select("progress_percent, is_completed")
+    .eq("agency_id", tenant.agencyId)
+    .eq("membership_id", membership.id)
+    .eq("canonical_lesson_id", canonicalLessonId)
+    .maybeSingle();
+
+  if (existingError) {
+    return { ok: false, status: 500, code: "progress_read_failed", error: existingError.message };
+  }
+
+  const progressPercent = Math.max(Number(existing?.progress_percent || 0), requestedPercent);
+  const completed = existing?.is_completed === true || requestedCompleted || progressPercent >= 100;
 
   const row = {
     agency_id: tenant.agencyId,
     membership_id: membership.id,
     canonical_lesson_id: canonicalLessonId,
-    progress_percent: progressPercent,
-    is_completed: completed || progressPercent >= 100,
+    progress_percent: completed ? 100 : progressPercent,
+    is_completed: completed,
     last_position_seconds: lastPositionSeconds,
     updated_at: new Date().toISOString()
   };
