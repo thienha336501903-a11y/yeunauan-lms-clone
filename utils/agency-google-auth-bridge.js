@@ -11,6 +11,9 @@
 //
 // Security invariants:
 // - Never trusts a browser-supplied email.
+// - Binds Google access tokens to this app's configured OAuth client ID.
+// - Requires an unexpired token and verified Google email from both tokeninfo
+//   and OIDC userinfo; the Google-owned introspection endpoints anchor issuer.
 // - Never creates a new auth user.
 // - Requires an existing active membership in the request-resolved tenant.
 // - Never exposes service_role credentials to the browser.
@@ -27,16 +30,73 @@ function lowerEmail(value) {
   return clean(value).toLowerCase();
 }
 
-async function verifyGoogleAccessToken(accessToken, fetchImpl = fetch) {
+function isVerifiedGoogleEmail(value) {
+  return value === true;
+}
+
+function googleTokenAudience(tokenInfo) {
+  return clean(tokenInfo?.audience || tokenInfo?.aud || tokenInfo?.issued_to);
+}
+
+function googleTokenUnexpired(tokenInfo) {
+  const expiresIn = Number(tokenInfo?.expires_in);
+  if (Number.isFinite(expiresIn)) return expiresIn > 0;
+
+  const exp = Number(tokenInfo?.exp);
+  if (Number.isFinite(exp)) return exp > Math.floor(Date.now() / 1000);
+
+  return false;
+}
+
+export async function verifyGoogleAccessToken(accessToken, options = {}) {
   const token = clean(accessToken);
+  const fetchImpl = options.fetchImpl || fetch;
+  const googleClientId = clean(options.googleClientId || process.env.GOOGLE_CLIENT_ID);
+
   if (!token) {
     return { ok: false, status: 401, code: "missing_google_access_token", error: "Missing Google access token." };
   }
 
+  if (!googleClientId) {
+    return { ok: false, status: 500, code: "google_oauth_not_configured", error: "Google OAuth client is not configured." };
+  }
+
   try {
+    // Google's tokeninfo endpoint introspects only Google-issued access tokens
+    // and exposes the audience, expiry and verified-email state for the token.
+    const tokenInfoResponse = await fetchImpl(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" }
+      }
+    );
+
+    if (!tokenInfoResponse.ok) {
+      return { ok: false, status: 401, code: "invalid_google_access_token", error: "Google sign-in token is invalid or expired." };
+    }
+
+    const tokenInfo = await tokenInfoResponse.json();
+    if (googleTokenAudience(tokenInfo) !== googleClientId) {
+      return { ok: false, status: 401, code: "google_token_audience_mismatch", error: "Google sign-in token was issued to a different OAuth client." };
+    }
+
+    if (!googleTokenUnexpired(tokenInfo)) {
+      return { ok: false, status: 401, code: "invalid_google_access_token", error: "Google sign-in token is invalid or expired." };
+    }
+
+    const tokenInfoEmail = lowerEmail(tokenInfo?.email);
+    const tokenInfoVerified =
+      isVerifiedGoogleEmail(tokenInfo?.email_verified) ||
+      isVerifiedGoogleEmail(tokenInfo?.verified_email);
+
+    if (!tokenInfoEmail || !tokenInfoVerified) {
+      return { ok: false, status: 401, code: "google_email_unverified", error: "Google account email is missing or unverified." };
+    }
+
     const response = await fetchImpl("https://openidconnect.googleapis.com/v1/userinfo", {
       method: "GET",
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
     });
 
     if (!response.ok) {
@@ -45,8 +105,20 @@ async function verifyGoogleAccessToken(accessToken, fetchImpl = fetch) {
 
     const profile = await response.json();
     const email = lowerEmail(profile?.email);
-    if (!email || profile?.email_verified === false) {
+
+    // Fail closed: missing email_verified is not equivalent to verified.
+    if (!email || profile?.email_verified !== true) {
       return { ok: false, status: 401, code: "google_email_unverified", error: "Google account email is missing or unverified." };
+    }
+
+    if (email !== tokenInfoEmail) {
+      return { ok: false, status: 401, code: "google_identity_mismatch", error: "Google identity claims are inconsistent." };
+    }
+
+    const tokenSubject = clean(tokenInfo?.sub || tokenInfo?.user_id);
+    const profileSubject = clean(profile?.sub);
+    if (tokenSubject && profileSubject && tokenSubject !== profileSubject) {
+      return { ok: false, status: 401, code: "google_identity_mismatch", error: "Google identity claims are inconsistent." };
     }
 
     return { ok: true, email };
@@ -90,7 +162,10 @@ export async function bridgeGoogleAccessTokenToSupabaseSession(req, res, tenant,
     return { ok: false, status: 403, code: "untrusted_tenant_context", error: "Trusted Agency tenant is required." };
   }
 
-  const googleIdentity = await verifyGoogleAccessToken(accessToken, fetchImpl);
+  const googleIdentity = await verifyGoogleAccessToken(accessToken, {
+    fetchImpl,
+    googleClientId: options.googleClientId || process.env.GOOGLE_CLIENT_ID
+  });
   if (!googleIdentity.ok) return googleIdentity;
 
   const { data: usersData, error: usersError } = await client.auth.admin.listUsers({
