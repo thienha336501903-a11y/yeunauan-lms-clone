@@ -15,60 +15,6 @@ let activeVideo = null;
 let videoProgress = null;
 let observer = null;
 let mediaWorkerPromise = null;
-const playbackDebug = new URLSearchParams(location.search).get('v5debug') === '1';
-let playbackDebugPanel = null;
-let playbackDebugStartedAt = null;
-let playbackDebugEntries = [];
-let playbackDebugState = {};
-
-function tracePlayback(stage, detail = {}) {
-  if (!playbackDebug) return;
-  if (stage === 'start') {
-    playbackDebugStartedAt = performance.now();
-    playbackDebugEntries = [];
-    playbackDebugState = { play: 'pending', metadata: false, playing: false, advanced: false, requests: 0 };
-  }
-  if (stage === 'play resolved' || stage === 'retry resolved') playbackDebugState.play = 'resolved';
-  if (stage === 'play rejected' || stage === 'retry rejected') playbackDebugState.play = `rejected:${detail.name}`;
-  if (stage === 'video loadedmetadata') playbackDebugState.metadata = true;
-  if (stage === 'video playing') playbackDebugState.playing = true;
-  if (stage === 'video advanced') playbackDebugState.advanced = true;
-  if (stage === 'SW fetch') playbackDebugState.requests += 1;
-  if (stage === 'SW upstream response') playbackDebugState.upstream = `${detail.status} ${detail.range || ''}`;
-  if (stage === 'video after 10s' || stage === 'video after 20s') playbackDebugState[stage.slice(6)] = detail;
-  if (!playbackDebugPanel) {
-    playbackDebugPanel = document.createElement('div');
-    playbackDebugPanel.setAttribute('aria-label', 'Chẩn đoán phát video V5');
-    playbackDebugPanel.style.cssText = 'position:fixed;bottom:5px;left:5px;right:5px;z-index:150;max-height:55vh;overflow:hidden;padding:7px;background:#111e;color:#fff;font:11px/1.35 monospace;pointer-events:none;white-space:pre-wrap;word-break:break-word';
-    playbackDebugPanel.textContent = 'V5 playback diagnostic (không chứa token)\n';
-    document.body.append(playbackDebugPanel);
-  }
-  const elapsed = playbackDebugStartedAt === null ? '-' : `${Math.round(performance.now() - playbackDebugStartedAt)}ms`;
-  playbackDebugEntries.push(`${elapsed} ${stage} ${JSON.stringify(detail)}`);
-  const lines = playbackDebugEntries.length > 13
-    ? [...playbackDebugEntries.slice(0, 8), `... ${playbackDebugEntries.length - 12} events ...`, ...playbackDebugEntries.slice(-4)]
-    : playbackDebugEntries;
-  const state = playbackDebugState;
-  playbackDebugPanel.textContent = `V5 playback diagnostic (không chứa token)\nplay=${state.play} metadata=${state.metadata} playing=${state.playing} advanced=${state.advanced} requests=${state.requests}\n10s=${JSON.stringify(state['after 10s'] || null)} 20s=${JSON.stringify(state['after 20s'] || null)}\nupstream=${state.upstream || '-'}\n${lines.join('\n')}`;
-}
-
-function playbackSnapshot(video) {
-  const time = video.currentTime;
-  let bufferedAhead = 0;
-  for (let i = 0; i < video.buffered.length; i++) {
-    if (video.buffered.start(i) <= time && video.buffered.end(i) >= time) {
-      bufferedAhead = video.buffered.end(i) - time;
-      break;
-    }
-  }
-  return { time: Math.round(time * 10) / 10, bufferedAhead: Math.round(bufferedAhead * 10) / 10, paused: video.paused, ready: video.readyState, network: video.networkState, error: video.error?.code || 0 };
-}
-
-if (playbackDebug && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data?.type === 'v5-playback-diagnostic') tracePlayback(`SW ${event.data.stage}`, event.data.detail);
-  });
-}
 
 function isTimelineMode() {
   return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
@@ -585,7 +531,6 @@ function releaseVideo(video) {
 }
 
 async function startVideo(cell, { resume = false } = {}) {
-  tracePlayback('start', { controlled: !!navigator.serviceWorker?.controller, activation: navigator.userActivation?.isActive ?? null, leaseReady: cell.dataset.v5LeaseReady === '1', loading: cell.dataset.loading || '', retry: cell.dataset.playRetry || '' });
   if (cell.dataset.loading === '1') return;
   cell.dataset.loading = '1';
   const button = cell.querySelector('[data-v5-start]');
@@ -605,20 +550,6 @@ async function startVideo(cell, { resume = false } = {}) {
     if (posterSource) video.poster = posterSource;
     video.setAttribute('controlsList', 'nodownload noremoteplayback'); video.setAttribute('disableRemotePlayback', '');
     video.addEventListener('contextmenu', event => event.preventDefault());
-    if (playbackDebug) for (const name of ['loadstart', 'loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'suspend', 'error', 'pause']) {
-      video.addEventListener(name, () => tracePlayback(`video ${name}`, { ready: video.readyState, network: video.networkState, error: video.error?.code || 0 }));
-    }
-    if (playbackDebug) {
-      let advanced = false;
-      video.addEventListener('timeupdate', () => {
-        if (!advanced && video.currentTime > .25) {
-          advanced = true;
-          tracePlayback('video advanced', playbackSnapshot(video));
-        }
-      });
-      setTimeout(() => { if (video.isConnected) tracePlayback('video after 10s', playbackSnapshot(video)); }, 10000);
-      setTimeout(() => { if (video.isConnected) tracePlayback('video after 20s', playbackSnapshot(video)); }, 20000);
-    }
     if (resumeAt > .5) video.addEventListener('loadedmetadata', () => {
       const target = Math.min(resumeAt, Math.max(0, video.duration - 1));
       if (!(target > .5)) return;
@@ -642,19 +573,13 @@ async function startVideo(cell, { resume = false } = {}) {
     activeVideo = video;
     const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
     markSeen(targetId);
-    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '') + (playbackDebug ? '&v5debug=1' : '');
+    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
     const playAttempt = video.play();
-    tracePlayback('play called', { controlled: !!navigator.serviceWorker?.controller, activation: navigator.userActivation?.isActive ?? null });
-    if (playAttempt && typeof playAttempt.catch === 'function') {
-      if (playbackDebug) playAttempt.then(() => tracePlayback('play resolved'), () => {});
-      playAttempt.catch(error => {
-        tracePlayback('play rejected', { name: error?.name || 'unknown', ready: video.readyState, network: video.networkState, mediaError: video.error?.code || 0 });
-        cell.dataset.loading = '';
-        cell.dataset.playRetry = '1';
-      });
-    }
+    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+      cell.dataset.loading = '';
+      cell.dataset.playRetry = '1';
+    });
   } catch (error) {
-    tracePlayback('start exception', { name: error?.name || 'unknown' });
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
   }
@@ -684,28 +609,21 @@ function wireMedia() {
     const start = () => startVideo(cell);
     const retry = () => {
       const video = cell.querySelector('video');
-      tracePlayback('retry gesture', { hasVideo: !!video, eligible: cell.dataset.playRetry === '1', loading: cell.dataset.loading || '' });
       if (!video || cell.dataset.playRetry !== '1') return false;
       cell.dataset.loading = '1';
       const playAttempt = video.play();
-      if (playAttempt && typeof playAttempt.catch === 'function') {
-        if (playbackDebug) playAttempt.then(() => tracePlayback('retry resolved'), () => {});
-        playAttempt.catch(error => {
-          tracePlayback('retry rejected', { name: error?.name || 'unknown', mediaError: video.error?.code || 0 });
-          cell.dataset.loading = '';
-          cell.dataset.playRetry = '1';
-        });
-      }
+      if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+        cell.dataset.loading = '';
+        cell.dataset.playRetry = '1';
+      });
       return true;
     };
     cell.querySelector('[data-v5-start]')?.addEventListener('click', event => {
-      tracePlayback('button click');
       event.preventDefault();
       event.stopPropagation();
       start();
     });
     cell.addEventListener('click', event => {
-      tracePlayback('cell click', { target: event.target.tagName, hasVideo: !!cell.querySelector('video') });
       if (event.target.closest('[data-v5-start]')) return;
       if (cell.querySelector('video')) { retry(); return; }
       start();
@@ -789,7 +707,6 @@ async function load() {
         course: activeCourse,
         return: 'v5'
       });
-      if (playbackDebug) params.set('v5debug', '1');
       location.replace(`/my-courses.html?${params.toString()}`);
       return;
     }

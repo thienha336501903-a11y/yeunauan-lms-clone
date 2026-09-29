@@ -171,20 +171,15 @@ async function upstreamRequest(request, lease) {
   });
 }
 
-async function proxyMedia(request, course, lessonId, assetId, report = () => {}) {
+async function proxyMedia(request, course, lessonId, assetId) {
   try {
-    report("fetch", { method: request.method, range: clean(request.headers.get("range")) });
     let lease = await fetchLease(course, lessonId, assetId, false);
-    report("lease ready", { mime: lease.mimeType });
-    report("upstream start", { range: request.method === "HEAD" ? clean(request.headers.get("range")) : playbackRange(request.headers.get("range"), lease.mimeType) });
     let upstream = await upstreamRequest(request, lease);
-    report("upstream response", { status: upstream.status, type: upstream.headers.get("content-type"), range: upstream.headers.get("content-range"), length: upstream.headers.get("content-length"), body: !!upstream.body });
 
     if ([401, 403, 410].includes(upstream.status)) {
       leases.delete(cacheKey(course, lessonId, assetId));
       lease = await fetchLease(course, lessonId, assetId, true);
       upstream = await upstreamRequest(request, lease);
-      report("upstream retry", { status: upstream.status, range: upstream.headers.get("content-range") });
     }
 
     return new Response(request.method === "HEAD" ? null : upstream.body, {
@@ -194,7 +189,6 @@ async function proxyMedia(request, course, lessonId, assetId, report = () => {})
     });
   } catch (error) {
     const status = Number(error?.status || 0);
-    report("proxy error", { status, name: error?.name || "unknown" });
     return new Response(status === 401 || status === 403 ? "Playback access denied" : "V5 media proxy failed", {
       status: status === 401 || status === 403 ? status : 502,
       headers: { "Cache-Control": "private, no-store", "Content-Type": "text/plain; charset=utf-8" }
@@ -219,13 +213,6 @@ self.addEventListener("message", event => {
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || !url.pathname.startsWith(MEDIA_PREFIX)) return;
-  const report = url.searchParams.get("v5debug") === "1" ? (stage, detail = {}) => {
-    const message = { type: "v5-playback-diagnostic", stage, detail };
-    const recipients = event.clientId
-      ? self.clients.get(event.clientId).then(client => client ? [client] : [])
-      : self.clients.matchAll({ type: "window" }).then(clients => clients.filter(client => client.url.includes("v5debug=1")));
-    recipients.then(clients => clients.forEach(client => client.postMessage(message))).catch(() => {});
-  } : () => {};
   if (!["GET", "HEAD"].includes(event.request.method)) {
     event.respondWith(new Response("Method not allowed", { status: 405 }));
     return;
@@ -237,5 +224,5 @@ self.addEventListener("fetch", event => {
     event.respondWith(new Response("Missing V5 media identity", { status: 400 }));
     return;
   }
-  event.respondWith(proxyMedia(event.request, course, lessonId, assetId, report));
+  event.respondWith(proxyMedia(event.request, course, lessonId, assetId));
 });
