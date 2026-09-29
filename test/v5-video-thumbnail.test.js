@@ -24,7 +24,7 @@ test('V5 authorizes a thumbnail only through a released parent asset', () => {
 
 test('V5 renders protected video posters without preloading video bytes', () => {
   const app = read('v5/app.js');
-  assert.match(app, /asset\.thumbnail_asset_id \? mediaUrl\(asset\.thumbnail_asset_id\)/);
+  assert.match(app, /asset\.thumbnail_asset_id \? mediaUrl\(asset\.thumbnail_asset_id, canonicalLessonId\)/);
   assert.match(app, /class="video-poster-image" loading="lazy" data-v5-image data-src=/);
   assert.match(app, /video\.preload = 'none'/);
 });

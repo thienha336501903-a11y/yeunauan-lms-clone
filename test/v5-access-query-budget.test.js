@@ -13,7 +13,8 @@ test('verified V5 access reuses the enrollment and course already loaded by the 
   assert.match(access, /if \(!enrollment\)/);
   assert.match(access, /courseTitle, course/);
   assert.match(feed, /const course = access\.course/);
-  assert.match(play, /const course = access\.course/);
+  assert.match(play, /p_course_id: access\.course\.id/);
+  assert.match(play, /handleAgencyV5Play\(req, res\)/);
   assert.doesNotMatch(feed, /\.from\("courses"\)/);
   assert.doesNotMatch(play, /\.from\("courses"\)/);
 });

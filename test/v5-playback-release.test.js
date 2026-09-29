@@ -51,7 +51,7 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(sw, /credentials: "include"/);
   assert.match(sw, /REFRESH_SKEW_MS = 45 \* 1000/);
   assert.match(sw, /\[401, 403, 410\]\.includes\(upstream\.status\)/);
-  assert.match(sw, /fetchLease\(course, assetId, true\)/);
+  assert.match(sw, /fetchLease\(course, lessonId, assetId, true\)/);
   assert.match(sw, /Authorization/);
   assert.match(sw, /X-V5-Playback-Signature/);
   assert.match(sw, /crypto\.subtle\.generateKey/);

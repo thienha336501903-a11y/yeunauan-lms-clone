@@ -17,10 +17,91 @@ import v5FeedHandler from "../../utils/lms-handlers/v5-feed.js";
 import v5PlayHandler from "../../utils/lms-handlers/v5-play.js";
 import v5CourseIntroHandler from "../../utils/lms-handlers/v5-course-intro.js";
 import healthHandler from "../../utils/lms-handlers/health.js";
+import {
+  resolveRequestRoute,
+  handleAgencyLearnerDashboard,
+  handleAgencyV5Feed,
+  handleAgencyV5Play,
+  handleAgencyCourseIntro
+} from "../../utils/agency-lms-bridge.js";
+import { bridgeGoogleAccessTokenToSupabaseSession } from "../../utils/agency-google-auth-bridge.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
+  const options = req.__options || {};
 
+  // Milestone B6: Strict explicit routing model (No fallback from unmapped Agency host to Legacy)
+  const routeDecision = await resolveRequestRoute(req, options);
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false,
+      code: routeDecision.code,
+      error: routeDecision.error
+    });
+  }
+
+  // Agency domain route: only allow Agency-authorized endpoints
+  if (routeDecision.route === "AGENCY") {
+    // Public OAuth bootstrap config is required before a learner can authenticate
+    // on an Agency host. It exposes only the public Google OAuth client ID.
+    if (endpoint === "public-config") {
+      return publicConfigHandler(req, res);
+    }
+    if (endpoint === "health") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({
+        status: "ok",
+        app: "ok",
+        service: "yeunauan-lms-clone",
+        tenant: {
+          agencyId: routeDecision.tenant.agencyId,
+          agencySlug: routeDecision.tenant.agencySlug,
+          agencyName: routeDecision.tenant.agencyName,
+          hostname: routeDecision.tenant.hostname
+        }
+      });
+    }
+    if (endpoint === "student-dashboard" || endpoint === "learner-dashboard") {
+      // The shared learner page authenticates the human with Google GIS.
+      // Agency authorization itself remains Supabase-session-only: on the
+      // Google callback request, exchange the verified Google identity for a
+      // real Supabase session, then continue through requireAgencyMembership().
+      if (req.method === "POST" && req.body?.accessToken) {
+        const bridge = await bridgeGoogleAccessTokenToSupabaseSession(
+          req,
+          res,
+          routeDecision.tenant,
+          options
+        );
+        if (!bridge.ok) {
+          return res.status(bridge.status || 401).json({
+            success: false,
+            code: bridge.code,
+            error: bridge.error
+          });
+        }
+      }
+      return handleAgencyLearnerDashboard(req, res);
+    }
+    if (endpoint === "v5-feed") {
+      return handleAgencyV5Feed(req, res);
+    }
+    if (endpoint === "v5-play") {
+      return handleAgencyV5Play(req, res);
+    }
+    if (endpoint === "v5-course-intro") {
+      return handleAgencyCourseIntro(req, res);
+    }
+    return res.status(404).json({
+      success: false,
+      code: "agency_endpoint_not_found",
+      error: "Requested endpoint is not supported on Agency tenant domain."
+    });
+  }
+
+  // Explicit Legacy Host Route: Continues to legacy LMS endpoints
   if (endpoint === "health") return healthHandler(req, res);
   if (endpoint === "course-data") return courseDataHandler(req, res);
   if (endpoint === "lesson") return lessonHandler(req, res);
@@ -29,7 +110,9 @@ export default async function handler(req, res) {
   if (endpoint === "verify-entry-token") return verifyEntryTokenHandler(req, res);
   if (endpoint === "learning-mode") return learningModeHandler(req, res);
   if (endpoint === "v3-bootstrap") return v3BootstrapHandler(req, res);
-  if (endpoint === "student-dashboard") return studentDashboardHandler(req, res);
+  if (endpoint === "student-dashboard" || endpoint === "learner-dashboard") {
+    return studentDashboardHandler(req, res);
+  }
   if (endpoint === "legacy-entry-token") return legacyEntryTokenHandler(req, res);
   if (endpoint === "v4-course-intro") return v4CourseIntroHandler(req, res);
   if (endpoint === "v4-telegram-feed") return v4TelegramFeedHandler(req, res);

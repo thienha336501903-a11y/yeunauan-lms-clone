@@ -7,7 +7,8 @@ const app = fs.readFileSync(new URL('../v5/app.js', import.meta.url), 'utf8');
 test('V5 direct video Play always starts from the beginning instead of auto-resuming saved progress', () => {
   assert.match(app, /async function startVideo\(cell, \{ resume = false \} = \{\}\)/);
   assert.match(app, /const resumeAt = resume \? resumeTimeFor\(cell\.dataset\.assetId\) : 0/);
-  assert.match(app, /addEventListener\('click', \(\) => startVideo\(cell\)\)/);
+  assert.match(app, /const start = \(\) => startVideo\(cell\)/);
+  assert.match(app, /if \(cell\.querySelector\('video'\)\) \{ retry\(\); return; \}/);
   assert.doesNotMatch(app, /loadedmetadata', \(\) => \{ if \(unfinishedVideo\(videoProgress\)/);
 });
 

@@ -41,5 +41,5 @@ test("golden V4 entry nudge animation remains exact and shared", () => {
 test("page keeps the original mobile viewport contract and V5 content flow", () => {
   assert.match(page, /name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/);
   assert.match(page, /Xem toàn bộ \$\{items\.length\} phần nội dung/);
-  assert.match(page, /location\.assign\(`\/learning\?course=\$\{encodeURIComponent\(slug\)\}`\)/);
+  assert.match(page, /location\.assign\(`\/v5-sw-bootstrap\.html\?course=\$\{encodeURIComponent\(slug\)\}`\)/);
 });

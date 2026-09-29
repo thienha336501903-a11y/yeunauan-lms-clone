@@ -1,6 +1,7 @@
 const WARM_MESSAGE = 'v5-warm-lease';
 const COURSE = new URLSearchParams(location.search).get('course') || '';
 const IMMEDIATE_WARM_BUDGET = 2;
+const IMMEDIATE_IMAGE_WARM_BUDGET = 2;
 const warmed = new Set();
 const warming = new Map();
 let warmObserver = null;
@@ -22,7 +23,8 @@ async function mediaController() {
 
 async function warmLease(cell) {
   const assetId = String(cell?.dataset?.assetId || '').trim();
-  if (!assetId || warmed.has(assetId)) return true;
+  const lessonId = String(cell?.dataset?.canonicalLessonId || '').trim();
+  if (!assetId || !lessonId || warmed.has(assetId)) return true;
   if (warming.has(assetId)) return warming.get(assetId);
 
   const request = (async () => {
@@ -33,7 +35,7 @@ async function warmLease(cell) {
     // in-memory cache. This never fetches media bytes; it only moves the
     // existing short V5 lease work ahead of the user's Play tap.
     if (typeof MessageChannel === 'undefined') {
-      controller.postMessage({ type: WARM_MESSAGE, course: COURSE, assetId });
+      controller.postMessage({ type: WARM_MESSAGE, course: COURSE, lessonId, assetId });
       warmed.add(assetId);
       cell.dataset.v5LeaseReady = '1';
       return true;
@@ -47,7 +49,7 @@ async function warmLease(cell) {
         resolve(event.data?.ok === true);
       };
     });
-    controller.postMessage({ type: WARM_MESSAGE, course: COURSE, assetId }, [channel.port2]);
+    controller.postMessage({ type: WARM_MESSAGE, course: COURSE, lessonId, assetId }, [channel.port2]);
     const ok = await acknowledged;
     if (ok) {
       warmed.add(assetId);
@@ -71,16 +73,27 @@ function warmFirstVideoCells() {
   });
 }
 
-function observeVideoCells() {
+function warmFirstImageCells() {
+  let budget = IMMEDIATE_IMAGE_WARM_BUDGET;
+  document.querySelectorAll('[data-kind="image"][data-asset-id]').forEach(cell => {
+    if (budget <= 0) return;
+    const assetId = String(cell.dataset.assetId || '').trim();
+    if (!assetId || warmed.has(assetId) || warming.has(assetId)) return;
+    warmLease(cell).catch(() => {});
+    budget -= 1;
+  });
+}
+
+function observeMediaCells() {
   if (!warmObserver) return;
-  document.querySelectorAll('[data-kind="video"][data-asset-id]:not([data-v5-warm-observed])').forEach(cell => {
+  document.querySelectorAll('[data-kind="video"][data-asset-id]:not([data-v5-warm-observed]), [data-kind="image"][data-asset-id]:not([data-v5-warm-observed])').forEach(cell => {
     cell.dataset.v5WarmObserved = '1';
     warmObserver.observe(cell);
   });
-  // MutationObserver runs as soon as the feed inserts its media cells. Warm the
-  // first couple of video leases immediately instead of waiting for a later
-  // IntersectionObserver delivery, which is noticeably less deterministic on
-  // mobile browsers under load.
+  // MutationObserver runs as soon as the feed inserts media cells. Warm only a
+  // small above-the-fold budget: first protected images plus the existing first
+  // video leases. This moves authorization earlier without prefetching media bytes.
+  warmFirstImageCells();
   warmFirstVideoCells();
 }
 
@@ -102,10 +115,10 @@ if ('serviceWorker' in navigator && COURSE && 'IntersectionObserver' in window) 
 
   const feed = document.getElementById('feed');
   if (feed) {
-    mutationObserver = new MutationObserver(observeVideoCells);
+    mutationObserver = new MutationObserver(observeMediaCells);
     mutationObserver.observe(feed, { childList: true, subtree: true });
   }
-  observeVideoCells();
+  observeMediaCells();
   window.addEventListener('pagehide', () => {
     warmObserver?.disconnect();
     mutationObserver?.disconnect();

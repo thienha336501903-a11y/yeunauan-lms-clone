@@ -14,13 +14,18 @@ let activeSearchResultIndex = -1;
 let activeVideo = null;
 let videoProgress = null;
 let observer = null;
+let mediaWorkerPromise = null;
 
 function isTimelineMode() {
   return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
 }
 const progressKey = () => isTimelineMode() ? `v5_timeline_progress_${activeCourse || 'unknown'}` : `v5_progress_${activeCourse || 'unknown'}`;
 const videoProgressKey = () => `v5_video_progress_${activeCourse || 'unknown'}`;
-const mediaUrl = assetId => `/v5/media/${encodeURIComponent(assetId)}?course=${encodeURIComponent(activeCourse)}`;
+const mediaUrl = (assetId, canonicalLessonId = '') => {
+  const params = new URLSearchParams({ course: activeCourse });
+  if (canonicalLessonId) params.set('lesson', canonicalLessonId);
+  return `/v5/media/${encodeURIComponent(assetId)}?${params.toString()}`;
+};
 
 function linkify(value) {
   return esc(value).replace(/(https?:\/\/[^\s<]+)/gi, match => {
@@ -261,24 +266,25 @@ function renderOutline() {
   }));
 }
 
-function assetHtml(asset, index, total) {
+function assetHtml(asset, index, total, canonicalLessonId = '') {
   if (!asset.playback_ready) return `<div class="unavailable">${esc(asset.original_filename || asset.type)} — media chưa sẵn sàng phát.</div>`;
-  const url = mediaUrl(asset.id);
+  const url = mediaUrl(asset.id, canonicalLessonId);
   const more = total > 6 && index === 5 ? `<span class="more-overlay">+${total - 6}</span>` : '';
   if (asset.type === 'video') {
     const duration = formatDuration(asset.duration_ms);
-    const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id) : '';
+    const thumbnail = asset.thumbnail_asset_id ? mediaUrl(asset.thumbnail_asset_id, canonicalLessonId) : '';
     const poster = thumbnail ? `<img class="video-poster-image" loading="lazy" data-v5-image data-src="${esc(thumbnail)}" alt="">` : `<div class="video-poster">${esc(asset.original_filename || 'Video bài học')}</div>`;
-    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
+    return `<div class="media-cell" data-kind="video" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}" role="button" tabindex="0" aria-label="Phát video">${poster}${duration ? `<span class="media-duration">${esc(duration)}</span>` : ''}<button class="play" type="button" data-v5-start aria-label="Phát video">▶</button>${more}</div>`;
   }
-  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
+  if (asset.type === 'image' || asset.type === 'photo') return `<button class="media-cell" type="button" data-kind="image" data-src="${esc(url)}" data-asset-id="${esc(asset.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}"><img loading="lazy" data-v5-image data-src="${esc(url)}" alt="${esc(asset.original_filename || 'Ảnh bài học')}">${more}</button>`;
   return `<a class="doc" href="${esc(url)}" target="_blank" rel="noopener"><span class="doc-icon">📄</span><span class="doc-copy"><span class="doc-name">${esc(asset.original_filename || 'Tài liệu')}</span><span class="doc-size">${esc(formatBytes(asset.bytes))} · Mở tài liệu</span></span></a>`;
 }
 
 function postHtml(post, lesson, firstPost) {
   const visuals = post.visualAssets.slice(0, 6);
-  const visualHtml = visuals.length ? `<div class="media-grid ${post.mosaic}">${visuals.map((asset, index) => assetHtml(asset, index, post.visualAssets.length)).join('')}</div>` : '';
-  const filesHtml = post.fileAssets.map(asset => assetHtml(asset, 0, 1)).join('');
+  const canonicalLessonId = String(lesson?.canonical_lesson_id || '');
+  const visualHtml = visuals.length ? `<div class="media-grid ${post.mosaic}">${visuals.map((asset, index) => assetHtml(asset, index, post.visualAssets.length, canonicalLessonId)).join('')}</div>` : '';
+  const filesHtml = post.fileAssets.map(asset => assetHtml(asset, 0, 1, canonicalLessonId)).join('');
   const source = post.sourceTitle || data.course?.title || 'Kênh bài học';
   const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
   const showLessonChip = !isTimeline && firstPost;
@@ -487,17 +493,32 @@ function clearSearch() {
   setMobileSearch(false);
 }
 
-async function ensureMediaWorker() {
-  if (!('serviceWorker' in navigator)) throw new Error('Trình duyệt này không hỗ trợ phát media V5 an toàn.');
-  await navigator.serviceWorker.register('/v5/media-sw.js', { scope: '/v5/', updateViaCache: 'none' });
-  await navigator.serviceWorker.ready;
-  if (navigator.serviceWorker.controller) return;
-  await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Không thể kích hoạt bộ phát media V5. Hãy tải lại trang.')), 5000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+function ensureMediaWorker() {
+  if (!('serviceWorker' in navigator)) return Promise.reject(new Error('Trình duyệt này không hỗ trợ phát media V5 an toàn.'));
+  if (mediaWorkerPromise) return mediaWorkerPromise;
+  mediaWorkerPromise = (async () => {
+    await navigator.serviceWorker.register('/v5/media-sw.js', { scope: '/v5/', updateViaCache: 'none' });
+    await navigator.serviceWorker.ready;
+    if (navigator.serviceWorker.controller) return;
+    await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('Không thể kích hoạt bộ phát media V5. Hãy tải lại trang.')), 5000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+  })().catch(error => {
+    mediaWorkerPromise = null;
+    throw error;
+  });
+  return mediaWorkerPromise;
 }
 
 async function hydrateProtectedImages() {
   await ensureMediaWorker();
-  document.querySelectorAll('img[data-v5-image][data-src]').forEach(image => {
+  const images = [...document.querySelectorAll('img[data-v5-image][data-src]')];
+  const first = images.find(image => image.closest('[data-kind="image"]')) || images[0];
+  if (first) {
+    first.loading = 'eager';
+    first.fetchPriority = 'high';
+    first.decoding = 'async';
+  }
+  images.forEach(image => {
+    if (image !== first) image.decoding = 'async';
     if (!image.getAttribute('src')) image.setAttribute('src', image.dataset.src);
   });
 }
@@ -545,15 +566,19 @@ async function startVideo(cell, { resume = false } = {}) {
     });
     video.addEventListener('playing', () => {
       cell.dataset.loading = '';
+      cell.dataset.playRetry = '';
       if (!resume && unfinishedVideo(videoProgress) && String(videoProgress.assetId) === String(cell.dataset.assetId)) clearVideoProgress(cell.dataset.assetId);
     }, { once: true });
     cell.replaceChildren(video);
     activeVideo = video;
     const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
     markSeen(targetId);
-    video.src = mediaUrl(cell.dataset.assetId);
+    video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
     const playAttempt = video.play();
-    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => { cell.dataset.loading = ''; });
+    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+      cell.dataset.loading = '';
+      cell.dataset.playRetry = '1';
+    });
   } catch (error) {
     cell.dataset.loading = '';
     if (button) { button.disabled = false; button.textContent = 'Thử lại'; }
@@ -580,7 +605,36 @@ function resumeSavedVideo() {
 function openLightbox(source) { $('lightImage').src = source; $('lightbox').classList.add('open'); $('lightbox').setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; }
 function closeLightbox() { $('lightbox').classList.remove('open'); $('lightbox').setAttribute('aria-hidden', 'true'); $('lightImage').removeAttribute('src'); document.body.style.overflow = ''; }
 function wireMedia() {
-  document.querySelectorAll('[data-kind="video"]').forEach(cell => cell.querySelector('[data-v5-start]')?.addEventListener('click', () => startVideo(cell)));
+  document.querySelectorAll('[data-kind="video"]').forEach(cell => {
+    const start = () => startVideo(cell);
+    const retry = () => {
+      const video = cell.querySelector('video');
+      if (!video || cell.dataset.playRetry !== '1') return false;
+      cell.dataset.loading = '1';
+      const playAttempt = video.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
+        cell.dataset.loading = '';
+        cell.dataset.playRetry = '1';
+      });
+      return true;
+    };
+    cell.querySelector('[data-v5-start]')?.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      start();
+    });
+    cell.addEventListener('click', event => {
+      if (event.target.closest('[data-v5-start]')) return;
+      if (cell.querySelector('video')) { retry(); return; }
+      start();
+    });
+    cell.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (cell.querySelector('video')) { retry(); return; }
+      event.preventDefault();
+      start();
+    });
+  });
   document.querySelectorAll('[data-kind="image"]').forEach(cell => cell.addEventListener('click', async () => {
     try { await ensureMediaWorker(); openLightbox(cell.dataset.src); } catch {}
   }));
@@ -643,9 +697,19 @@ async function load() {
   activeCourse = new URLSearchParams(location.search).get('course') || '';
   if (!activeCourse) { $('stateCard').innerHTML = 'Thiếu mã khóa học.<br><a href="/my-courses.html">Về danh sách khóa học</a>'; return; }
   try {
+    // Start protected-media setup in parallel with the feed request so first
+    // viewport images do not wait for SW registration after render.
+    ensureMediaWorker().catch(() => {});
     const response = await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(activeCourse)}`, { cache: 'no-store', credentials: 'include' });
     const payload = await response.json().catch(() => ({}));
-    if (response.status === 401) { location.replace(`/v3?return=v5&course=${encodeURIComponent(activeCourse)}`); return; }
+    if (response.status === 401) {
+      const params = new URLSearchParams({
+        course: activeCourse,
+        return: 'v5'
+      });
+      location.replace(`/my-courses.html?${params.toString()}`);
+      return;
+    }
     if (!response.ok || !payload.success) throw new Error(payload.error || `HTTP ${response.status}`);
     render(payload);
   } catch (error) { $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`; }

@@ -85,7 +85,8 @@ test('3. admin-v5-upload.js disables checksum dedupe for replacement uploads', (
 
 test('4. RPC missing / unavailable fails closed with code v5_replace_rpc_unavailable and 0 DB mutations', async () => {
   const { replaceTelegramMedia } = await import('../utils/lms-handlers/admin-v5-content.js');
-  const { supabase } = await import('../utils/supabase.js');
+  const { getServiceRoleClient } = await import('../utils/supabase.js');
+  const supabase = getServiceRoleClient();
 
   const origFrom = supabase.from;
   const origRpc = supabase.rpc;
@@ -436,7 +437,8 @@ test('6. replaceTelegramMedia rejects r2ObjectKey-only creation without newAsset
 
 test('7. replacement requires existing newAssetId in v5_media_assets', async () => {
   const { replaceTelegramMedia } = await import('../utils/lms-handlers/admin-v5-content.js');
-  const { supabase } = await import('../utils/supabase.js');
+  const { getServiceRoleClient } = await import('../utils/supabase.js');
+  const supabase = getServiceRoleClient();
 
   const origFrom = supabase.from;
   supabase.from = (table) => {
@@ -475,7 +477,8 @@ test('7. replacement requires existing newAssetId in v5_media_assets', async () 
 
 test('8. replacement requires new asset to be READY on R2', async () => {
   const { replaceTelegramMedia } = await import('../utils/lms-handlers/admin-v5-content.js');
-  const { supabase } = await import('../utils/supabase.js');
+  const { getServiceRoleClient } = await import('../utils/supabase.js');
+  const supabase = getServiceRoleClient();
 
   const origFrom = supabase.from;
   supabase.from = (table) => {
