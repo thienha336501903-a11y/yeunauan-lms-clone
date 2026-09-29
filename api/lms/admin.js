@@ -32,11 +32,84 @@ import adminV5PreviewAccessHandler from "../../utils/lms-handlers/admin-v5-previ
 import adminV5StorageHandler from "../../utils/lms-handlers/admin-v5-storage.js";
 import adminV5CourseDeleteHandler from "../../utils/lms-handlers/admin-v5-course-delete.js";
 import adminV5CourseRetirePurgeHandler from "../../utils/lms-handlers/admin-v5-course-retire-purge.js";
+import { resolveRequestRoute } from "../../utils/agency-routing.js";
+import {
+  listAgencyOrders,
+  approveAgencyOrder,
+  refundAgencyOrder
+} from "../../utils/agency-commerce.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
+  const options = req.__options || {};
+
+  // M0D: Agency Admin requests must be dispatched before any legacy admin handler.
+  // Unknown hosts fail closed; only explicitly allowlisted Legacy hosts can reach
+  // the historical admin stack below.
+  const routeDecision = await resolveRequestRoute(req, options);
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false,
+      code: routeDecision.code,
+      error: routeDecision.error
+    });
+  }
+
+  if (routeDecision.route === "AGENCY") {
+    res.setHeader("Cache-Control", "private, no-store");
+
+    if (endpoint === "agency-orders") {
+      if (req.method !== "GET") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      const result = await listAgencyOrders(req, options);
+      return res.status(result.status || (result.ok ? 200 : 400)).json({
+        success: Boolean(result.ok),
+        ...result
+      });
+    }
+
+    if (endpoint === "agency-order-approve") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      const orderId = String(req.body?.orderId || "").trim();
+      if (!orderId) {
+        return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
+      }
+      const result = await approveAgencyOrder(req, orderId, options);
+      return res.status(result.status && typeof result.status === "number" ? result.status : (result.ok ? 200 : 400)).json({
+        success: Boolean(result.ok),
+        ...result
+      });
+    }
+
+    if (endpoint === "agency-order-refund") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      const orderId = String(req.body?.orderId || "").trim();
+      const reason = String(req.body?.reason || "Customer refund").trim() || "Customer refund";
+      if (!orderId) {
+        return res.status(400).json({ success: false, code: "missing_order_id", error: "orderId is required." });
+      }
+      const result = await refundAgencyOrder(req, orderId, reason, options);
+      return res.status(result.status && typeof result.status === "number" ? result.status : (result.ok ? 200 : 400)).json({
+        success: Boolean(result.ok),
+        ...result
+      });
+    }
+
+    return res.status(404).json({
+      success: false,
+      code: "agency_admin_endpoint_not_found",
+      error: "Requested endpoint is not supported on Agency Admin."
+    });
+  }
+
+  // Explicit Legacy host only: preserve the historical admin behavior unchanged.
   if (endpoint === "auth") return adminAuthHandler(req, res);
   if (endpoint === "drive-auth" || endpoint === "drive-status") return adminDriveAuthHandler(req, res);
   if (endpoint === "courses") return adminCoursesHandler(req, res);
