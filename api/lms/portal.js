@@ -30,6 +30,10 @@ import {
   submitAgencyHomework,
   gradeAgencyHomework
 } from "../../utils/agency-homework.js";
+import {
+  listAgencyLessonProgress,
+  upsertAgencyLessonProgress
+} from "../../utils/agency-progress.js";
 
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
@@ -99,7 +103,32 @@ export default async function handler(req, res) {
     if (endpoint === "v5-course-intro") {
       return handleAgencyCourseIntro(req, res);
     }
-    if (endpoint === "agency-homework-list") {
+    if (endpoint === "agency-progress") {
+      try {
+        if (req.method === "GET") {
+          const result = await listAgencyLessonProgress(req, req.query?.course, options);
+          return res.status(result.status || (result.ok ? 200 : 400)).json({
+            success: Boolean(result.ok),
+            ...result
+          });
+        }
+        if (req.method === "POST") {
+          const result = await upsertAgencyLessonProgress(req, req.body || {}, options);
+          return res.status(result.status || (result.ok ? 200 : 400)).json({
+            success: Boolean(result.ok),
+            ...result
+          });
+        }
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      } catch (error) {
+        return res.status(error?.status || 500).json({
+          success: false,
+          code: error?.code || "agency_progress_failed",
+          error: error?.message || "Unable to read or write Agency progress."
+        });
+      }
+    }
+        if (endpoint === "agency-homework-list") {
       if (req.method !== "GET") {
         return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
       }
