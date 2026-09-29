@@ -29,20 +29,20 @@ export const REQUIRED_SURFACES = Object.freeze([
       ref("commerce", "utils/agency-routing.js"),
       ref("commerce", "utils/agency-commerce.js", ["agency_offerings", "agency_bank_accounts"]),
       ref("commerce", "utils/ui-variant-engine.js", ["STOREFRONT"]),
-      ref("commerce", "agency-checkout.html", ["/api/config", "offerings"])
+      ref("commerce", "agency-storefront.html", ["/api/config", "offerings"])
     ]
   },
   {
     surface: "checkout",
     description: "Server-side quote, VietQR generation, checkout RPC, immutable order snapshot",
     entrypoints: [
-      ref("commerce", "api/register.js", ["bridgeGoogleAccessTokenToSupabaseSession", "checkoutOffering"]),
+      ref("commerce", "api/register.js", ["checkoutOffering"]),
       ref("commerce", "api/orders.js", ["getAgencyOrder"])
     ],
     agencyModules: [
       ref("commerce", "utils/agency-commerce.js", ["checkout_agency_offering", "generateVietQrUrl"]),
       ref("commerce", "utils/agency-routing.js"),
-      ref("commerce", "agency-checkout.html", ["vietQrUrl", "/api/register"])
+      ref("commerce", "agency-storefront.html", ["vietQrUrl", "/api/register"])
     ]
   },
   {
