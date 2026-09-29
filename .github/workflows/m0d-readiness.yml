@@ -44,9 +44,12 @@ jobs:
           node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
           node scripts/check-m0d-readiness.js --json
 
-      - name: Commerce Agency auth regression
+      - name: Commerce M0D readiness and auth regressions
         working-directory: yeunauan-commerce-clone
-        run: node --test test/agency-google-auth-bridge.test.js test/m0d-agency-commerce-flow.test.js
+        run: |
+          node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
+          node scripts/check-m0d-readiness.js --json
+          node --test test/agency-google-auth-bridge.test.js test/m0d-agency-commerce-flow.test.js
 
       - name: LMS auth routing and V5 regression
         working-directory: yeunauan-lms-clone
