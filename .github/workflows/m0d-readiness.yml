@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "utils/m0d-dependency-checker.js"
+      - "api/lms/agency-admin.js"
+      - "test/m0d-agency-admin-entrypoint.test.js"
       - "scripts/check-m0d-readiness.js"
       - "test/m0d-dependency-checker.test.js"
       - "test/m0d-readiness.test.js"
