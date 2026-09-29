@@ -73,10 +73,11 @@ export const REQUIRED_SURFACES = Object.freeze([
     surface: "learning/player",
     description: "Canonical courses & lessons hierarchy, learning UI cinema/card variants",
     entrypoints: [
-      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro"])
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro", "agency-progress"])
     ],
     agencyModules: [
       ref("lms", "utils/agency-lms-bridge.js", ["canonical_lessons", "v5LearnerReleaseContent"]),
+      ref("lms", "utils/agency-progress.js", ["agency_lesson_progress", "upsertAgencyLessonProgress"]),
       ref("lms", "utils/ui-variant-engine.js", ["LEARNING"])
     ]
   },
@@ -446,7 +447,8 @@ export function checkM0dCutoverReadiness(rootDir = process.cwd()) {
   const lmsBridge = readIfPresent(repoRoots, "lms", "utils/agency-lms-bridge.js");
   const commerceCore = readIfPresent(repoRoots, "commerce", "utils/agency-commerce.js");
   const lmsPlayback = readIfPresent(repoRoots, "lms", "utils/v5-playback-lease.js");
-  const lmsProvisioner = readIfPresent(repoRoots, "lms", "utils/agency-provisioner.js");
+  const lmsProgress = readIfPresent(repoRoots, "lms", "utils/agency-progress.js");
+  const lmsPortal = readIfPresent(repoRoots, "lms", "api/lms/portal.js");
   const lmsHomework = readIfPresent(repoRoots, "lms", "utils/agency-homework.js");
 
   const entitlementGrantModelEvidence =
@@ -457,7 +459,10 @@ export function checkM0dCutoverReadiness(rootDir = process.cwd()) {
     lmsBridge.includes("v5_authorize_agency_playback") &&
     (lmsPlayback.includes("issueV5PlaybackLease") || lmsPlayback.includes("isV5PlaybackConfigured"));
 
-  const progressEvidence = lmsProvisioner.includes("agency_lesson_progress");
+  const progressEvidence =
+    lmsProgress.includes("agency_lesson_progress") &&
+    lmsProgress.includes("upsertAgencyLessonProgress") &&
+    lmsPortal.includes('endpoint === "agency-progress"');
 
   const homeworkEvidence =
     lmsHomework.includes("agency_homework_submissions") &&
