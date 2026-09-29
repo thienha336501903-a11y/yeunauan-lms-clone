@@ -15,6 +15,7 @@ let activeVideo = null;
 let videoProgress = null;
 let observer = null;
 let mediaWorkerPromise = null;
+const agencyProgressSyncAt = new Map();
 
 function isTimelineMode() {
   return data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline' || data?.config?.settings?.authoring_mode === 'timeline';
@@ -98,6 +99,96 @@ function saveProgress() {
   } catch {}
 }
 
+function agencyLessonForTarget(targetId) {
+  const id = String(targetId || '');
+  if (!id) return null;
+  if (!isTimelineMode()) return lessons.find(lesson => String(lesson.id) === id) || null;
+  return lessons.find(lesson => (lesson.posts || []).some(post => String(post.id) === id)) || null;
+}
+
+function agencyProgressSnapshot(targetId) {
+  const lesson = agencyLessonForTarget(targetId);
+  const canonicalLessonId = String(lesson?.canonical_lesson_id || '');
+  if (!lesson || !canonicalLessonId) return null;
+
+  if (!isTimelineMode()) {
+    const complete = seen.has(String(lesson.id));
+    return { canonicalLessonId, progressPercent: complete ? 100 : 0, isCompleted: complete };
+  }
+
+  const posts = lesson.posts || [];
+  if (!posts.length) return { canonicalLessonId, progressPercent: 0, isCompleted: false };
+  const completedPosts = posts.filter(post => seen.has(String(post.id))).length;
+  const progressPercent = Math.round(completedPosts / posts.length * 100);
+  return {
+    canonicalLessonId,
+    progressPercent,
+    isCompleted: completedPosts === posts.length
+  };
+}
+
+function syncAgencyProgress(targetId, lastPositionSeconds = 0, { force = false } = {}) {
+  if (!data?.agencyMode) return;
+  const snapshot = agencyProgressSnapshot(targetId);
+  if (!snapshot) return;
+
+  const now = Date.now();
+  const last = agencyProgressSyncAt.get(snapshot.canonicalLessonId) || 0;
+  if (!force && now - last < 10000) return;
+  agencyProgressSyncAt.set(snapshot.canonicalLessonId, now);
+
+  fetch('/api/lms/portal?endpoint=agency-progress', {
+    method: 'POST',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      course: activeCourse,
+      canonicalLessonId: snapshot.canonicalLessonId,
+      progressPercent: snapshot.progressPercent,
+      isCompleted: snapshot.isCompleted,
+      lastPositionSeconds: Math.max(0, Math.floor(Number(lastPositionSeconds) || 0))
+    })
+  }).catch(() => {});
+}
+
+async function hydrateAgencyProgress() {
+  if (!data?.agencyMode || isTimelineMode()) return;
+  try {
+    const response = await fetch(`/api/lms/portal?endpoint=agency-progress&course=${encodeURIComponent(activeCourse)}`, {
+      credentials: 'include',
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.success || !Array.isArray(payload.progress)) return;
+
+    const completedCanonical = new Set(
+      payload.progress
+        .filter(row => row?.is_completed === true || Number(row?.progress_percent || 0) >= 100)
+        .map(row => String(row.canonical_lesson_id || ''))
+        .filter(Boolean)
+    );
+    let changed = false;
+    for (const lesson of lessons) {
+      if (completedCanonical.has(String(lesson.canonical_lesson_id || '')) && !seen.has(String(lesson.id))) {
+        seen.add(String(lesson.id));
+        lastSeen = String(lesson.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveProgress();
+      renderOutline();
+      renderFeed();
+      updateProgressUI();
+      applyFilter();
+      hydrateProtectedImages().catch(() => {});
+      wireMedia();
+      wireObservers();
+    }
+  } catch {}
+}
+
 function unfinishedVideo(progress) {
   if (!progress?.assetId || (!progress.lessonId && !progress.postId) || !(Number(progress.currentTime) > .5)) return false;
   const duration = Number(progress.duration || 0);
@@ -124,6 +215,8 @@ function saveVideoProgress(video) {
   };
   try { localStorage.setItem(videoProgressKey(), JSON.stringify(videoProgress)); } catch {}
   updateProgressUI();
+  const targetId = isTimelineMode() ? card.dataset.postId : card.dataset.lessonId;
+  syncAgencyProgress(targetId, video.currentTime);
 }
 
 function clearVideoProgress(assetId = '') {
@@ -135,10 +228,13 @@ function clearVideoProgress(assetId = '') {
 
 function markSeen(targetId) {
   if (!targetId) return;
-  seen.add(String(targetId));
-  lastSeen = String(targetId);
+  const normalizedTargetId = String(targetId);
+  const wasSeen = seen.has(normalizedTargetId);
+  seen.add(normalizedTargetId);
+  lastSeen = normalizedTargetId;
   saveProgress();
   updateProgressUI();
+  if (!wasSeen) syncAgencyProgress(normalizedTargetId, 0, { force: true });
   if (isTimelineMode()) {
     document.querySelectorAll('.outline-item').forEach(item => item.classList.toggle('current', item.dataset.postId === String(targetId)));
   } else {
@@ -289,7 +385,7 @@ function postHtml(post, lesson, firstPost) {
   const isTimeline = data?.settings?.authoring_mode === 'timeline' || data?.authoringMode === 'timeline';
   const showLessonChip = !isTimeline && firstPost;
   const isSeen = isTimeline ? seen.has(String(post.id)) : seen.has(String(lesson.id));
-  return `${showLessonChip ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${isSeen ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
+  return `${showLessonChip ? `<div class="lesson-chip" data-for-lesson="${esc(lesson.id)}">${esc(lesson.title)}</div>` : ''}<article class="lesson-card" id="post-${esc(post.id)}" data-post-id="${esc(post.id)}" data-lesson-id="${esc(lesson.id)}" data-canonical-lesson-id="${esc(canonicalLessonId)}" data-category="${esc(post.category)}"><div class="sender">${esc(source)}</div>${post.textOnly ? `<div class="lesson-text">${linkify(post.textOnly)}</div>` : ''}${visualHtml}${filesHtml}${post.caption ? `<div class="caption">${linkify(post.caption)}</div>` : ''}<div class="footer"><span class="seen-check" ${isSeen ? '' : 'hidden'}>✓✓</span><span>${esc(timeLabel(post.sourceDate))}</span></div></article>`;
 }
 
 function renderFeed() {
@@ -712,6 +808,7 @@ async function load() {
     }
     if (!response.ok || !payload.success) throw new Error(payload.error || `HTTP ${response.status}`);
     render(payload);
+    hydrateAgencyProgress().catch(() => {});
   } catch (error) { $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`; }
 }
 
