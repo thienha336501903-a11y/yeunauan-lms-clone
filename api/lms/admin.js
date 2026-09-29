@@ -32,10 +32,18 @@ import adminV5PreviewAccessHandler from "../../utils/lms-handlers/admin-v5-previ
 import adminV5StorageHandler from "../../utils/lms-handlers/admin-v5-storage.js";
 import adminV5CourseDeleteHandler from "../../utils/lms-handlers/admin-v5-course-delete.js";
 import adminV5CourseRetirePurgeHandler from "../../utils/lms-handlers/admin-v5-course-retire-purge.js";
+import { resolveRequestRoute } from "../../utils/agency-routing.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
 export default async function handler(req, res) {
+  const routeDecision = await resolveRequestRoute(req, req.__options || {});
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({ success: false, code: routeDecision.code, error: routeDecision.error });
+  }
+  if (routeDecision.route === "AGENCY") {
+    return res.status(403).json({ success: false, code: "agency_legacy_admin_prohibited", error: "Legacy admin endpoints are unavailable on Agency hosts." });
+  }
   const { endpoint } = req.query || {};
   if (endpoint === "auth") return adminAuthHandler(req, res);
   if (endpoint === "drive-auth" || endpoint === "drive-status") return adminDriveAuthHandler(req, res);

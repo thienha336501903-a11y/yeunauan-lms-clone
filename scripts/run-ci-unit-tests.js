@@ -9,8 +9,6 @@ const root = path.resolve(here, "..");
 const testDir = path.join(root, "test");
 
 const EXCLUDED = new Set([
-  "m0d-dependency-checker.test.js",
-  "m0d-readiness.test.js",
   "m0e-inventory-consistency.test.js",
   "multi-agency-b5-real-db.test.js",
   "multi-agency-b7.test.js",

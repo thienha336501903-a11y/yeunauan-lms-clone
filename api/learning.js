@@ -1,5 +1,6 @@
 import { getRuntimeSnapshot } from "../utils/v3-runtime-controller.js";
 import { supabase } from "../utils/supabase.js";
+import { resolveRequestRoute } from "../utils/agency-routing.js";
 
 function isV4RoutingEnabled() {
   const raw = String(process.env.LMS_V4_ROUTING_ENABLED || "").trim().toLowerCase();
@@ -25,6 +26,17 @@ async function courseDeliveryMode(courseSlug) {
 }
 
 export default async function handler(req, res) {
+  const routeDecision = await resolveRequestRoute(req, req.__options || {});
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({ success: false, code: routeDecision.code, error: routeDecision.error });
+  }
+  if (routeDecision.route === "AGENCY") {
+    const course = String(req.query?.course || "").trim();
+    res.setHeader("Cache-Control", "no-store");
+    return res.redirect(307, course
+      ? `/legacy-post.html?course=${encodeURIComponent(course)}`
+      : "/my-courses.html");
+  }
   const state = await getRuntimeSnapshot();
   const mode = state.effectiveMode === "v3" ? "v3" : "v2";
 
