@@ -435,6 +435,7 @@ export async function handleAgencyCourseIntro(req, res, options = {}) {
 
     return res.status(200).json({
       success: true,
+      agencyMode: true,
       course: {
         code: canonicalCourse.code,
         title: canonicalCourse.default_title,
