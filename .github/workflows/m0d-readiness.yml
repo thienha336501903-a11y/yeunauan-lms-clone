@@ -3,6 +3,11 @@ name: M0D Cross-Repo Readiness
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      commerce_ref:
+        description: Commerce git ref to validate against (branch, tag, or commit SHA)
+        required: false
+        default: main
 
 permissions:
   contents: read
@@ -17,11 +22,11 @@ jobs:
           path: yeunauan-lms-clone
           persist-credentials: false
 
-      - name: Checkout Commerce M0D branch
+      - name: Checkout Commerce dependency
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: thienha336501903-a11y/yeunauan-commerce-clone
-          ref: feat/m0d-zero-legacy-proof
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.commerce_ref || 'main' }}
           path: yeunauan-commerce-clone
           persist-credentials: false
 
