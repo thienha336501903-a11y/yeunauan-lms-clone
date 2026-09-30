@@ -1,0 +1,67 @@
+name: M0D Cross-Repo Readiness
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m0d:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LMS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: yeunauan-lms-clone
+          persist-credentials: false
+
+      - name: Checkout Commerce M0D branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: thienha336501903-a11y/yeunauan-commerce-clone
+          ref: feat/m0d-zero-legacy-proof
+          path: yeunauan-commerce-clone
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install LMS dependencies
+        working-directory: yeunauan-lms-clone
+        run: npm ci
+
+      - name: Install Commerce dependencies
+        working-directory: yeunauan-commerce-clone
+        run: npm ci
+
+      - name: M0D dependency matrix and readiness suites
+        working-directory: yeunauan-lms-clone
+        run: |
+          node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
+          node scripts/check-m0d-readiness.js --json
+
+      - name: Commerce M0D readiness and auth regressions
+        working-directory: yeunauan-commerce-clone
+        run: |
+          node --test test/m0d-dependency-checker.test.js test/m0d-readiness.test.js
+          node scripts/check-m0d-readiness.js --json
+          node --test test/agency-google-auth-bridge.test.js test/m0d-agency-commerce-flow.test.js
+
+      - name: LMS auth routing and V5 regression
+        working-directory: yeunauan-lms-clone
+        run: |
+          node --test             test/agency-google-auth-bridge.test.js             test/b6-routing-and-playback.test.js             test/v5-mobile-student-smoke.test.js             test/v5-playback-release.test.js             test/v5-playback-warmup.test.js             test/v5-protected-image-loading.test.js             test/v5-antidownload-v2.test.js
+
+      - name: M0D syntax checks
+        run: |
+          node --check yeunauan-lms-clone/api/lms/admin.js
+          node --check yeunauan-lms-clone/api/lms/portal.js
+          node --check yeunauan-lms-clone/utils/m0d-dependency-checker.js
+          node --check yeunauan-commerce-clone/api/config.js
+          node --check yeunauan-commerce-clone/api/register.js
+          node --check yeunauan-commerce-clone/api/orders.js
+          node --check yeunauan-commerce-clone/utils/agency-google-auth-bridge.js

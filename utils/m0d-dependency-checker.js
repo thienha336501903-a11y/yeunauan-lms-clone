@@ -1,121 +1,123 @@
 // utils/m0d-dependency-checker.js
-// System B Milestone M0D — Entrypoint Dependency Checker & Pre-Cutover Matrix
+// System B Milestone M0D — Cross-repo zero-Legacy dependency checker.
 // Authoritative Plan: SYSTEM_B_MULTI_AGENCY_MASTER_IMPLEMENTATION_PLAN_V1_1.md
-// Milestone M0B.1 / Pre-M0C Remediation V3 — Phase 17 / FIX 13
+//
 // Invariants:
-//   - Starts from REAL entrypoints:
-//       Commerce: api/register.js, api/orders.js, api/config.js, api/courses.js
-//       LMS: api/lms/portal.js, api/lms/admin.js, agency bridge, homework, playback
-//   - Never silently ignores missing files: reports UNKNOWN or FAIL.
-//   - Recursively traverses direct and transitive local imports in Agency execution paths.
-//   - Audits all 7 required surfaces: storefront, checkout, agency admin, learner, learning/player, homework, V5 playback.
-//   - Cutover gates are computed from verifiable file audits (NO hardcoded true).
-//   - M0D_EXECUTION invariant: strictly NOT_STARTED.
+// - Audits BOTH LMS and Commerce from real entrypoints.
+// - Every audited module is bound to an explicit repository.
+// - Missing sibling repository / entrypoint / module is UNKNOWN, never PASS.
+// - Agency branches are checked for prohibited Legacy dependencies.
+// - M0D_EXECUTION remains NOT_STARTED until runtime zero-Legacy proof is completed.
 
 import fs from "node:fs";
 import path from "node:path";
 
-/**
- * 7 Required Surfaces and their real entrypoints / source files across LMS and Commerce.
- */
-export const REQUIRED_SURFACES = [
+const ref = (repo, file, requiredTokens = []) => Object.freeze({
+  repo,
+  file,
+  requiredTokens: Object.freeze([...requiredTokens])
+});
+
+export const REQUIRED_SURFACES = Object.freeze([
   {
     surface: "storefront",
     description: "Public storefront catalog, offerings, and UI profile resolution",
     entrypoints: [
-      { repo: "lms", file: "api/lms/portal.js" },
-      { repo: "commerce", file: "api/config.js" },
-      { repo: "commerce", file: "api/courses.js" }
+      ref("commerce", "api/config.js", ["getAgencyCommerceConfig"]),
+      ref("commerce", "api/hero.js", ["agency_legacy_hero_prohibited"])
     ],
     agencyModules: [
-      "utils/agency-routing.js",
-      "utils/agency-commerce.js",
-      "utils/ui-variant-engine.js"
+      ref("commerce", "utils/agency-routing.js"),
+      ref("commerce", "utils/agency-commerce.js", ["agency_offerings", "agency_bank_accounts"]),
+      ref("commerce", "utils/ui-variant-engine.js", ["STOREFRONT"]),
+      ref("commerce", "index.html", ["agency-storefront.html", "/api/hero"]),
+      ref("commerce", "agency-storefront.html", ["/api/config", "offerings"])
     ]
   },
   {
     surface: "checkout",
     description: "Server-side quote, VietQR generation, checkout RPC, immutable order snapshot",
     entrypoints: [
-      { repo: "commerce", file: "api/orders.js" },
-      { repo: "commerce", file: "api/register.js" }
+      ref("commerce", "api/register.js", ["checkoutOffering"]),
+      ref("commerce", "api/orders.js", ["getAgencyOrder"])
     ],
     agencyModules: [
-      "utils/agency-commerce.js",
-      "utils/agency-routing.js"
+      ref("commerce", "utils/agency-commerce.js", ["checkout_agency_offering", "generateVietQrUrl"]),
+      ref("commerce", "utils/agency-routing.js"),
+      ref("commerce", "agency-storefront.html", ["vietQrUrl", "/api/register"])
     ]
   },
   {
     surface: "agency admin",
     description: "Role-gated management, agency order approval, refund state machine",
     entrypoints: [
-      { repo: "lms", file: "api/lms/admin.js" }
+      ref("lms", "api/lms/admin.js", ["listAgencyOrders", "approveAgencyOrder", "refundAgencyOrder"])
     ],
     agencyModules: [
-      "utils/agency-auth.js",
-      "utils/tenant-db-resolver.js",
-      "utils/agency-commerce.js"
+      ref("lms", "utils/agency-auth.js"),
+      ref("lms", "utils/tenant-db-resolver.js"),
+      ref("lms", "utils/agency-commerce.js")
     ]
   },
   {
     surface: "learner",
     description: "Authenticated student dashboard, active entitlements list, identity validation",
     entrypoints: [
-      { repo: "lms", file: "api/lms/portal.js" }
+      ref("lms", "api/lms/portal.js", ["handleAgencyLearnerDashboard"])
     ],
     agencyModules: [
-      "utils/agency-auth.js",
-      "utils/agency-lms-bridge.js",
-      "utils/tenant-db-resolver.js"
+      ref("lms", "utils/agency-auth.js"),
+      ref("lms", "utils/agency-lms-bridge.js", ["student_entitlements"]),
+      ref("lms", "utils/tenant-db-resolver.js")
     ]
   },
   {
     surface: "learning/player",
     description: "Canonical courses & lessons hierarchy, learning UI cinema/card variants",
     entrypoints: [
-      { repo: "lms", file: "api/lms/portal.js" }
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Feed", "handleAgencyCourseIntro", "agency-progress"]),
+      ref("lms", "api/learning.js", ["legacy-post.html"]),
+      ref("lms", "api/legacy-post-redirect.js", ["agency_legacy_post_redirect_prohibited"])
     ],
     agencyModules: [
-      "utils/agency-lms-bridge.js",
-      "utils/ui-variant-engine.js"
+      ref("lms", "utils/agency-lms-bridge.js", ["canonical_lessons", "v5LearnerReleaseContent"]),
+      ref("lms", "utils/agency-progress.js", ["agency_lesson_progress", "upsertAgencyLessonProgress"]),
+      ref("lms", "utils/ui-variant-engine.js", ["LEARNING"])
     ]
   },
   {
     surface: "homework",
     description: "Tenant homework submissions, reviews, grading, canonical lesson binding",
     entrypoints: [
-      { repo: "lms", file: "api/lms/portal.js" }
+      ref("lms", "api/lms/portal.js", ["listAgencyHomework", "submitAgencyHomework", "gradeAgencyHomework"])
     ],
     agencyModules: [
-      "utils/agency-homework.js"
+      ref("lms", "utils/agency-homework.js", ["submit_agency_homework", "grade_agency_homework"])
     ]
   },
   {
     surface: "V5 playback",
     description: "ECDSA P-256 signed playback leases, B1.1 agency playback authorization",
     entrypoints: [
-      { repo: "lms", file: "api/lms/portal.js" }
+      ref("lms", "api/lms/portal.js", ["handleAgencyV5Play"])
     ],
     agencyModules: [
-      "utils/agency-lms-bridge.js",
-      "utils/v5-playback-lease.js"
+      ref("lms", "utils/agency-lms-bridge.js", ["v5_authorize_agency_playback"]),
+      ref("lms", "utils/v5-playback-lease.js", ["issueV5PlaybackLease"])
     ]
   }
-];
+]);
 
-/**
- * Legacy patterns strictly prohibited from appearing in any Agency functional path.
- */
-export const PROHIBITED_LEGACY_PATTERNS = [
+export const PROHIBITED_LEGACY_PATTERNS = Object.freeze([
   {
     name: "legacy_hmac_session",
     regex: /(?:verifyHmacSession|HMAC_SECRET|createHmacSession|parseHmacCookie)\b/g,
-    description: "Legacy HMAC session cookie auth (agency uses Supabase JWT)"
+    description: "Legacy HMAC session cookie auth (Agency uses Supabase JWT)"
   },
   {
     name: "unscoped_student_enrollments",
     regex: /\.from\(\s*["']student_enrollments["']\s*\)/g,
-    description: "Legacy student_enrollments table (agency uses student_entitlements)"
+    description: "Legacy student_enrollments table (Agency uses student_entitlements)"
   },
   {
     name: "unverified_email_lookup",
@@ -125,28 +127,68 @@ export const PROHIBITED_LEGACY_PATTERNS = [
   {
     name: "legacy_supabase_project_ref",
     regex: /aqozjkfwzmyfunqvcyjv/g,
-    description: "Deprecated legacy Supabase project reference"
+    description: "Deprecated Legacy Supabase project reference"
   },
   {
     name: "legacy_unscoped_orders",
     regex: /\.from\(\s*["']orders["']\s*\)/g,
-    description: "Legacy single-tenant orders table (agency uses agency_orders)"
+    description: "Legacy single-tenant orders table (Agency uses agency_orders)"
   },
   {
     name: "legacy_unscoped_lesson_progress",
     regex: /\.from\(\s*["']lesson_progress["']\s*\)/g,
-    description: "Legacy lesson_progress table (agency uses agency_lesson_progress)"
+    description: "Legacy lesson_progress table (Agency uses agency_lesson_progress)"
   }
-];
+]);
 
-/**
- * Checks a specific file for prohibited legacy patterns.
- */
+function fileKey(repo, file) {
+  return `${repo}:${file}`;
+}
+
+function exists(file) {
+  return Boolean(file && fs.existsSync(file));
+}
+
+function detectRepoRoots(rootDir = process.cwd()) {
+  const root = path.resolve(rootDir);
+  const rootIsLms = exists(path.join(root, "api/lms/portal.js"));
+  const rootIsCommerce = exists(path.join(root, "api/config.js"));
+
+  if (rootIsLms) {
+    return {
+      lms: root,
+      commerce: path.resolve(root, "../yeunauan-commerce-clone")
+    };
+  }
+
+  if (rootIsCommerce) {
+    return {
+      commerce: root,
+      lms: path.resolve(root, "../yeunauan-lms-clone")
+    };
+  }
+
+  // Also support running from a workspace parent.
+  return {
+    lms: path.join(root, "yeunauan-lms-clone"),
+    commerce: path.join(root, "yeunauan-commerce-clone")
+  };
+}
+
+function repoAvailable(repoRoots, repo) {
+  const dir = repoRoots[repo];
+  if (!dir) return false;
+  if (repo === "lms") return exists(path.join(dir, "api/lms/portal.js"));
+  if (repo === "commerce") return exists(path.join(dir, "api/config.js"));
+  return false;
+}
+
 export function auditFileContent(filePath, content) {
   const violations = [];
   for (const pat of PROHIBITED_LEGACY_PATTERNS) {
-    const matches = content.match(pat.regex);
-    if (matches && matches.length > 0) {
+    pat.regex.lastIndex = 0;
+    const matches = String(content || "").match(pat.regex);
+    if (matches?.length) {
       violations.push({
         file: filePath,
         pattern: pat.name,
@@ -158,313 +200,290 @@ export function auditFileContent(filePath, content) {
   return violations;
 }
 
-/**
- * Recursively discovers local transitive imports from a source file.
- */
 export function traceTransitiveLocalImports(filePath, rootDir, visited = new Set()) {
   const fullPath = path.resolve(rootDir, filePath);
-  if (visited.has(fullPath) || !fs.existsSync(fullPath)) {
-    return visited;
-  }
+  if (visited.has(fullPath)) return visited;
   visited.add(fullPath);
+  if (!exists(fullPath)) return visited;
 
   try {
     const content = fs.readFileSync(fullPath, "utf8");
-    const importRegex = /(?:import\s+.*?from\s+["'](\.[^"']+)["']|import\(["'](\.[^"']+)["']\)|from\s+["'](\.[^"']+)["'])/g;
+    const importRegex = /(?:import\s+.*?from\s+["'](\.[^"']+)["']|import\(["'](\.[^"']+)["']\)|from\s+["'](\.[^"']+)["']|import\s+["'](\.[^"']+)["'])/g;
     let match;
     while ((match = importRegex.exec(content)) !== null) {
-      const relPath = match[1] || match[2] || match[3];
-      if (relPath) {
-        const dir = path.dirname(fullPath);
-        let resolved = path.resolve(dir, relPath);
-        if (!fs.existsSync(resolved)) {
-          if (fs.existsSync(resolved + ".js")) resolved = resolved + ".js";
-          else if (fs.existsSync(path.join(resolved, "index.js"))) resolved = path.join(resolved, "index.js");
-        }
-        if (fs.existsSync(resolved) && !visited.has(resolved)) {
-          traceTransitiveLocalImports(path.relative(rootDir, resolved), rootDir, visited);
-        }
+      const relPath = match[1] || match[2] || match[3] || match[4];
+      if (!relPath) continue;
+
+      const dir = path.dirname(fullPath);
+      let resolved = path.resolve(dir, relPath);
+      if (!exists(resolved)) {
+        if (exists(resolved + ".js")) resolved += ".js";
+        else if (exists(path.join(resolved, "index.js"))) resolved = path.join(resolved, "index.js");
+      }
+      if (!visited.has(resolved)) {
+        traceTransitiveLocalImports(path.relative(rootDir, resolved), rootDir, visited);
       }
     }
-  } catch (_) {}
+  } catch (_) {
+    // Missing/unreadable evidence is handled by the caller for required files.
+  }
 
   return visited;
 }
 
-/**
- * Extracts the exact code block within the Agency route branch of an entrypoint.
- */
 export function extractAgencyBranchContent(content) {
-  const agencyIdx = content.indexOf('route === "AGENCY"') !== -1
-    ? content.indexOf('route === "AGENCY"')
-    : content.indexOf('routeDecision.route === "AGENCY"');
-
+  const source = String(content || "");
+  const candidates = [
+    'route === "AGENCY"',
+    'routeDecision.route === "AGENCY"'
+  ];
+  let agencyIdx = -1;
+  for (const needle of candidates) {
+    const idx = source.indexOf(needle);
+    if (idx !== -1 && (agencyIdx === -1 || idx < agencyIdx)) agencyIdx = idx;
+  }
   if (agencyIdx === -1) return "";
 
-  const openBrace = content.indexOf("{", agencyIdx);
+  const openBrace = source.indexOf("{", agencyIdx);
   if (openBrace === -1) return "";
 
   let depth = 1;
-  let closeBrace = openBrace + 1;
-  while (depth > 0 && closeBrace < content.length) {
-    if (content[closeBrace] === "{") depth++;
-    else if (content[closeBrace] === "}") depth--;
-    closeBrace++;
+  let cursor = openBrace + 1;
+  while (depth > 0 && cursor < source.length) {
+    if (source[cursor] === "{") depth++;
+    else if (source[cursor] === "}") depth--;
+    cursor++;
   }
 
-  return content.slice(openBrace, closeBrace);
+  return depth === 0 ? source.slice(openBrace, cursor) : "";
 }
 
-/**
- * Verifies that an entrypoint explicitly branches on resolveRequestRoute
- * and never allows Agency requests to fall through to legacy handlers.
- */
 export function auditEntrypointRouting(filePath, content) {
-  const isRoutingGuard = content.includes("resolveRequestRoute");
-  const isAgencyBranch = content.includes("AGENCY") || content.includes("agency");
-
+  const source = String(content || "");
+  const hasRoutingGuard = source.includes("resolveRequestRoute");
+  const agencyBranch = extractAgencyBranchContent(source);
   return {
-    hasRoutingGuard: isRoutingGuard,
-    hasAgencyBranch: isRoutingGuard && isAgencyBranch
+    hasRoutingGuard,
+    hasAgencyBranch: hasRoutingGuard && Boolean(agencyBranch),
+    agencyBranch
   };
 }
 
-/**
- * Generates the M0D Legacy Dependency Matrix by auditing real entrypoints and agency modules.
- */
+function missingRequiredTokens(source, requiredTokens = []) {
+  return (requiredTokens || []).filter(token => !String(source || "").includes(token));
+}
+
+function addMissing(missingEvidence, repo, file, kind, description) {
+  missingEvidence.push({
+    repo,
+    file,
+    kind,
+    description
+  });
+}
+
 export function generateLegacyDependencyMatrix(rootDir = process.cwd()) {
+  const repoRoots = detectRepoRoots(rootDir);
   const matrix = [];
 
-  // Determine current repository type
-  const isLmsRepo = fs.existsSync(path.resolve(rootDir, "api/lms/portal.js"));
-  const isCommerceRepo = fs.existsSync(path.resolve(rootDir, "api/config.js"));
-  const currentRepoType = isLmsRepo ? "lms" : (isCommerceRepo ? "commerce" : "unknown");
-
-  // Check if sibling repo exists for comprehensive cross-repo audit
-  const siblingDir = isLmsRepo
-    ? path.resolve(rootDir, "../yeunauan-commerce-clone")
-    : path.resolve(rootDir, "../yeunauan-lms-clone");
-  const hasSibling = fs.existsSync(siblingDir);
-
   for (const surf of REQUIRED_SURFACES) {
-    let status = "UNKNOWN";
-    let legacyRequired = null;
-    let legacyReferenceFound = "NO";
     const auditedFiles = [];
     const violations = [];
-    let entrypointGuarded = false;
+    const missingEvidence = [];
 
-    // 1. Audit Entrypoints
     for (const ep of surf.entrypoints) {
-      const belongsToCurrent = ep.repo === currentRepoType;
-      const targetDir = belongsToCurrent ? rootDir : (hasSibling ? siblingDir : null);
-
-      if (!targetDir) {
+      if (!repoAvailable(repoRoots, ep.repo)) {
+        addMissing(
+          missingEvidence,
+          ep.repo,
+          ep.file,
+          "missing_repository",
+          `Required ${ep.repo} repository is unavailable for cross-repo M0D audit.`
+        );
         continue;
       }
 
-      const fullPath = path.resolve(targetDir, ep.file);
-      if (!fs.existsSync(fullPath)) {
-        if (belongsToCurrent) {
+      const repoDir = repoRoots[ep.repo];
+      const fullPath = path.join(repoDir, ep.file);
+      if (!exists(fullPath)) {
+        addMissing(
+          missingEvidence,
+          ep.repo,
+          ep.file,
+          "missing_entrypoint",
+          `Required entrypoint '${ep.file}' is missing from ${ep.repo}.`
+        );
+        continue;
+      }
+
+      const key = fileKey(ep.repo, ep.file);
+      auditedFiles.push(key);
+      const source = fs.readFileSync(fullPath, "utf8");
+      const routing = auditEntrypointRouting(ep.file, source);
+      if (!routing.hasRoutingGuard || !routing.hasAgencyBranch) {
+        violations.push({
+          file: key,
+          pattern: "missing_agency_routing_guard",
+          description: "Required entrypoint must explicitly resolve and branch Agency routing.",
+          count: 1
+        });
+      } else {
+        const missingTokens = missingRequiredTokens(routing.agencyBranch, ep.requiredTokens);
+        if (missingTokens.length) {
           violations.push({
-            file: ep.file,
-            pattern: "missing_entrypoint",
-            description: `Required entrypoint '${ep.file}' is missing from repository.`
+            file: key,
+            pattern: "missing_agency_surface_operation",
+            description: `Agency branch is missing required surface operations: ${missingTokens.join(", ")}`,
+            count: missingTokens.length
           });
         }
-        continue;
-      }
-
-      auditedFiles.push(ep.file);
-      const content = fs.readFileSync(fullPath, "utf8");
-
-      // Verify routing guard in entrypoint
-      const routing = auditEntrypointRouting(ep.file, content);
-      if (routing.hasRoutingGuard && routing.hasAgencyBranch) {
-        entrypointGuarded = true;
-      }
-
-      // Audit Agency execution branch inside entrypoint
-      const agencyBranchContent = extractAgencyBranchContent(content);
-      if (agencyBranchContent) {
-        const epViolations = auditFileContent(ep.file, agencyBranchContent);
-        if (epViolations.length > 0) {
-          violations.push(...epViolations);
-          legacyReferenceFound = "YES";
-        }
+        violations.push(...auditFileContent(key, routing.agencyBranch));
       }
     }
 
-    // 2. Audit Agency Modules & their transitive imports
     for (const mod of surf.agencyModules) {
-      const fullPath = path.resolve(rootDir, mod);
-      const targetDir = fs.existsSync(fullPath) ? rootDir : (hasSibling ? siblingDir : null);
-
-      if (!targetDir) {
+      if (!repoAvailable(repoRoots, mod.repo)) {
+        addMissing(
+          missingEvidence,
+          mod.repo,
+          mod.file,
+          "missing_repository",
+          `Required ${mod.repo} repository is unavailable for module audit.`
+        );
         continue;
       }
 
-      const modPath = path.resolve(targetDir, mod);
-      if (!fs.existsSync(modPath)) {
+      const repoDir = repoRoots[mod.repo];
+      const fullPath = path.join(repoDir, mod.file);
+      if (!exists(fullPath)) {
+        addMissing(
+          missingEvidence,
+          mod.repo,
+          mod.file,
+          "missing_module",
+          `Required Agency module '${mod.file}' is missing from ${mod.repo}.`
+        );
         continue;
       }
 
-      if (!auditedFiles.includes(mod)) auditedFiles.push(mod);
-      const content = fs.readFileSync(modPath, "utf8");
-      const fileViolations = auditFileContent(mod, content);
-      if (fileViolations.length > 0) {
-        violations.push(...fileViolations);
-        legacyReferenceFound = "YES";
+      const key = fileKey(mod.repo, mod.file);
+      if (!auditedFiles.includes(key)) auditedFiles.push(key);
+      const source = fs.readFileSync(fullPath, "utf8");
+      const missingTokens = missingRequiredTokens(source, mod.requiredTokens);
+      if (missingTokens.length) {
+        violations.push({
+          file: key,
+          pattern: "missing_agency_surface_operation",
+          description: `Required Agency module evidence is missing: ${missingTokens.join(", ")}`,
+          count: missingTokens.length
+        });
       }
+      violations.push(...auditFileContent(key, source));
 
-      // Trace transitive imports from agency modules in Agency execution path
-      const traced = traceTransitiveLocalImports(mod, targetDir);
-      for (const tFile of traced) {
-        const relTFile = path.relative(targetDir, tFile);
-        if (!auditedFiles.includes(relTFile)) {
-          auditedFiles.push(relTFile);
-          const tContent = fs.readFileSync(tFile, "utf8");
-          const tViolations = auditFileContent(relTFile, tContent);
-          if (tViolations.length > 0) {
-            violations.push(...tViolations);
-            legacyReferenceFound = "YES";
-          }
+      const traced = traceTransitiveLocalImports(mod.file, repoDir);
+      for (const absolute of traced) {
+        const rel = path.relative(repoDir, absolute);
+        const tracedKey = fileKey(mod.repo, rel);
+        if (!exists(absolute)) {
+          addMissing(missingEvidence, mod.repo, rel, "missing_import", `Required Agency module import '${rel}' cannot be resolved.`);
+          continue;
         }
+        if (auditedFiles.includes(tracedKey)) continue;
+        auditedFiles.push(tracedKey);
+        violations.push(...auditFileContent(tracedKey, fs.readFileSync(absolute, "utf8")));
       }
     }
 
-    // Determine Status
-    if (auditedFiles.length === 0) {
-      status = "UNKNOWN";
-      legacyRequired = "UNKNOWN";
-    } else if (violations.length > 0) {
-      status = "FAIL";
-      legacyRequired = "YES";
-    } else if (entrypointGuarded || surf.agencyModules.some(m => auditedFiles.includes(m))) {
-      status = "PASS";
-      legacyRequired = "NO";
-    } else {
-      status = "UNKNOWN";
-      legacyRequired = "UNKNOWN";
-    }
+    const status = violations.length
+      ? "FAIL"
+      : missingEvidence.length
+        ? "UNKNOWN"
+        : "PASS";
 
     matrix.push({
       surface: surf.surface,
+      pathName: surf.surface,
       description: surf.description,
       status,
-      LEGACY_REQUIRED: legacyRequired,
-      LEGACY_REFERENCE_FOUND: legacyReferenceFound,
+      LEGACY_REQUIRED: status === "PASS" ? "NO" : (status === "FAIL" ? "YES" : "UNKNOWN"),
+      LEGACY_REFERENCE_FOUND: violations.length ? "YES" : "NO",
+      BLOCKING_REFERENCE: violations[0] || missingEvidence[0] || null,
       auditedFiles,
-      violations: violations.length > 0 ? violations : null
+      missingEvidence: missingEvidence.length ? missingEvidence : null,
+      violations: violations.length ? violations : null
     });
   }
 
-  // FIX 13: matrix.ok requires ALL surfaces to PASS; UNKNOWN makes ok = false
-  const hasUnknown = matrix.some(r => r.status === "UNKNOWN");
-  const hasFail = matrix.some(r => r.status === "FAIL");
-  const allPass = matrix.every(r => r.status === "PASS");
-  const ok = allPass && !hasUnknown && !hasFail;
+  const summary = {
+    totalSurfaces: matrix.length,
+    passedSurfaces: matrix.filter(row => row.status === "PASS").length,
+    failedSurfaces: matrix.filter(row => row.status === "FAIL").length,
+    unknownSurfaces: matrix.filter(row => row.status === "UNKNOWN").length,
+    violationsCount: matrix.reduce((sum, row) => sum + (row.violations?.length || 0), 0),
+    cleanPaths: matrix.filter(row => row.status === "PASS").length
+  };
 
   return {
-    ok,
+    ok: matrix.every(row => row.status === "PASS"),
     matrix,
-    summary: {
-      totalSurfaces: matrix.length,
-      passedSurfaces: matrix.filter(r => r.status === "PASS").length,
-      failedSurfaces: matrix.filter(r => r.status === "FAIL").length,
-      unknownSurfaces: matrix.filter(r => r.status === "UNKNOWN").length
+    summary,
+    repoRoots: {
+      lms: repoAvailable(repoRoots, "lms") ? repoRoots.lms : null,
+      commerce: repoAvailable(repoRoots, "commerce") ? repoRoots.commerce : null
     }
   };
 }
 
-/**
- * Checks overall M0D Cutover Readiness across all 8 operational gates.
- * Computes checkable evidence from real code and file audits (NO hardcoded true).
- */
+function readIfPresent(repoRoots, repo, file) {
+  if (!repoAvailable(repoRoots, repo)) return "";
+  const full = path.join(repoRoots[repo], file);
+  return exists(full) ? fs.readFileSync(full, "utf8") : "";
+}
+
 export function checkM0dCutoverReadiness(rootDir = process.cwd()) {
+  const repoRoots = detectRepoRoots(rootDir);
   const matrixResult = generateLegacyDependencyMatrix(rootDir);
 
-  const isLmsRepo = fs.existsSync(path.resolve(rootDir, "api/lms/portal.js"));
-  const siblingDir = isLmsRepo
-    ? path.resolve(rootDir, "../yeunauan-commerce-clone")
-    : path.resolve(rootDir, "../yeunauan-lms-clone");
+  const lmsRouting = readIfPresent(repoRoots, "lms", "utils/agency-routing.js");
+  const commerceRouting = readIfPresent(repoRoots, "commerce", "utils/agency-routing.js");
+  const routingModulesClean = [lmsRouting, commerceRouting].every(code =>
+    code.includes("resolveRequestRoute") &&
+    code.includes('route: "AGENCY"') &&
+    code.includes("overlapping_host_configuration") &&
+    code.includes("resolver_error")
+  );
 
-  // 1. Verify routing table integrity
-  let routingClean = false;
-  for (const dir of [rootDir, siblingDir]) {
-    const routingPath = path.resolve(dir, "utils/agency-routing.js");
-    if (fs.existsSync(routingPath)) {
-      const routingCode = fs.readFileSync(routingPath, "utf8");
-      if (routingCode.includes("resolveRequestRoute") &&
-          routingCode.includes('route: "AGENCY"') &&
-          routingCode.includes("overlapping_host_configuration") &&
-          routingCode.includes("resolver_error")) {
-        routingClean = true;
-        break;
-      }
-    }
-  }
+  const lmsBridge = readIfPresent(repoRoots, "lms", "utils/agency-lms-bridge.js");
+  const commerceCore = readIfPresent(repoRoots, "commerce", "utils/agency-commerce.js");
+  const lmsPlayback = readIfPresent(repoRoots, "lms", "utils/v5-playback-lease.js");
+  const lmsProgress = readIfPresent(repoRoots, "lms", "utils/agency-progress.js");
+  const lmsPortal = readIfPresent(repoRoots, "lms", "api/lms/portal.js");
+  const lmsHomework = readIfPresent(repoRoots, "lms", "utils/agency-homework.js");
 
-  // 2. Evidence-based verification for entitlement grant model
-  let entitlementGrantModelEvidence = false;
-  for (const dir of [rootDir, siblingDir]) {
-    const p1 = path.resolve(dir, "utils/agency-lms-bridge.js");
-    const p2 = path.resolve(dir, "utils/agency-commerce.js");
-    if (fs.existsSync(p1) && fs.existsSync(p2)) {
-      const c1 = fs.readFileSync(p1, "utf8");
-      const c2 = fs.readFileSync(p2, "utf8");
-      if (c1.includes("student_entitlements") && c2.includes("approve_agency_order")) {
-        entitlementGrantModelEvidence = true;
-        break;
-      }
-    }
-  }
+  const entitlementGrantModelEvidence =
+    lmsBridge.includes("student_entitlements") &&
+    commerceCore.includes("approve_agency_order");
 
-  // 3. Evidence-based verification for B1.1 agency playback authorization
-  let playbackEvidence = false;
-  for (const dir of [rootDir, siblingDir]) {
-    const pb = path.resolve(dir, "utils/v5-playback-lease.js");
-    const br = path.resolve(dir, "utils/agency-lms-bridge.js");
-    if (fs.existsSync(pb) && fs.existsSync(br)) {
-      const cPb = fs.readFileSync(pb, "utf8");
-      const cBr = fs.readFileSync(br, "utf8");
-      if (cBr.includes("v5_authorize_agency_playback") && (cPb.includes("issueV5PlaybackLease") || cPb.includes("isV5PlaybackConfigured"))) {
-        playbackEvidence = true;
-        break;
-      }
-    }
-  }
+  const playbackEvidence =
+    lmsBridge.includes("v5_authorize_agency_playback") &&
+    (lmsPlayback.includes("issueV5PlaybackLease") || lmsPlayback.includes("isV5PlaybackConfigured"));
 
-  // 4. Evidence-based verification for agency scoped progress
-  let progressEvidence = false;
-  for (const dir of [rootDir, siblingDir]) {
-    const prov = path.resolve(dir, "utils/agency-provisioner.js");
-    if (fs.existsSync(prov)) {
-      const cProv = fs.readFileSync(prov, "utf8");
-      if (cProv.includes("agency_lesson_progress")) {
-        progressEvidence = true;
-        break;
-      }
-    }
-  }
+  const progressEvidence =
+    lmsProgress.includes("agency_lesson_progress") &&
+    lmsProgress.includes("upsertAgencyLessonProgress") &&
+    lmsPortal.includes('endpoint === "agency-progress"');
 
-  // 5. Evidence-based verification for agency homework model
-  let homeworkEvidence = false;
-  for (const dir of [rootDir, siblingDir]) {
-    const hw = path.resolve(dir, "utils/agency-homework.js");
-    if (fs.existsSync(hw)) {
-      const cHw = fs.readFileSync(hw, "utf8");
-      if (cHw.includes("agency_homework_submissions") && cHw.includes("submit_agency_homework") && cHw.includes("grade_agency_homework")) {
-        homeworkEvidence = true;
-        break;
-      }
-    }
-  }
+  const homeworkEvidence =
+    lmsHomework.includes("agency_homework_submissions") &&
+    lmsHomework.includes("submit_agency_homework") &&
+    lmsHomework.includes("grade_agency_homework");
 
   const gates = {
-    AGENCY_HOST_ROUTES_NEVER_FALL_TO_LEGACY: routingClean,
+    AGENCY_HOST_ROUTES_NEVER_FALL_TO_LEGACY: routingModulesClean && matrixResult.ok,
     AUTHENTICATED_AGENCY_USER_NEVER_USES_HMAC: matrixResult.ok,
-    COMMERCE_USES_AGENCY_TABLES_EXCLUSIVELY: matrixResult.ok,
+    COMMERCE_USES_AGENCY_TABLES_EXCLUSIVELY: matrixResult.matrix
+      .filter(row => ["storefront", "checkout"].includes(row.surface))
+      .every(row => row.status === "PASS"),
     ENTITLEMENT_USES_NEW_GRANT_MODEL: entitlementGrantModelEvidence,
     PLAYBACK_USES_B1_1_AGENCY_AUTHORIZATION: playbackEvidence,
     PROGRESS_USES_AGENCY_SCOPED_PROGRESS: progressEvidence,
@@ -472,13 +491,20 @@ export function checkM0dCutoverReadiness(rootDir = process.cwd()) {
     NO_AGENCY_REQUESTS_REQUIRE_LEGACY_DB: matrixResult.ok
   };
 
-  const allGatesPass = Object.values(gates).every(v => v === true);
+  const allGatesPass = Object.values(gates).every(Boolean);
 
   return {
     ok: allGatesPass,
     M0D_DEPENDENCY_MATRIX: matrixResult.ok ? "PASS" : "FAIL",
     M0D_CUTOVER_CHECKER: allGatesPass ? "PASS" : "FAIL",
-    M0D_EXECUTION: "NOT_STARTED", // Invariant: Real M0D cutover has NOT been started
+    M0D_READINESS_TOOLING: allGatesPass ? "PASS" : "FAIL",
+    M0D_AUTH_BOUNDARY:
+      gates.AGENCY_HOST_ROUTES_NEVER_FALL_TO_LEGACY &&
+      gates.AUTHENTICATED_AGENCY_USER_NEVER_USES_HMAC
+        ? "PASS"
+        : "FAIL",
+    M0D_PLAYBACK_ROUTING: gates.PLAYBACK_USES_B1_1_AGENCY_AUTHORIZATION ? "PASS" : "FAIL",
+    M0D_EXECUTION: "NOT_STARTED",
     gates,
     matrix: matrixResult.matrix,
     summary: matrixResult.summary
@@ -486,8 +512,8 @@ export function checkM0dCutoverReadiness(rootDir = process.cwd()) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith("m0d-dependency-checker.js")) {
-  const res = checkM0dCutoverReadiness();
+  const result = checkM0dCutoverReadiness();
   console.log("=== M0D READINESS CHECKER RESULTS ===");
-  console.log(JSON.stringify(res, null, 2));
-  process.exit(res.ok ? 0 : 1);
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
 }

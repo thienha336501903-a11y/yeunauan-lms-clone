@@ -571,6 +571,7 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
     const authoringMode = content.config?.settings?.authoring_mode || "lesson";
     return res.status(200).json({
       success: true,
+      agencyMode: true,
       course: {
         slug: access.canonicalCourse.code,
         title: access.canonicalCourse.default_title || access.canonicalCourse.code,

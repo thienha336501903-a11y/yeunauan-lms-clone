@@ -7,6 +7,7 @@ import {
 import { buildPrepublish } from "../utils/lms-handlers/admin-v4-prepublish.js";
 import { grantEnrollment, requireV4Course } from "../utils/lms-handlers/admin-v4-enrollments.js";
 import { cloneConfig } from "../utils/clone-config.js";
+import { resolveRequestRoute } from "../utils/agency-routing.js";
 
 function v4StudentUrl(courseSlug) {
   return `${cloneConfig().lmsPublicUrl}/v4-entry.html?course=${encodeURIComponent(courseSlug)}`;
@@ -102,6 +103,20 @@ function legacyV5Forbidden(res) {
 }
 
 export default async function handler(req, res) {
+  const routeDecision = await resolveRequestRoute(req, req.__options || {});
+  if (routeDecision.route === "DENY") {
+    return res.status(routeDecision.status || 403).json({
+      success: false, code: routeDecision.code, error: routeDecision.error
+    });
+  }
+  if (routeDecision.route === "AGENCY") {
+    return res.status(403).json({
+      success: false,
+      code: "agency_legacy_sync_blocked",
+      error: "Legacy sync is not available on an Agency domain."
+    });
+  }
+
   // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

@@ -253,6 +253,43 @@ export async function getAgencyOrder(req, orderId, options = {}) {
 }
 
 /**
+ * Lists Agency orders for the current trusted tenant.
+ * Read-only Agency Admin surface. Only agency_staff / agency_owner may read it.
+ * The caller cannot choose agency_id; tenant authority is resolved from the request host.
+ */
+export async function listAgencyOrders(req, options = {}) {
+  assertServerEnvironment();
+
+  const roleResult = await requireAgencyRole(req, ["agency_staff", "agency_owner"], options);
+  if (!roleResult.ok) return roleResult;
+
+  const { tenant } = roleResult;
+  const client = _getCommerceDbClient(tenant, options);
+  const requestedLimit = Number(options.limit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(Math.trunc(requestedLimit), 200))
+    : 100;
+
+  const { data, error } = await client
+    .from("agency_orders")
+    .select("id, agency_id, membership_id, offering_id, status, order_code, total_amount_vnd, snapshot_bank_code, snapshot_account_number, snapshot_account_holder, snapshot_transfer_content, snapshot_price_vnd, created_at, updated_at")
+    .eq("agency_id", tenant.agencyId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    return { ok: false, status: 500, code: "agency_orders_read_error", error: error.message };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    agencyId: tenant.agencyId,
+    orders: data || []
+  };
+}
+
+/**
  * Approves a pending agency order and grants course entitlements.
  * Only agency staff or agency owner can approve orders.
  * Transactional, deterministic lock order, and idempotent.

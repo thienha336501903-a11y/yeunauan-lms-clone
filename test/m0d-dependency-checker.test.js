@@ -1,125 +1,113 @@
-// test/m0d-dependency-checker.test.js
-// Automated test suite for System B Phase 17: M0D Dependency Checker & Cutover Matrix
-// Authoritative Plan: SYSTEM_B_MULTI_AGENCY_MASTER_IMPLEMENTATION_PLAN_V1_1.md
-// Invariants:
-//   - Audits all 7 required surfaces starting from real entrypoints.
-//   - Injected legacy import in entrypoint => FAIL.
-//   - Indirect imported legacy dependency => FAIL.
-//   - Missing entrypoint evidence => UNKNOWN/FAIL.
-//   - Never defaults LEGACY_REQUIRED = NO without evidence.
-//   - M0D_EXECUTION strictly NOT_STARTED.
-
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
 import {
-  generateLegacyDependencyMatrix,
-  checkM0dCutoverReadiness,
-  auditFileContent,
+  REQUIRED_SURFACES,
   auditEntrypointRouting,
-  REQUIRED_SURFACES
+  auditFileContent,
+  checkM0dCutoverReadiness,
+  generateLegacyDependencyMatrix,
+  traceTransitiveLocalImports
 } from "../utils/m0d-dependency-checker.js";
 
-test("M0D-DEPENDENCY-CHECKER: Real Entrypoint & Surface Dependency Matrix", async (t) => {
-  // ---------------------------------------------------------------------------
-  // 1. Audit Live Codebase
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.1: Live codebase matrix verifies all surfaces pass without legacy leaks", () => {
-    const res = checkM0dCutoverReadiness();
-    assert.equal(res.ok, true);
-    assert.equal(res.M0D_DEPENDENCY_MATRIX, "PASS");
-    assert.equal(res.M0D_CUTOVER_CHECKER, "PASS");
-    assert.equal(res.M0D_EXECUTION, "NOT_STARTED");
-
-    assert.equal(res.gates.AGENCY_HOST_ROUTES_NEVER_FALL_TO_LEGACY, true);
-    assert.equal(res.gates.AUTHENTICATED_AGENCY_USER_NEVER_USES_HMAC, true);
-    assert.equal(res.gates.COMMERCE_USES_AGENCY_TABLES_EXCLUSIVELY, true);
-    assert.equal(res.gates.ENTITLEMENT_USES_NEW_GRANT_MODEL, true);
-    assert.equal(res.gates.PLAYBACK_USES_B1_1_AGENCY_AUTHORIZATION, true);
-    assert.equal(res.gates.PROGRESS_USES_AGENCY_SCOPED_PROGRESS, true);
-    assert.equal(res.gates.HOMEWORK_USES_AGENCY_SCOPED_MODEL, true);
-    assert.equal(res.gates.NO_AGENCY_REQUESTS_REQUIRE_LEGACY_DB, true);
+test("M0D-DEPENDENCY-CHECKER", async (t) => {
+  await t.test("live sibling workspace passes all seven surfaces", () => {
+    const result = checkM0dCutoverReadiness();
+    assert.equal(result.ok, true);
+    assert.equal(result.M0D_DEPENDENCY_MATRIX, "PASS");
+    assert.equal(result.M0D_CUTOVER_CHECKER, "PASS");
+    assert.equal(result.summary.passedSurfaces, 7);
   });
 
-  // ---------------------------------------------------------------------------
-  // 2. Regression: Injected Legacy Pattern in Agency Module => FAIL
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.2: Prohibited legacy pattern in agency module causes FAIL", () => {
-    const taintedCode = `
-      import { supabase } from "./supabase.js";
-      export async function getEnrollments(req) {
-        return supabase.from("student_enrollments").select("*");
+  await t.test("all authoritative surfaces are declared", () => {
+    assert.deepEqual(
+      REQUIRED_SURFACES.map(row => row.surface),
+      ["storefront", "checkout", "agency admin", "learner", "learning/player", "homework", "V5 playback"]
+    );
+    for (const surface of REQUIRED_SURFACES) {
+      assert.ok(surface.entrypoints.length > 0);
+      for (const entrypoint of surface.entrypoints) {
+        assert.ok(["lms", "commerce"].includes(entrypoint.repo));
+        assert.ok(entrypoint.file);
+        assert.ok(Array.isArray(entrypoint.requiredTokens));
       }
-    `;
-    const violations = auditFileContent("utils/fake-agency.js", taintedCode);
-    assert.ok(violations.length > 0);
-    assert.equal(violations[0].pattern, "unscoped_student_enrollments");
+    }
+    assert.ok(REQUIRED_SURFACES.find(row => row.surface === "storefront")
+      .entrypoints.some(item => item.file === "api/hero.js"));
+    assert.ok(REQUIRED_SURFACES.find(row => row.surface === "learning/player")
+      .entrypoints.some(item => item.file === "api/learning.js"));
   });
 
-  // ---------------------------------------------------------------------------
-  // 3. Regression: Injected Legacy HMAC Session => FAIL
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.3: Injected legacy HMAC auth pattern causes FAIL", () => {
-    const taintedCode = `
-      export function authenticateUser(req) {
-        return verifyHmacSession(req.cookies.session);
-      }
-    `;
-    const violations = auditFileContent("utils/fake-auth.js", taintedCode);
-    assert.ok(violations.length > 0);
-    assert.equal(violations[0].pattern, "legacy_hmac_session");
+  await t.test("side-effect imports and unresolved local imports remain visible", () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m0d-import-"));
+    try {
+      fs.writeFileSync(path.join(temp, "entry.js"), 'import "./legacy.js";\nimport "./missing.js";');
+      fs.writeFileSync(path.join(temp, "legacy.js"), 'export const x = db.from("student_enrollments");');
+      const traced = traceTransitiveLocalImports("entry.js", temp);
+      assert.ok(traced.has(path.join(temp, "legacy.js")));
+      assert.ok(traced.has(path.join(temp, "missing.js")));
+      assert.equal(auditFileContent("legacy.js", fs.readFileSync(path.join(temp, "legacy.js"), "utf8"))[0].pattern,
+        "unscoped_student_enrollments");
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
   });
 
-  // ---------------------------------------------------------------------------
-  // 4. Regression: Missing Routing Guard in Entrypoint => Detected
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.4: Entrypoint missing routing guard is detected", () => {
-    const unguardedCode = `
-      export default function handler(req, res) {
-        return res.status(200).json({ ok: true });
-      }
-    `;
-    const routing = auditEntrypointRouting("api/unguarded.js", unguardedCode);
+  await t.test("prohibited Legacy table access is detected", () => {
+    const violations = auditFileContent(
+      "commerce:utils/fake.js",
+      'export async function bad(client){ return client.from("student_enrollments").select("*"); }'
+    );
+    assert.equal(violations[0]?.pattern, "unscoped_student_enrollments");
+  });
+
+  await t.test("legacy HMAC auth is detected", () => {
+    const violations = auditFileContent(
+      "lms:utils/fake.js",
+      "export function bad(cookie){ return verifyHmacSession(cookie); }"
+    );
+    assert.equal(violations[0]?.pattern, "legacy_hmac_session");
+  });
+
+  await t.test("entrypoint without Agency routing guard is detected", () => {
+    const routing = auditEntrypointRouting("api/fake.js", "export default function handler(req,res){res.end();}");
     assert.equal(routing.hasRoutingGuard, false);
     assert.equal(routing.hasAgencyBranch, false);
   });
 
-  // ---------------------------------------------------------------------------
-  // 5. Surface Completeness: All 7 required surfaces audited
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.5: All 7 required surfaces are present in definition", () => {
-    const surfaceNames = REQUIRED_SURFACES.map(s => s.surface);
-    const required = [
-      "storefront",
-      "checkout",
-      "agency admin",
-      "learner",
-      "learning/player",
-      "homework",
-      "V5 playback"
-    ];
-    for (const req of required) {
-      assert.ok(surfaceNames.includes(req), `Missing required surface: ${req}`);
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // 6. Isolated Synthetic Directory Test (Missing files => UNKNOWN)
-  // ---------------------------------------------------------------------------
-  await t.test("M0D.6: Synthetic empty root produces UNKNOWN instead of false PASS", () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "m0d-test-"));
+  await t.test("empty workspace is UNKNOWN, never false PASS", () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m0d-empty-"));
     try {
-      const res = generateLegacyDependencyMatrix(tempDir);
-      assert.equal(res.summary.passedSurfaces, 0);
-      assert.equal(res.summary.unknownSurfaces, REQUIRED_SURFACES.length);
-      for (const row of res.matrix) {
+      const result = generateLegacyDependencyMatrix(temp);
+      assert.equal(result.ok, false);
+      assert.equal(result.summary.passedSurfaces, 0);
+      assert.equal(result.summary.unknownSurfaces, REQUIRED_SURFACES.length);
+      for (const row of result.matrix) {
         assert.equal(row.status, "UNKNOWN");
         assert.equal(row.LEGACY_REQUIRED, "UNKNOWN");
       }
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("LMS-only workspace cannot pass without Commerce sibling", () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "m0d-lms-only-"));
+    try {
+      fs.mkdirSync(path.join(temp, "api/lms"), { recursive: true });
+      fs.writeFileSync(
+        path.join(temp, "api/lms/portal.js"),
+        'import { resolveRequestRoute } from "../../utils/agency-routing.js"; if (routeDecision.route === "AGENCY") { handleAgencyLearnerDashboard(); }'
+      );
+      const result = generateLegacyDependencyMatrix(temp);
+      assert.equal(result.ok, false);
+      assert.ok(result.matrix.some(row => row.status === "UNKNOWN"));
+      assert.ok(result.matrix.some(row => row.missingEvidence?.some(item => item.repo === "commerce")));
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
     }
   });
 });
