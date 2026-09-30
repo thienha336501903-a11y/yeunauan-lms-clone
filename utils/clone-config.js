@@ -4,8 +4,7 @@ const DEFAULTS = Object.freeze({
   commercePublicUrl: "https://yeubep.shop",
   lmsPublicUrl: "https://hoc.yeubep.shop",
   v4PublicUrl: "https://v4.daubepnho.store",
-  telegramClonerUrl: "https://reader.yeubep.shop",
-  legacyPostPublicUrl: "https://yeunauan.live"
+  telegramClonerUrl: "https://reader.yeubep.shop"
 });
 
 function clean(value) {
@@ -34,7 +33,6 @@ export function cloneConfig(env = process.env) {
     commercePublicUrl: normalizeHttpsOrigin(env.COMMERCE_PUBLIC_URL, DEFAULTS.commercePublicUrl),
     lmsPublicUrl: normalizeHttpsOrigin(env.LMS_PUBLIC_URL, DEFAULTS.lmsPublicUrl),
     v4PublicUrl: normalizeHttpsOrigin(env.V4_PUBLIC_URL, DEFAULTS.v4PublicUrl),
-    legacyPostPublicUrl: normalizeHttpsOrigin(env.LEGACY_POST_PUBLIC_URL, DEFAULTS.legacyPostPublicUrl),
     telegramClonerUrl,
     telegramMediaGatewayUrl: clean(env.TELEGRAM_MEDIA_GATEWAY_URL) || `${telegramClonerUrl}/api/telegram/media`,
     telegramThumbnailGatewayUrl: clean(env.TELEGRAM_THUMBNAIL_GATEWAY_URL) || `${telegramClonerUrl}/api/telegram/thumbnail`,

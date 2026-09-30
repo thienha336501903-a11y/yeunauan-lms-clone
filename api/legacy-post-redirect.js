@@ -1,4 +1,3 @@
-import { cloneConfig } from "../utils/clone-config.js";
 import { resolveRequestRoute } from "../utils/agency-routing.js";
 
 export default async function handler(req, res) {
@@ -16,7 +15,10 @@ export default async function handler(req, res) {
     });
   }
 
-  const id = String(req.query?.id || "").trim();
-  if (!id || !/^[A-Za-z0-9_-]{1,160}$/.test(id)) return res.status(400).send("Invalid post id");
-  return res.redirect(307, `${cloneConfig().legacyPostPublicUrl}/post/${encodeURIComponent(id)}`);
+  console.warn("[m0e] retired legacy post deep-link requested");
+  return res.status(410).json({
+    success: false,
+    code: "legacy_post_retired_m0e",
+    error: "Legacy post redirects have been retired. Use the Main LMS course manager."
+  });
 }
