@@ -17,6 +17,8 @@ test("V5 worker clears cache, in-flight registry and proof key on session reset"
   assert.match(sw,/leases\.clear\(\)/);
   assert.match(sw,/leaseRequests\.clear\(\)/);
   assert.match(sw,/proofIdentityPromise = null/);
+  assert.match(sw,/upstreamControllers/);
+  assert.match(sw,/controller\.abort\("media_session_reset"\)/);
   assert.match(sw,/v5-clear-session/);
   assert.match(sw,/v5-set-session-context/);
 });
@@ -28,8 +30,10 @@ test("Late lease response is rejected after session generation changes", () => {
 });
 
 test("V5 app installs server media context before rendering protected media", () => {
-  assert.match(app,/setProtectedMediaSessionContext\(payload\.mediaSessionContext\)/);
+  assert.match(app,/setProtectedMediaSessionContext\(payload\.mediaSessionContext, loadEpoch\)/);
   assert.match(app,/BroadcastChannel\(MEDIA_SESSION_CHANNEL\)/);
+  assert.doesNotMatch(app,/message\.type === 'context'/);
+  assert.match(app,/invalidateProtectedMediaPage\(\)/);
 });
 
 test("Account switch calls logout endpoint and clears V5 session", () => {

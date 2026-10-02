@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { extractAuthToken } from "./agency-auth.js";
-import { parseCookies } from "./lms.js";
+import { parseRequestCookies } from "./cookie-utils.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -28,7 +28,7 @@ export function deriveMainMediaSessionContext(req) {
     return opaqueContext("main-verified-lms-session", `${lmsSessionId}\n${lmsDeviceId}`);
   }
 
-  const cookies = parseCookies(req);
+  const cookies = parseRequestCookies(req);
   const courseSession = clean(cookies.course_session_token);
   if (courseSession) {
     return opaqueContext("main-course-session", courseSession);

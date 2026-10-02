@@ -42,48 +42,49 @@ export async function setAgencyMemberStatus(req, payload = {}, options = {}) {
     return { ok: false, status: 400, code: "agency_member_status_invalid", error: "membershipId and active/suspended status are required." };
   }
 
-  const { data: target, error: targetError } = await client
-    .from("agency_memberships")
-    .select("id,agency_id,user_id,role,status")
-    .eq("id", membershipId)
-    .eq("agency_id", auth.tenant.agencyId)
-    .maybeSingle();
-
-  if (targetError) {
-    return { ok: false, status: 500, code: "agency_member_lookup_failed", error: "Unable to resolve Agency member." };
-  }
-  if (!target) {
-    return { ok: false, status: 404, code: "agency_member_not_found", error: "Agency member not found." };
-  }
-
-  if (target.role === "agency_owner" && status !== "active") {
-    const { data: otherOwners, error: ownerError } = await client
-      .from("agency_memberships")
-      .select("id")
-      .eq("agency_id", auth.tenant.agencyId)
-      .eq("role", "agency_owner")
-      .eq("status", "active")
-      .neq("id", target.id)
-      .limit(1);
-    if (ownerError) {
-      return { ok: false, status: 500, code: "agency_owner_guard_failed", error: "Unable to validate Agency owner safety." };
-    }
-    if (!otherOwners?.length) {
-      return { ok: false, status: 409, code: "agency_last_owner_protected", error: "The last active Agency owner cannot be suspended." };
-    }
-  }
-
-  const { data: updated, error } = await client
-    .from("agency_memberships")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", target.id)
-    .eq("agency_id", auth.tenant.agencyId)
-    .select("id,user_id,role,display_name,status,created_at,updated_at")
-    .single();
+  const { data, error } = await client.rpc("set_agency_member_status_atomic", {
+    p_agency_id: auth.tenant.agencyId,
+    p_actor_membership_id: auth.membership.id,
+    p_target_membership_id: membershipId,
+    p_status: status
+  });
 
   if (error) {
+    const message = String(error.message || "");
+    const codeMatch = message.match(/(agency_[a-z0-9_]+)/i);
+    const code = codeMatch ? codeMatch[1].toLowerCase() : "agency_member_status_update_failed";
+    const httpStatus =
+      code === "agency_last_owner_protected" ? 409 :
+      code === "agency_member_not_found" ? 404 :
+      code === "agency_owner_required" || code === "agency_not_active" ? 403 :
+      code === "agency_member_status_invalid" ? 400 :
+      500;
+    return {
+      ok: false,
+      status: httpStatus,
+      code,
+      error:
+        code === "agency_last_owner_protected"
+          ? "The last active Agency owner cannot be suspended."
+          : "Unable to update Agency member."
+    };
+  }
+
+  if (!data?.ok || !data?.id) {
     return { ok: false, status: 500, code: "agency_member_status_update_failed", error: "Unable to update Agency member." };
   }
 
-  return { ok: true, status: 200, member: updated };
+  return {
+    ok: true,
+    status: 200,
+    member: {
+      id: data.id,
+      user_id: data.user_id,
+      role: data.role,
+      display_name: data.display_name,
+      status: data.status,
+      created_at: data.created_at,
+      updated_at: data.updated_at
+    }
+  };
 }

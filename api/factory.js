@@ -58,6 +58,19 @@ export default async function handler(req, res) {
     const action = clean(req.body?.action).toLowerCase();
     const manifest = req.body?.manifest;
     const runId = clean(req.body?.runId);
+    const expectedRevisionRaw = req.body?.expectedRevision;
+    const expectedRevision = expectedRevisionRaw === undefined || expectedRevisionRaw === null || expectedRevisionRaw === ""
+      ? null
+      : Number(expectedRevisionRaw);
+    if (expectedRevision !== null && !Number.isSafeInteger(expectedRevision)) {
+      return res.status(400).json({ ok: false, code: "factory_invalid_expected_revision" });
+    }
+    const revisionRequired = new Set([
+      "prepare-principals","apply","retry","validate","activate","resume","suspend"
+    ]);
+    if (revisionRequired.has(action) && expectedRevision === null) {
+      return res.status(409).json({ ok: false, code: "factory_expected_revision_required" });
+    }
     let result;
 
     if (action === "preflight") {
@@ -74,22 +87,27 @@ export default async function handler(req, res) {
       const allowCreate =
         req.body?.allowCreate === true &&
         clean(req.body?.confirmation) === "CREATE_MISSING_AUTH_PRINCIPALS";
-      result = await prepareFactoryPrincipals(runId, manifest, auth.actorRef, { allowCreate });
+      result = await prepareFactoryPrincipals(runId, manifest, auth.actorRef, {
+        allowCreate,
+        expectedRevision
+      });
     } else if (action === "apply" || action === "retry") {
-      result = await applyFactoryRun(runId, manifest, auth.actorRef);
+      result = await applyFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "validate") {
-      result = await validateFactoryRun(runId, manifest, auth.actorRef);
+      result = await validateFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "activate" || action === "resume") {
-      const validation = await validateFactoryRun(runId, manifest, auth.actorRef);
+      const validation = await validateFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
       if (!validation.ok) {
         result = validation;
       } else if (validation.run?.phase === "ACTIVE") {
         result = { ok: true, idempotent: true, run: validation.run };
       } else {
-        result = await setFactoryTenantRuntime(runId, action, auth.actorRef);
+        result = await setFactoryTenantRuntime(runId, action, auth.actorRef, {
+          expectedRevision: validation.run?.revision
+        });
       }
     } else if (action === "suspend") {
-      result = await setFactoryTenantRuntime(runId, "suspend", auth.actorRef);
+      result = await setFactoryTenantRuntime(runId, "suspend", auth.actorRef, { expectedRevision });
     } else if (action === "normalize-preview") {
       // Read-only helper for the Platform Admin UI. Never returns secrets because
       // normalizeFactoryManifest rejects secret-bearing keys.

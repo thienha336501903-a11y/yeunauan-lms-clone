@@ -24,6 +24,85 @@ function opaqueResourceId(value) {
   return clean(value);
 }
 
+function principalLedgerKey(principal = {}) {
+  const material = clean(principal.user_id)
+    ? `uid:${clean(principal.user_id)}`
+    : `email:${clean(principal.email).toLowerCase()}`;
+  return crypto.createHash("sha256").update(material).digest("hex");
+}
+
+async function persistPrincipalLedger(client, runId, actorRef, manifestHash, entry, totalCount) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const lookup = await getFactoryRun(runId, { supabaseClient: client });
+    if (!lookup.ok) return lookup;
+    const run = lookup.run;
+    if (run.actor_ref !== actorRef || run.manifest_hash !== manifestHash) {
+      return { ok: false, status: 409, code: "factory_run_binding_mismatch" };
+    }
+
+    const ledger = run.resource_ledger && typeof run.resource_ledger === "object"
+      ? { ...run.resource_ledger }
+      : {};
+    const principals = Array.isArray(ledger.principals) ? [...ledger.principals] : [];
+    const index = principals.findIndex(item => clean(item?.identity_ref) === clean(entry.identity_ref));
+    const prior = index >= 0 ? principals[index] : null;
+
+    if (prior?.user_id && entry.user_id && clean(prior.user_id) !== clean(entry.user_id)) {
+      return { ok: false, status: 409, code: "factory_principal_ledger_identity_conflict" };
+    }
+
+    const merged = {
+      ...(prior || {}),
+      ...entry,
+      created_by_run: prior?.created_by_run === true || entry.created_by_run === true,
+      first_created_at:
+        prior?.first_created_at ||
+        (entry.created_by_run === true ? new Date().toISOString() : null)
+    };
+    if (index >= 0) principals[index] = merged;
+    else principals.push(merged);
+    ledger.principals = principals;
+
+    const passed = principals.filter(item => item.status === "PASS");
+    const failed = principals.filter(item => item.status === "FAIL");
+    const stepStatus = failed.length
+      ? "FAIL"
+      : (passed.length >= totalCount ? "PASS" : "IN_PROGRESS");
+
+    const stepResults = {
+      ...(run.step_results || {}),
+      principals: {
+        status: stepStatus,
+        count: passed.length,
+        expected: totalCount,
+        created: passed.filter(item => item.created_by_run === true).length,
+        reused: passed.filter(item => item.created_by_run !== true).length,
+        at: new Date().toISOString()
+      }
+    };
+
+    try {
+      const updated = await updateRun(
+        client,
+        run.id,
+        {
+          step_results: stepResults,
+          resource_ledger: ledger,
+          revision: requestedRevision + 1
+        },
+        requestedRevision
+      );
+      return { ok: true, run: updated, entry: merged };
+    } catch (error) {
+      if (clean(error?.code || error?.message) !== "factory_stale_revision" && !String(error?.message || "").includes("factory_stale_revision")) {
+        throw error;
+      }
+    }
+  }
+
+  return { ok: false, status: 409, code: "factory_principal_ledger_stale" };
+}
+
 async function updateRun(client, runId, patch, expectedRevision = null) {
   let query = client
     .from("agency_provisioning_runs")
@@ -127,6 +206,7 @@ export async function preflightFactoryManifest(manifest, options = {}) {
   const blockers = [];
   const checks = {
     manifest: "PASS",
+    target: "PENDING",
     domains: "PENDING",
     principals: "PENDING",
     learning: normalized.profile === "TENANT_SHELL" ? "N/A" : "PENDING",
@@ -140,7 +220,8 @@ export async function preflightFactoryManifest(manifest, options = {}) {
     .eq("slug", normalized.agency.slug)
     .maybeSingle();
   if (agencyError) throw agencyError;
-  const targetAgencyId = existingAgency?.id || null;
+  if (existingAgency) blockers.push("factory_target_already_exists");
+  checks.target = existingAgency ? "FAIL" : "PASS";
 
   for (const domain of normalized.domains) {
     if (legacyHosts.has(domain.hostname)) blockers.push(`legacy_host_overlap:${domain.surface}`);
@@ -150,9 +231,7 @@ export async function preflightFactoryManifest(manifest, options = {}) {
       .eq("hostname", domain.hostname)
       .maybeSingle();
     if (error) throw error;
-    if (collision && String(collision.agency_id) !== String(targetAgencyId || "")) {
-      blockers.push(`domain_ownership_conflict:${domain.surface}`);
-    }
+    if (collision) blockers.push(`domain_ownership_conflict:${domain.surface}`);
   }
   checks.domains = blockers.some(item => item.includes("host_") || item.includes("domain_")) ? "FAIL" : "PASS";
 
@@ -203,102 +282,179 @@ export async function createFactoryRun({
     return { ok: false, status: 400, code: "factory_actor_required" };
   }
 
+  const bound = row =>
+    row &&
+    row.manifest_hash === manifestHash &&
+    row.target_slug === normalized.agency.slug &&
+    row.actor_ref === actorRef;
+
   const { data: existing, error: existingError } = await client
     .from("agency_provisioning_runs")
     .select("*")
     .eq("idempotency_key", key)
     .maybeSingle();
   if (existingError) throw existingError;
-
   if (existing) {
-    if (
-      existing.manifest_hash !== manifestHash ||
-      existing.target_slug !== normalized.agency.slug ||
-      existing.actor_ref !== actorRef
-    ) {
+    if (!bound(existing)) {
       return { ok: false, status: 409, code: "factory_idempotency_ownership_conflict" };
     }
     return { ok: true, idempotent: true, run: existing, manifest: normalized };
   }
 
+  const { data: reserved, error: reservedError } = await client
+    .from("agency_provisioning_runs")
+    .select("*")
+    .eq("target_slug", normalized.agency.slug)
+    .maybeSingle();
+  if (reservedError) throw reservedError;
+  if (reserved) {
+    return { ok: false, status: 409, code: "factory_target_reserved" };
+  }
+
+  const insertPayload = {
+    idempotency_key: key,
+    target_slug: normalized.agency.slug,
+    profile: normalized.profile,
+    phase: "DRAFT",
+    manifest_version: normalized.version,
+    manifest_hash: manifestHash,
+    manifest_summary: factoryManifestSummary(normalized),
+    actor_ref: actorRef,
+    provider_readiness: normalized.provider_readiness,
+    source_lms_sha: clean(sourceLmsSha) || null,
+    source_commerce_sha: clean(sourceCommerceSha) || null
+  };
+
   const { data: created, error } = await client
     .from("agency_provisioning_runs")
-    .insert({
-      idempotency_key: key,
-      target_slug: normalized.agency.slug,
-      profile: normalized.profile,
-      phase: "DRAFT",
-      manifest_version: normalized.version,
-      manifest_hash: manifestHash,
-      manifest_summary: factoryManifestSummary(normalized),
-      actor_ref: actorRef,
-      provider_readiness: normalized.provider_readiness,
-      source_lms_sha: clean(sourceLmsSha) || null,
-      source_commerce_sha: clean(sourceCommerceSha) || null
-    })
+    .insert(insertPayload)
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (String(error.code || "") !== "23505") throw error;
+
+    const { data: raced, error: racedError } = await client
+      .from("agency_provisioning_runs")
+      .select("*")
+      .eq("idempotency_key", key)
+      .maybeSingle();
+    if (racedError) throw racedError;
+    if (raced) {
+      if (!bound(raced)) {
+        return { ok: false, status: 409, code: "factory_idempotency_ownership_conflict" };
+      }
+      return { ok: true, idempotent: true, run: raced, manifest: normalized };
+    }
+
+    const { data: targetRun, error: targetError } = await client
+      .from("agency_provisioning_runs")
+      .select("id,target_slug,actor_ref")
+      .eq("target_slug", normalized.agency.slug)
+      .maybeSingle();
+    if (targetError) throw targetError;
+    if (targetRun) return { ok: false, status: 409, code: "factory_target_reserved" };
+    throw error;
+  }
+
   return { ok: true, idempotent: false, run: created, manifest: normalized };
 }
 
 export async function prepareFactoryPrincipals(runId, manifest, actorRef, options = {}) {
   const client = options.supabaseClient || defaultSupabase;
   const normalized = normalizeFactoryManifest(manifest);
+  const manifestHash = factoryManifestHash(normalized);
   const lookup = await getFactoryRun(runId, { supabaseClient: client });
   if (!lookup.ok) return lookup;
-  const run = lookup.run;
+  let run = lookup.run;
+  const requestedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+    ? Number(run.revision)
+    : Number(options.expectedRevision);
+  if (!Number.isSafeInteger(requestedRevision) || Number(run.revision) !== requestedRevision) {
+    return { ok: false, status: 409, code: "factory_stale_revision" };
+  }
 
-  if (run.actor_ref !== actorRef || run.manifest_hash !== factoryManifestHash(normalized)) {
+  if (run.actor_ref !== actorRef || run.manifest_hash !== manifestHash) {
     return { ok: false, status: 409, code: "factory_run_binding_mismatch" };
+  }
+  if (run.phase === "ACTIVE") {
+    return { ok: false, status: 409, code: "factory_principal_prepare_after_activation_denied" };
   }
 
   const mode = options.allowCreate === true ? "create_if_missing" : "reuse_only";
   const prepared = [];
+
   for (const principal of normalized.principals) {
+    const identityRef = principalLedgerKey(principal);
+    const intent = await persistPrincipalLedger(
+      client,
+      run.id,
+      actorRef,
+      manifestHash,
+      {
+        identity_ref: identityRef,
+        role: principal.role,
+        status: "PREPARING",
+        error_code: null
+      },
+      normalized.principals.length
+    );
+    if (!intent.ok) return intent;
+    run = intent.run;
+
     const result = await prepareAuthPrincipal(client, principal, {
       mode,
-      allowCreate: options.allowCreate === true
+      allowCreate: options.allowCreate === true,
+      factoryRunId: run.id
     });
+
     if (!result.ok) {
+      await persistPrincipalLedger(
+        client,
+        run.id,
+        actorRef,
+        manifestHash,
+        {
+          identity_ref: identityRef,
+          role: principal.role,
+          status: "FAIL",
+          error_code: result.code || "auth_principal_prepare_failed"
+        },
+        normalized.principals.length
+      );
       return { ...result, ok: false, principalRole: principal.role };
     }
+
+    const ledgerResult = await persistPrincipalLedger(
+      client,
+      run.id,
+      actorRef,
+      manifestHash,
+      {
+        identity_ref: identityRef,
+        role: principal.role,
+        status: "PASS",
+        user_id: opaqueResourceId(result.user.id),
+        created_by_run: result.createdByRun === true,
+        recovered: result.recovered === true,
+        reused: result.createdByRun !== true,
+        error_code: null
+      },
+      normalized.principals.length
+    );
+    if (!ledgerResult.ok) return ledgerResult;
+    run = ledgerResult.run;
+
     prepared.push({
       user_id: opaqueResourceId(result.user.id),
       role: principal.role,
-      created: result.created === true,
-      reused: result.reused === true
+      created_by_run: result.createdByRun === true,
+      recovered: result.recovered === true,
+      reused: result.createdByRun !== true
     });
   }
 
-  const stepResults = {
-    ...(run.step_results || {}),
-    principals: {
-      status: "PASS",
-      count: prepared.length,
-      created: prepared.filter(item => item.created).length,
-      reused: prepared.filter(item => item.reused).length,
-      at: new Date().toISOString()
-    }
-  };
-  const resourceLedger = {
-    ...(run.resource_ledger || {}),
-    principals: prepared
-  };
-
-  const updated = await updateRun(
-    client,
-    run.id,
-    {
-      step_results: stepResults,
-      resource_ledger: resourceLedger,
-      revision: Number(run.revision) + 1
-    },
-    Number(run.revision)
-  );
-
-  return { ok: true, run: updated, principals: prepared };
+  return { ok: true, run, principals: prepared };
 }
 
 export async function applyFactoryRun(runId, manifest, actorRef, options = {}) {
@@ -310,16 +466,36 @@ export async function applyFactoryRun(runId, manifest, actorRef, options = {}) {
   if (!lookup.ok) return lookup;
 
   const run = lookup.run;
+  const requestedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+    ? Number(run.revision)
+    : Number(options.expectedRevision);
+  if (!Number.isSafeInteger(requestedRevision) || Number(run.revision) !== requestedRevision) {
+    return { ok: false, status: 409, code: "factory_stale_revision" };
+  }
   if (run.actor_ref !== actorRef || run.manifest_hash !== hash) {
     return { ok: false, status: 409, code: "factory_run_binding_mismatch" };
   }
-  if (run.phase === "ACTIVE") {
+
+  if (run.agency_id) {
+    const { data: ownedAgency, error: ownedError } = await client
+      .from("agencies")
+      .select("id,slug,status")
+      .eq("id", run.agency_id)
+      .eq("slug", normalized.agency.slug)
+      .maybeSingle();
+    if (ownedError) throw ownedError;
+    if (!ownedAgency) return { ok: false, status: 409, code: "factory_target_ownership_mismatch" };
     return { ok: true, idempotent: true, run, agencyId: run.agency_id };
+  }
+
+  if (!["DRAFT", "BLOCKED"].includes(run.phase)) {
+    return { ok: false, status: 409, code: "factory_apply_phase_invalid" };
   }
 
   try {
     const { data, error } = await client.rpc("provision_agency_factory_v1_atomic", {
       p_run_id: run.id,
+      p_expected_revision: requestedRevision,
       p_manifest: atomicManifest,
       p_manifest_hash: hash,
       p_profile: normalized.profile,
@@ -330,27 +506,24 @@ export async function applyFactoryRun(runId, manifest, actorRef, options = {}) {
     const after = await getFactoryRun(run.id, { supabaseClient: client });
     return {
       ok: true,
-      idempotent: Boolean(run.agency_id),
+      idempotent: Boolean(data?.idempotent),
       result: data,
       run: after.ok ? after.run : run
     };
   } catch (error) {
     try {
-      const current = await getFactoryRun(run.id, { supabaseClient: client });
-      if (current.ok && current.run.phase !== "ACTIVE") {
-        await updateRun(
-          client,
-          run.id,
-          {
-            phase: "BLOCKED",
-            last_error_code: safeCode(error),
-            revision: Number(current.run.revision) + 1
-          },
-          Number(current.run.revision)
-        );
-      }
+      await updateRun(
+        client,
+        run.id,
+        {
+          phase: "BLOCKED",
+          last_error_code: safeCode(error),
+          revision: Number(run.revision) + 1
+        },
+        Number(run.revision)
+      );
     } catch {
-      // Preserve the original apply error; the durable DB transaction still rolled back.
+      // A concurrent state change wins. Never overwrite it just to record an apply error.
     }
     return { ok: false, status: 409, code: safeCode(error), error: "Factory staged apply failed." };
   }
@@ -363,6 +536,12 @@ export async function validateFactoryRun(runId, manifest, actorRef, options = {}
   const lookup = await getFactoryRun(runId, { supabaseClient: client });
   if (!lookup.ok) return lookup;
   const run = lookup.run;
+  const expectedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+    ? Number(run.revision)
+    : Number(options.expectedRevision);
+  if (!Number.isSafeInteger(expectedRevision) || Number(run.revision) !== expectedRevision) {
+    return { ok: false, status: 409, code: "factory_stale_revision" };
+  }
 
   if (run.actor_ref !== actorRef || run.manifest_hash !== hash) {
     return { ok: false, status: 409, code: "factory_run_binding_mismatch" };
@@ -441,48 +620,63 @@ export async function validateFactoryRun(runId, manifest, actorRef, options = {}
   }
 
   if (blockers.length) {
-    const current = await getFactoryRun(run.id, { supabaseClient: client });
-    if (current.ok && current.run.phase !== "ACTIVE") {
-      await updateRun(
+    if (run.phase === "ACTIVE") {
+      return { ok: false, status: 409, code: "factory_validation_blocked", blockers, run };
+    }
+    try {
+      const updated = await updateRun(
         client,
         run.id,
         {
           phase: "BLOCKED",
           last_error_code: blockers[0],
           step_results: {
-            ...(current.run.step_results || {}),
+            ...(run.step_results || {}),
             validation: { status: "FAIL", blockers, at: new Date().toISOString() }
           },
-          revision: Number(current.run.revision) + 1
+          revision: expectedRevision + 1
         },
-        Number(current.run.revision)
+        expectedRevision
       );
+      return { ok: false, status: 409, code: "factory_validation_blocked", blockers, run: updated };
+    } catch (error) {
+      if (String(error?.message || "").includes("factory_stale_revision")) {
+        return { ok: false, status: 409, code: "factory_stale_revision", blockers };
+      }
+      throw error;
     }
-    // Never silently demote an ACTIVE tenant without an explicit suspend action.
-    return { ok: false, status: 409, code: "factory_validation_blocked", blockers, run };
   }
 
   if (run.phase === "ACTIVE") {
     return { ok: true, idempotent: true, run, blockers: [] };
   }
 
-  const current = await getFactoryRun(run.id, { supabaseClient: client });
-  const updated = await updateRun(
-    client,
-    run.id,
-    {
-      phase: "READY",
-      last_error_code: null,
-      step_results: {
-        ...(current.run.step_results || {}),
-        validation: { status: "PASS", at: new Date().toISOString() }
-      },
-      revision: Number(current.run.revision) + 1
-    },
-    Number(current.run.revision)
-  );
+  if (!["PREPARING", "BLOCKED", "READY"].includes(run.phase)) {
+    return { ok: false, status: 409, code: "factory_validation_phase_invalid" };
+  }
 
-  return { ok: true, run: updated, blockers: [] };
+  try {
+    const updated = await updateRun(
+      client,
+      run.id,
+      {
+        phase: "READY",
+        last_error_code: null,
+        step_results: {
+          ...(run.step_results || {}),
+          validation: { status: "PASS", at: new Date().toISOString() }
+        },
+        revision: expectedRevision + 1
+      },
+      expectedRevision
+    );
+    return { ok: true, run: updated, blockers: [] };
+  } catch (error) {
+    if (String(error?.message || "").includes("factory_stale_revision")) {
+      return { ok: false, status: 409, code: "factory_stale_revision" };
+    }
+    throw error;
+  }
 }
 
 export async function setFactoryTenantRuntime(runId, action, actorRef, options = {}) {
@@ -495,9 +689,17 @@ export async function setFactoryTenantRuntime(runId, action, actorRef, options =
     return { ok: false, status: 403, code: "factory_actor_mismatch" };
   }
 
+  const expectedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+    ? Number(run.revision)
+    : Number(options.expectedRevision);
+
+  if (!Number.isSafeInteger(expectedRevision) || Number(run.revision) !== expectedRevision) {
+    return { ok: false, status: 409, code: "factory_stale_revision" };
+  }
+
   const { data, error } = await client.rpc("set_agency_factory_runtime_state", {
     p_run_id: run.id,
-    p_expected_revision: Number(run.revision),
+    p_expected_revision: expectedRevision,
     p_action: clean(action).toLowerCase(),
     p_actor_ref: actorRef
   });

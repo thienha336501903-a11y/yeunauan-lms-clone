@@ -39,10 +39,29 @@ export async function findAuthUserByEmail(client, email, options = {}) {
     : { ok: true, found: false, user: null };
 }
 
+function factoryRunOwner(user, factoryRunId) {
+  const expected = clean(factoryRunId);
+  if (!expected) return false;
+  return clean(user?.user_metadata?.system_b_factory_run_id) === expected;
+}
+
+function preparedUserResult(user, options = {}, overrides = {}) {
+  const createdByRun = factoryRunOwner(user, options.factoryRunId);
+  return {
+    ok: true,
+    created: overrides.created === true,
+    createdByRun,
+    recovered: overrides.recovered === true,
+    reused: !createdByRun,
+    user: { id: user.id, email: lowerEmail(user.email) }
+  };
+}
+
 export async function prepareAuthPrincipal(client, declaration, options = {}) {
   const email = lowerEmail(declaration?.email);
   const suppliedUserId = clean(declaration?.user_id);
   const mode = clean(options.mode || "reuse_only");
+  const factoryRunId = clean(options.factoryRunId);
 
   if (!client?.auth?.admin) throw new Error("auth_admin_client_required");
   if (!email && !suppliedUserId) {
@@ -61,23 +80,13 @@ export async function prepareAuthPrincipal(client, declaration, options = {}) {
     if (email && lowerEmail(user.email) !== email) {
       return { ok: false, status: 409, code: "principal_identity_mismatch" };
     }
-    return {
-      ok: true,
-      created: false,
-      reused: true,
-      user: { id: user.id, email: lowerEmail(user.email) }
-    };
+    return preparedUserResult(user, { ...options, factoryRunId });
   }
 
   const lookup = await findAuthUserByEmail(client, email, options);
   if (!lookup.ok) return { ok: false, status: 500, code: lookup.code, error: lookup.error };
   if (lookup.found) {
-    return {
-      ok: true,
-      created: false,
-      reused: true,
-      user: { id: lookup.user.id, email: lowerEmail(lookup.user.email) }
-    };
+    return preparedUserResult(lookup.user, { ...options, factoryRunId });
   }
 
   if (mode !== "create_if_missing" || options.allowCreate !== true) {
@@ -86,22 +95,33 @@ export async function prepareAuthPrincipal(client, declaration, options = {}) {
 
   // Deliberately does not send an invite email. The current Agency Google bridge
   // later proves control of the verified Google email before minting a session.
+  const userMetadata = {
+    system_b_factory: true,
+    ...(factoryRunId ? { system_b_factory_run_id: factoryRunId } : {})
+  };
   const { data, error } = await client.auth.admin.createUser({
     email,
     email_confirm: true,
-    user_metadata: {
-      system_b_factory: true
-    }
+    user_metadata: userMetadata
   });
 
   if (error || !data?.user?.id) {
+    // A provider/network failure may happen after the Auth user was committed.
+    // Reconcile by verified email and the run marker instead of losing provenance.
+    const recovery = await findAuthUserByEmail(client, email, options);
+    if (recovery.ok && recovery.found && factoryRunOwner(recovery.user, factoryRunId)) {
+      return preparedUserResult(
+        recovery.user,
+        { ...options, factoryRunId },
+        { created: false, recovered: true }
+      );
+    }
     return { ok: false, status: 500, code: "auth_principal_create_failed", error };
   }
 
-  return {
-    ok: true,
-    created: true,
-    reused: false,
-    user: { id: data.user.id, email: lowerEmail(data.user.email) }
-  };
+  return preparedUserResult(
+    data.user,
+    { ...options, factoryRunId },
+    { created: true, recovered: false }
+  );
 }

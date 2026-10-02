@@ -606,18 +606,58 @@ function ensureMediaWorker() {
 const MEDIA_SESSION_CHANNEL = 'system-b-v5-media-session-v1';
 let mediaSessionContext = '';
 let mediaSessionBroadcast = null;
+let mediaPageEpoch = 0;
+
+function mediaPageCurrent(epoch) {
+  return epoch === mediaPageEpoch;
+}
+
+function stopProtectedMediaElements() {
+  try {
+    document.querySelectorAll('video,audio').forEach(media => {
+      try { media.pause(); } catch {}
+      try { media.removeAttribute('src'); media.load(); } catch {}
+    });
+    document.querySelectorAll('img[data-v5-image]').forEach(image => image.removeAttribute('src'));
+    if (activeVideo) activeVideo = null;
+    closeLightbox();
+  } catch {}
+}
+
+function invalidateProtectedMediaPage() {
+  mediaPageEpoch += 1;
+  mediaSessionContext = '';
+  stopProtectedMediaElements();
+  observer?.disconnect();
+  agencyProgressSyncAt.clear();
+  data = null;
+  lessons = [];
+  try {
+    $('app').hidden = true;
+    $('state').hidden = false;
+    $('stateCard').textContent = 'Phiên học viên đã thay đổi. Đang quay lại danh sách khóa học…';
+  } catch {}
+  return mediaPageEpoch;
+}
+
+async function handleRemoteMediaSessionClear() {
+  const epoch = invalidateProtectedMediaPage();
+  try { await postMediaWorkerMessage('v5-clear-session'); } catch {}
+  if (mediaPageCurrent(epoch)) {
+    location.replace('/my-courses.html');
+  }
+}
 
 function mediaSessionChannel() {
   if (!('BroadcastChannel' in window)) return null;
   if (!mediaSessionBroadcast) {
     mediaSessionBroadcast = new BroadcastChannel(MEDIA_SESSION_CHANNEL);
     mediaSessionBroadcast.addEventListener('message', event => {
-      const data = event.data || {};
-      if (data.type === 'clear') {
-        postMediaWorkerMessage('v5-clear-session').catch(() => {});
-      } else if (data.type === 'context' && typeof data.context === 'string' && data.context !== mediaSessionContext) {
-        mediaSessionContext = data.context;
-        postMediaWorkerMessage('v5-set-session-context', { context: data.context }).catch(() => {});
+      const message = event.data || {};
+      // Cross-tab messages may invalidate this tab, but they may never install
+      // another tab's media context. Only this tab's authenticated feed can do so.
+      if (message.type === 'clear') {
+        handleRemoteMediaSessionClear().catch(() => {});
       }
     });
   }
@@ -646,21 +686,27 @@ async function postMediaWorkerMessage(type, payload = {}) {
   });
 }
 
-async function setProtectedMediaSessionContext(serverContext) {
+async function setProtectedMediaSessionContext(serverContext, expectedEpoch = mediaPageEpoch) {
+  if (!mediaPageCurrent(expectedEpoch)) throw new Error('media_page_stale');
   const context = String(serverContext || '').trim() || ('page_' + crypto.randomUUID());
   mediaSessionContext = context;
   await postMediaWorkerMessage('v5-set-session-context', { context });
-  try { mediaSessionChannel()?.postMessage({ type: 'context', context }); } catch {}
+  if (!mediaPageCurrent(expectedEpoch) || mediaSessionContext !== context) {
+    throw new Error('media_page_stale');
+  }
 }
 
-async function clearProtectedMediaSessionContext() {
-  mediaSessionContext = '';
+async function clearProtectedMediaSessionContext({ broadcast = true } = {}) {
+  invalidateProtectedMediaPage();
   try { await postMediaWorkerMessage('v5-clear-session'); } catch {}
-  try { mediaSessionChannel()?.postMessage({ type: 'clear' }); } catch {}
+  if (broadcast) {
+    try { mediaSessionChannel()?.postMessage({ type: 'clear' }); } catch {}
+  }
 }
 
-async function hydrateProtectedImages() {
+async function hydrateProtectedImages(expectedEpoch = mediaPageEpoch) {
   await ensureMediaWorker();
+  if (!mediaPageCurrent(expectedEpoch) || !mediaSessionContext) return;
   const images = [...document.querySelectorAll('img[data-v5-image][data-src]')];
   const first = images.find(image => image.closest('[data-kind="image"]')) || images[0];
   if (first) {
@@ -669,6 +715,7 @@ async function hydrateProtectedImages() {
     first.decoding = 'async';
   }
   images.forEach(image => {
+    if (!mediaPageCurrent(expectedEpoch) || !mediaSessionContext) return;
     if (image !== first) image.decoding = 'async';
     if (!image.getAttribute('src')) image.setAttribute('src', image.dataset.src);
   });
@@ -682,7 +729,8 @@ function releaseVideo(video) {
 }
 
 async function startVideo(cell, { resume = false } = {}) {
-  if (cell.dataset.loading === '1') return;
+  const expectedEpoch = mediaPageEpoch;
+  if (!mediaSessionContext || cell.dataset.loading === '1') return;
   cell.dataset.loading = '1';
   const button = cell.querySelector('[data-v5-start]');
   if (button) button.disabled = true;
@@ -695,6 +743,7 @@ async function startVideo(cell, { resume = false } = {}) {
     // a controller already exists, otherwise the browser can discard the tap's
     // transient user activation and leave the player waiting indefinitely.
     if (!navigator.serviceWorker?.controller) await ensureMediaWorker();
+    if (!mediaPageCurrent(expectedEpoch) || !mediaSessionContext) throw new Error('media_page_stale');
     if (activeVideo) releaseVideo(activeVideo);
     const video = document.createElement('video');
     video.controls = true; video.playsInline = true; video.preload = 'none';
@@ -724,6 +773,7 @@ async function startVideo(cell, { resume = false } = {}) {
     activeVideo = video;
     const targetId = isTimelineMode() ? cell.closest('.lesson-card')?.dataset.postId : cell.closest('[data-lesson-id]')?.dataset.lessonId;
     markSeen(targetId);
+    if (!mediaPageCurrent(expectedEpoch) || !mediaSessionContext) throw new Error('media_page_stale');
     video.src = mediaUrl(cell.dataset.assetId, cell.dataset.canonicalLessonId || '');
     const playAttempt = video.play();
     if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(() => {
@@ -811,7 +861,8 @@ function setMobileSearch(open) { $('mobileSearch').classList.toggle('show', open
 function openOutline() { setMobileSearch(false); $('mobileOutlineBackdrop').classList.add('open'); $('mobileOutlineSheet').classList.add('open'); $('mobileOutlineSheet').setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; }
 function closeOutline() { $('mobileOutlineBackdrop').classList.remove('open'); $('mobileOutlineSheet').classList.remove('open'); $('mobileOutlineSheet').setAttribute('aria-hidden', 'true'); document.body.style.overflow = ''; }
 
-function render(payload) {
+function render(payload, expectedEpoch = mediaPageEpoch) {
+  if (!mediaPageCurrent(expectedEpoch) || !mediaSessionContext) return;
   data = payload;
   lessons = buildV5ViewModel(payload);
   loadProgress();
@@ -841,19 +892,21 @@ function render(payload) {
     if (lead) { $('pinTitle').textContent = lead.title; $('pinAction').onclick = () => scrollToLesson(lead.id); $('pinStrip').hidden = false; } else $('pinStrip').hidden = true;
   }
   $('state').hidden = true; $('app').hidden = false;
-  hydrateProtectedImages().catch(() => {});
+  hydrateProtectedImages(expectedEpoch).catch(() => {});
 }
 
 async function load() {
+  const loadEpoch = ++mediaPageEpoch;
   activeCourse = new URLSearchParams(location.search).get('course') || '';
   if (!activeCourse) { $('stateCard').innerHTML = 'Thiếu mã khóa học.<br><a href="/my-courses.html">Về danh sách khóa học</a>'; return; }
   try {
-    // Start protected-media setup in parallel with the feed request so first
-    // viewport images do not wait for SW registration after render.
     ensureMediaWorker().catch(() => {});
     const response = await fetch(`/api/lms/portal?endpoint=v5-feed&course=${encodeURIComponent(activeCourse)}`, { cache: 'no-store', credentials: 'include' });
+    if (!mediaPageCurrent(loadEpoch)) return;
     const payload = await response.json().catch(() => ({}));
+    if (!mediaPageCurrent(loadEpoch)) return;
     if (response.status === 401) {
+      invalidateProtectedMediaPage();
       const params = new URLSearchParams({
         course: activeCourse,
         return: 'v5'
@@ -862,12 +915,14 @@ async function load() {
       return;
     }
     if (!response.ok || !payload.success) throw new Error(payload.error || `HTTP ${response.status}`);
-    // The server returns an opaque context derived from the verified learner
-    // session. It is a cache namespace only, never authorization.
-    await setProtectedMediaSessionContext(payload.mediaSessionContext);
-    render(payload);
-    hydrateAgencyProgress().catch(() => {});
-  } catch (error) { $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`; }
+    await setProtectedMediaSessionContext(payload.mediaSessionContext, loadEpoch);
+    if (!mediaPageCurrent(loadEpoch)) return;
+    render(payload, loadEpoch);
+    if (mediaPageCurrent(loadEpoch)) hydrateAgencyProgress().catch(() => {});
+  } catch (error) {
+    if (!mediaPageCurrent(loadEpoch)) return;
+    $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`;
+  }
 }
 
 function bind() {

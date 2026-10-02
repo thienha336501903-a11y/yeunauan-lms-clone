@@ -140,11 +140,23 @@ async function call(action,extra={}){
   const r=await fetch('/api/factory',{
     method:'POST',credentials:'same-origin',cache:'no-store',
     headers:{'Content-Type':'application/json','X-Factory-CSRF':csrf},
-    body:JSON.stringify({action,manifest:manifest(),runId:currentRun,...extra})
+    body:JSON.stringify({
+      action,
+      manifest:manifest(),
+      runId:currentRun,
+      ...(currentRevision!==null?{expectedRevision:currentRevision}:{}),
+      ...extra
+    })
   });
   const d=await r.json().catch(()=>({}));
   show(d);
-  if(d?.run?.id){currentRun=d.run.id;$('runId').textContent=currentRun}
+  if(d?.run?.id){
+    currentRun=d.run.id;
+    if(Number.isSafeInteger(Number(d.run.revision)))currentRevision=Number(d.run.revision);
+    $('runId').textContent=currentRun;
+  } else if(Number.isSafeInteger(Number(d?.result?.revision))) {
+    currentRevision=Number(d.result.revision);
+  }
   setStatus((d.ok?'PASS: ':'BLOCKED: ')+(d.code||action),d.ok?'ok':'bad');
   return d;
 }
