@@ -10,7 +10,10 @@ let sessionContext = "";
 let sessionGeneration = 0;
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", event => event.waitUntil(Promise.all([
+  self.clients.claim(),
+  proofIdentity().catch(() => null)
+])));
 
 function clean(value) {
   return String(value || "").trim();

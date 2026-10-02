@@ -7,7 +7,9 @@ test("V5 playback lease is bounded to at most five minutes",()=>{
   const {privateKey}=generateKeyPairSync("ec",{namedCurve:"prime256v1"});
   const jwk=privateKey.export({format:"jwk"});
   const prior=process.env.V5_PLAYBACK_PRIVATE_JWK;
+  const priorMediaUrl=process.env.V5_MEDIA_PUBLIC_URL;
   process.env.V5_PLAYBACK_PRIVATE_JWK=JSON.stringify(jwk);
+  process.env.V5_MEDIA_PUBLIC_URL="https://media.example.test";
   try{
     const before=Date.now();
     const lease=issueV5PlaybackLease({
@@ -29,5 +31,7 @@ test("V5 playback lease is bounded to at most five minutes",()=>{
   }finally{
     if(prior===undefined) delete process.env.V5_PLAYBACK_PRIVATE_JWK;
     else process.env.V5_PLAYBACK_PRIVATE_JWK=prior;
+    if(priorMediaUrl===undefined) delete process.env.V5_MEDIA_PUBLIC_URL;
+    else process.env.V5_MEDIA_PUBLIC_URL=priorMediaUrl;
   }
 });

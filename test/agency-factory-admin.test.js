@@ -14,6 +14,7 @@ function res() {
 
 test("Factory control plane requires exact LMS host", () => {
   process.env.SESSION_SECRET = "factory-test-session-secret-1234567890";
+  process.env.ADMIN_EMAILS = "admin@example.com";
   const session = createAdminSession("admin@example.com");
   const response = res();
   const out = requireFactoryAdmin({
@@ -26,6 +27,7 @@ test("Factory control plane requires exact LMS host", () => {
 
 test("Factory mutation requires same-origin and double-submit CSRF", () => {
   process.env.SESSION_SECRET = "factory-test-session-secret-1234567890";
+  process.env.ADMIN_EMAILS = "admin@example.com";
   const session = createAdminSession("admin@example.com");
   const response = res();
   const request = {
@@ -46,6 +48,7 @@ test("Factory mutation requires same-origin and double-submit CSRF", () => {
 
 test("Factory mutation rejects missing CSRF", () => {
   process.env.SESSION_SECRET = "factory-test-session-secret-1234567890";
+  process.env.ADMIN_EMAILS = "admin@example.com";
   const session = createAdminSession("admin@example.com");
   const response = res();
   const out = requireFactoryAdmin({

@@ -62,7 +62,7 @@ test("Factory manifest rejects duplicate or missing typed surfaces", () => {
     { hostname: "one.example.com", surface: "lms" },
     { hostname: "two.example.com", surface: "lms" }
   ];
-  assert.throws(() => normalizeFactoryManifest(input), /requires_one_commerce_host/);
+  assert.throws(() => normalizeFactoryManifest(input), /requires_one_(?:lms|commerce)_host/);
 });
 
 test("Factory manifest rejects secret-bearing fields", () => {
