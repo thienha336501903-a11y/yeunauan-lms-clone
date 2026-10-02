@@ -32,6 +32,7 @@ test("Factory mutation requires same-origin and double-submit CSRF", () => {
     method:"POST",
     headers:{
       host:"hoc.yeubep.shop",
+      "x-forwarded-proto":"https",
       origin:"https://hoc.yeubep.shop",
       "sec-fetch-site":"same-origin",
       cookie:`admin_session_token=${encodeURIComponent(session.token)}; factory_csrf=csrf_token_abcdefghijklmnopqrstuvwxyz123456`,
@@ -51,6 +52,7 @@ test("Factory mutation rejects missing CSRF", () => {
     method:"POST",
     headers:{
       host:"hoc.yeubep.shop",
+      "x-forwarded-proto":"https",
       origin:"https://hoc.yeubep.shop",
       "sec-fetch-site":"same-origin",
       cookie:`admin_session_token=${encodeURIComponent(session.token)}`

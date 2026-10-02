@@ -46,6 +46,7 @@ export function issueFactoryCsrf(req, res) {
       `${CSRF_COOKIE}=${encodeURIComponent(token)}`,
       "Path=/",
       "SameSite=Strict",
+      "HttpOnly",
       "Max-Age=3600"
     ];
     if (process.env.NODE_ENV === "production") parts.push("Secure");

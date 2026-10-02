@@ -31,6 +31,14 @@ jobs:
           node --check api/learning.js
           node --check api/lms/portal.js
           node --check api/lms/admin.js
+          node --check api/factory.js
+          node --check utils/agency-factory-manifest.js
+          node --check utils/agency-factory-admin.js
+          node --check utils/agency-factory.js
+          node --check utils/agency-auth-principals.js
+          node --check utils/agency-surface.js
+          node --check utils/agency-members.js
+          node --check utils/media-session-context.js
           node --check utils/lms-recipe-fetch.js
           node --check utils/lms-handlers/public-lesson.js
           node --check utils/lms-handlers/lesson.js

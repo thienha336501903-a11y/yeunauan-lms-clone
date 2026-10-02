@@ -458,7 +458,12 @@ export async function validateFactoryRun(runId, manifest, actorRef, options = {}
         Number(current.run.revision)
       );
     }
-    return { ok: false, status: 409, code: "factory_validation_blocked", blockers };
+    // Never silently demote an ACTIVE tenant without an explicit suspend action.
+    return { ok: false, status: 409, code: "factory_validation_blocked", blockers, run };
+  }
+
+  if (run.phase === "ACTIVE") {
+    return { ok: true, idempotent: true, run, blockers: [] };
   }
 
   const current = await getFactoryRun(run.id, { supabaseClient: client });

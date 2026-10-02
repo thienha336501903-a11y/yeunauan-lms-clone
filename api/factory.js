@@ -83,6 +83,8 @@ export default async function handler(req, res) {
       const validation = await validateFactoryRun(runId, manifest, auth.actorRef);
       if (!validation.ok) {
         result = validation;
+      } else if (validation.run?.phase === "ACTIVE") {
+        result = { ok: true, idempotent: true, run: validation.run };
       } else {
         result = await setFactoryTenantRuntime(runId, action, auth.actorRef);
       }
