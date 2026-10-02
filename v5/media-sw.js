@@ -220,7 +220,10 @@ self.addEventListener("fetch", event => {
   const assetId = decodeURIComponent(url.pathname.slice(MEDIA_PREFIX.length)).trim();
   const course = clean(url.searchParams.get("course"));
   const lessonId = clean(url.searchParams.get("lesson"));
-  if (!assetId || !course || !lessonId) {
+  // Main/legacy V5 media does not have a canonical Agency lesson id. Keep
+  // lesson optional here and let the authoritative v5-play route enforce it
+  // only for Agency tenants (handleAgencyV5Play fails closed on missing_lesson).
+  if (!assetId || !course) {
     event.respondWith(new Response("Missing V5 media identity", { status: 400 }));
     return;
   }
