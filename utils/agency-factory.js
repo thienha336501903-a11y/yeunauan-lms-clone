@@ -81,6 +81,7 @@ async function persistPrincipalLedger(client, runId, actorRef, manifestHash, ent
       }
     };
 
+    const expectedRevision = Number(run.revision);
     try {
       const updated = await updateRun(
         client,
@@ -88,9 +89,9 @@ async function persistPrincipalLedger(client, runId, actorRef, manifestHash, ent
         {
           step_results: stepResults,
           resource_ledger: ledger,
-          revision: requestedRevision + 1
+          revision: expectedRevision + 1
         },
-        requestedRevision
+        expectedRevision
       );
       return { ok: true, run: updated, entry: merged };
     } catch (error) {
