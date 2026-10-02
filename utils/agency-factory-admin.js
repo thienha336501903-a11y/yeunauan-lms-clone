@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { parseCookies, verifyAdminSession } from "./lms.js";
 import { getTrustedHost, normalizeHost } from "./tenant-resolver.js";
+import { cloneConfig } from "./clone-config.js";
 
 const ADMIN_COOKIE = "admin_session_token";
 const CSRF_COOKIE = "factory_csrf";
@@ -11,7 +12,7 @@ function clean(value) {
 
 function expectedFactoryHost(env = process.env) {
   try {
-    const url = new URL(clean(env.LMS_PUBLIC_URL) || "https://hoc.yeubep.shop");
+    const url = new URL(cloneConfig(env).lmsPublicUrl);
     return normalizeHost(url.host);
   } catch {
     return null;
