@@ -1,0 +1,110 @@
+name: System B R2 object inventory (encrypted)
+
+on:
+  push:
+    branches:
+      - audit/r2-inventory-20260925
+    paths:
+      - .github/workflows/r2-object-inventory.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-b-r2-object-inventory-20260925
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: github.repository == 'thienha336501903-a11y/yeunauan-lms-clone'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Collect both R2 bucket inventories without reading object bodies
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_AUDIT_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_AUDIT_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+        run: |
+          set -euo pipefail
+          if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo '::error::R2 audit credentials are missing from repository secrets'
+            exit 1
+          fi
+          command -v aws >/dev/null
+          command -v node >/dev/null
+          mkdir -p "$RUNNER_TEMP/r2-audit-plain"
+          printf '{"captured_utc":"%s","account_id":"8272e6fc48727afe9e95af1d696ce088","buckets":["yeubep-v5-media-prod","yeubep-system-b-backups"]}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$RUNNER_TEMP/r2-audit-plain/manifest.json"
+          for bucket in yeubep-v5-media-prod yeubep-system-b-backups; do
+            output="$RUNNER_TEMP/r2-audit-plain/${bucket}.json"
+            aws s3api list-objects-v2 \
+              --endpoint-url 'https://8272e6fc48727afe9e95af1d696ce088.r2.cloudflarestorage.com' \
+              --region auto \
+              --bucket "$bucket" \
+              --output json \
+              --no-cli-pager > "$output"
+            node - "$output" "$bucket" <<'NODE'
+          const fs = require('node:fs');
+          const [file, bucket] = process.argv.slice(2);
+          const response = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const objects = response.Contents ?? [];
+          if (!Array.isArray(objects) || objects.some(item => typeof item.Key !== 'string' || !Number.isSafeInteger(item.Size))) {
+            throw new Error('Invalid R2 list-objects-v2 response');
+          }
+          const bytes = objects.reduce((total, item) => total + item.Size, 0);
+          console.log(`${bucket}: ${objects.length} objects, ${bytes} bytes`);
+          NODE
+          done
+
+      - name: Encrypt inventories for private analysis
+        shell: bash
+        env:
+          R2_AUDIT_PUBLIC_KEY_B64: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQm9qQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FZOEFNSUlCaWdLQ0FZRUFrWEdac0Z0eXhtd0p4Rkljdkx5RQozcXVoRGxVd3VDd1N5Q0IyUFBJd1JoWWNPcVBJQlkvV0IxQWc2Z05NeTBLODRhUktMSklTQVJHN0ZJaythT2w2ClYvbWxtVzZGUlZTY0tVR2k0VjQ4cG5xc3ZSTVpJQmxkcWZMTmMyWU9tRGdqVmhXNGwrQmcwbjhUaW82RktSYzQKMGhsaCtxZUVQdTJKdHE5OWxVRlVLbjVwbTNtV2hXRFlUb1ZFeWtWSDNpeG8xdmhScS9EbFpaZnRYMThQWEdUVQphdy92SUdwTTNpakRjbGk0eXVEUWdyREdRc2V2Mko5bmZ5M2lhZE5rZS91RlZzZUdmclBsV1FBeDUzV0s1QWV4CnptTmNTWkp5S2h1dlo3NUc1dXRkeWo0WXhZckJYTjVVdm5CTlBSZUpvaks3dTFtOHFBNlJNQ2VsWFNzczBFU1gKa1ZxNWpIRXQ1cklObVY3ZnYvdkJtTmJrc0F1b2xLa2pSc0dCbWF1OWdSYzF2OGhpSFZYWGN5RHZJU24xQzZLdgpjZ2F4S3NWOE5xNjZvcjhSdVNGL2ZHL1R0QVhETFFUMytEbDl4M1RCWjRBTkpJL3FhdzBrcDJoa3pkMWZnR2xuClhDZUhscEFCWFdnNGxtSktaS1UyYkxJS0RwMFRaWFFhSkJnZ0lGSW5pWUhSQWdNQkFBRT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$RUNNER_TEMP/r2-audit-plain" "$RUNNER_TEMP/r2-audit.tgz"' EXIT
+          tar -czf "$RUNNER_TEMP/r2-audit.tgz" -C "$RUNNER_TEMP" r2-audit-plain
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const { pipeline } = require('node:stream/promises');
+          const path = require('node:path');
+          (async () => {
+            const directory = process.env.RUNNER_TEMP;
+            const key = crypto.randomBytes(32);
+            const iv = crypto.randomBytes(12);
+            const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+            const encryptedKey = crypto.publicEncrypt({
+              key: Buffer.from(process.env.R2_AUDIT_PUBLIC_KEY_B64, 'base64'),
+              padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+              oaepHash: 'sha256',
+            }, key);
+            await pipeline(
+              fs.createReadStream(path.join(directory, 'r2-audit.tgz')),
+              cipher,
+              fs.createWriteStream(path.join(directory, 'r2-inventory.enc'), { mode: 0o600 }),
+            );
+            fs.writeFileSync(path.join(directory, 'r2-inventory.meta.json'), JSON.stringify({
+              version: 1,
+              cipher: 'aes-256-gcm',
+              keyWrap: 'rsa-oaep-sha256',
+              iv: iv.toString('base64'),
+              tag: cipher.getAuthTag().toString('base64'),
+              encryptedKey: encryptedKey.toString('base64'),
+            }) + '\n', { mode: 0o600 });
+            console.log('Inventory encrypted; plaintext will be removed before artifact upload.');
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
+
+      - name: Upload encrypted inventory only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: system-b-r2-inventory-encrypted
+          path: |
+            ${{ runner.temp }}/r2-inventory.enc
+            ${{ runner.temp }}/r2-inventory.meta.json
+          if-no-files-found: error
+          retention-days: 1
