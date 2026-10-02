@@ -7,9 +7,9 @@ const app = fs.readFileSync(new URL('../v5/app.js', import.meta.url), 'utf8');
 test('V5 protected images wait for the media service worker before requesting bytes', () => {
   assert.match(app, /<img loading="lazy" data-v5-image data-src=/);
   assert.doesNotMatch(app, /<img loading="lazy" src="\$\{esc\(url\)\}"/);
-  assert.match(app, /async function hydrateProtectedImages\(\) \{\s*await ensureMediaWorker\(\)/);
+  assert.match(app, /async function hydrateProtectedImages\(expectedEpoch = mediaPageEpoch\) \{\s*await ensureMediaWorker\(\)/);
   assert.match(app, /image\.setAttribute\('src', image\.dataset\.src\)/);
-  assert.match(app, /hydrateProtectedImages\(\)\.catch/);
+  assert.match(app, /hydrateProtectedImages\(expectedEpoch\)\.catch/);
 });
 
 test('V5 lightbox also waits for the protected media worker', () => {

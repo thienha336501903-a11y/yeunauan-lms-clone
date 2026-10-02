@@ -152,12 +152,12 @@ export function factoryManifestHash(value) {
 }
 
 export function normalizeFactoryManifest(input = {}) {
+  rejectSecretKeys(input);
   assertAllowedKeys(
     input,
     new Set(["version","profile","agency","domains","ui","principals","bank_accounts","offerings","learning","provider_readiness"]),
     "root"
   );
-  rejectSecretKeys(input);
 
   const profile = clean(input.profile || "TENANT_SHELL").toUpperCase();
   if (!PROFILE_SET.has(profile)) throw new Error("factory_manifest_invalid_profile");
