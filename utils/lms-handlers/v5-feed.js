@@ -2,6 +2,7 @@ import { supabase } from "../supabase.js";
 import { requireV4CourseAccess } from "../v4-telegram-access.js";
 import { isV5PlaybackConfigured } from "../v5-playback-lease.js";
 import { v5LearnerReleaseContent } from "../v5-release-snapshot.js";
+import { deriveMainMediaSessionContext } from "../media-session-context.js";
 
 const MAX_RELEASE_CACHE_ENTRIES = 64;
 const releaseCache = new Map();
@@ -119,6 +120,7 @@ export default async function v5FeedHandler(req, res) {
       authoringMode,
       releaseId: release.id,
       playbackConfigured,
+      mediaSessionContext: deriveMainMediaSessionContext(req),
       lessons: content.lessons,
       posts: content.posts,
       links: content.links,

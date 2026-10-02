@@ -35,6 +35,16 @@ import {
   upsertAgencyLessonProgress
 } from "../../utils/agency-progress.js";
 
+function clearLearnerCookies(res) {
+  const cookies = ["sb-access-token", "course_session_token", "student_session_token"].map(
+    name => `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
+  );
+  const existing = res.getHeader("Set-Cookie");
+  if (!existing) res.setHeader("Set-Cookie", cookies);
+  else if (Array.isArray(existing)) res.setHeader("Set-Cookie", [...existing, ...cookies]);
+  else res.setHeader("Set-Cookie", [existing, ...cookies]);
+}
+
 export default async function handler(req, res) {
   const { endpoint } = req.query || {};
   const options = req.__options || {};
@@ -51,6 +61,15 @@ export default async function handler(req, res) {
 
   // Agency domain route: only allow Agency-authorized endpoints
   if (routeDecision.route === "AGENCY") {
+    if (endpoint === "learner-logout") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      clearLearnerCookies(res);
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.status(200).json({ success: true });
+    }
+
     // Public OAuth bootstrap config is required before a learner can authenticate
     // on an Agency host. It exposes only the public Google OAuth client ID.
     if (endpoint === "public-config") {
@@ -191,6 +210,17 @@ export default async function handler(req, res) {
       code: "agency_endpoint_not_found",
       error: "Requested endpoint is not supported on Agency tenant domain."
     });
+  }
+
+  // Explicit Main/compatibility route. Logout is intentionally cookie-only and
+  // does not depend on the paused Legacy database.
+  if (endpoint === "learner-logout") {
+    if (req.method !== "POST") {
+      return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+    }
+    clearLearnerCookies(res);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.status(200).json({ success: true });
   }
 
   // Explicit Legacy Host Route: Continues to legacy LMS endpoints

@@ -6,12 +6,11 @@ const STARTUP_VIDEO_RANGE_BYTES = 1 * 1024 * 1024;
 const STEADY_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 let proofIdentityPromise = null;
+let sessionContext = "";
+let sessionGeneration = 0;
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(Promise.all([
-  self.clients.claim(),
-  proofIdentity().catch(() => null)
-])));
+self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
 
 function clean(value) {
   return String(value || "").trim();
@@ -43,8 +42,17 @@ async function proofIdentity() {
   return proofIdentityPromise;
 }
 
-function cacheKey(course, lessonId, assetId) {
-  return `${course}:${lessonId || ''}:${assetId}`;
+function resetSessionState(nextContext = "") {
+  sessionGeneration += 1;
+  sessionContext = clean(nextContext);
+  leases.clear();
+  leaseRequests.clear();
+  proofIdentityPromise = null;
+  return sessionGeneration;
+}
+
+function cacheKey(course, lessonId, assetId, context = sessionContext) {
+  return `${context}:${course}:${lessonId || ''}:${assetId}`;
 }
 
 function playbackRange(rawRange, mimeType, method = "GET") {
@@ -85,10 +93,22 @@ function playbackRange(rawRange, mimeType, method = "GET") {
   return isVideo ? `bytes=0-${STARTUP_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
-async function issueLease(course, lessonId, assetId) {
+async function issueLease(course, lessonId, assetId, expectedGeneration, expectedContext) {
+  if (!expectedContext || expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
   if (lessonId) params.set("lesson", lessonId);
   const proof = await proofIdentity();
+  if (expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   const response = await fetch(`/api/lms/portal?${params}`, {
     method: "GET",
     credentials: "include",
@@ -101,22 +121,51 @@ async function issueLease(course, lessonId, assetId) {
     error.status = response.status;
     throw error;
   }
+  if (expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   return {
     url: String(data.playbackUrl),
     token: String(data.playbackLease),
     mimeType: String(data.mimeType || ""),
     key: proof.privateKey,
-    expiresAt: Number(data.expiresAt)
+    expiresAt: Number(data.expiresAt),
+    generation: expectedGeneration,
+    context: expectedContext
   };
 }
 
 async function fetchLease(course, lessonId, assetId, force = false) {
-  const key = cacheKey(course, lessonId, assetId);
+  const context = sessionContext;
+  const generation = sessionGeneration;
+  if (!context) {
+    const error = new Error("media_session_not_initialized");
+    error.status = 401;
+    throw error;
+  }
+
+  const key = cacheKey(course, lessonId, assetId, context);
   const current = leases.get(key);
-  if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
+  if (
+    !force &&
+    current &&
+    current.generation === generation &&
+    current.context === context &&
+    Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS
+  ) {
+    return current;
+  }
   if (!force && leaseRequests.has(key)) return leaseRequests.get(key);
 
-  const request = issueLease(course, lessonId, assetId).then(lease => {
+  const request = issueLease(course, lessonId, assetId, generation, context).then(lease => {
+    if (generation !== sessionGeneration || context !== sessionContext) {
+      const error = new Error("media_session_stale");
+      error.status = 401;
+      throw error;
+    }
     leases.set(key, lease);
     return lease;
   });
@@ -173,6 +222,12 @@ async function upstreamRequest(request, lease) {
 
 async function proxyMedia(request, course, lessonId, assetId) {
   try {
+    if (!sessionContext) {
+      return new Response("Media session not initialized", {
+        status: 401,
+        headers: { "Cache-Control": "private, no-store", "Content-Type": "text/plain; charset=utf-8" }
+      });
+    }
     let lease = await fetchLease(course, lessonId, assetId, false);
     let upstream = await upstreamRequest(request, lease);
 
@@ -198,12 +253,34 @@ async function proxyMedia(request, course, lessonId, assetId) {
 
 self.addEventListener("message", event => {
   const data = event.data || {};
+  const reply = event.ports?.[0] || null;
+
+  if (data.type === "v5-clear-session") {
+    resetSessionState("");
+    try { reply?.postMessage({ ok: true, generation: sessionGeneration }); } catch {}
+    return;
+  }
+
+  if (data.type === "v5-set-session-context") {
+    const next = clean(data.context);
+    if (!/^[A-Za-z0-9_-]{24,160}$/.test(next)) {
+      resetSessionState("");
+      try { reply?.postMessage({ ok: false, status: 400 }); } catch {}
+      return;
+    }
+    if (next !== sessionContext) resetSessionState(next);
+    try { reply?.postMessage({ ok: true, generation: sessionGeneration }); } catch {}
+    return;
+  }
+
   if (data.type !== "v5-warm-lease") return;
   const course = clean(data.course);
   const lessonId = clean(data.lessonId);
   const assetId = clean(data.assetId);
-  if (!course || !lessonId || !assetId) return;
-  const reply = event.ports?.[0] || null;
+  if (!course || !lessonId || !assetId || !sessionContext) {
+    try { reply?.postMessage({ ok: false, status: 401 }); } catch {}
+    return;
+  }
   const task = fetchLease(course, lessonId, assetId, false)
     .then(() => { try { reply?.postMessage({ ok: true }); } catch {} })
     .catch(error => { try { reply?.postMessage({ ok: false, status: Number(error?.status || 0) }); } catch {} });

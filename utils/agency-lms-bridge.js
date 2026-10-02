@@ -9,6 +9,7 @@ import { requireAgencyMembership, requireAgencyRole } from "./agency-auth.js";
 import { issueV5PlaybackLease, isV5PlaybackConfigured } from "./v5-playback-lease.js";
 import { v5LearnerReleaseContent } from "./v5-release-snapshot.js";
 import { buildV5IntroItems } from "./v5-intro-content.js";
+import { deriveAgencyMediaSessionContext } from "./media-session-context.js";
 
 // Re-export trusted routing utilities from agency-routing.js
 export {
@@ -585,6 +586,7 @@ export async function handleAgencyV5Feed(req, res, options = {}) {
       authoringMode,
       releaseId: release.id,
       playbackConfigured,
+      mediaSessionContext: deriveAgencyMediaSessionContext(req),
       lessons,
       posts: content.posts,
       links: content.links,

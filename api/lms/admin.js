@@ -38,6 +38,10 @@ import {
   approveAgencyOrder,
   refundAgencyOrder
 } from "../../utils/agency-commerce.js";
+import {
+  listAgencyMembers,
+  setAgencyMemberStatus
+} from "../../utils/agency-members.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "500mb" } } };
 
@@ -59,6 +63,28 @@ export default async function handler(req, res) {
 
   if (routeDecision.route === "AGENCY") {
     res.setHeader("Cache-Control", "private, no-store");
+
+    if (endpoint === "agency-members") {
+      if (req.method !== "GET") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      const result = await listAgencyMembers(req, options);
+      return res.status(result.status || (result.ok ? 200 : 400)).json({
+        success: Boolean(result.ok),
+        ...result
+      });
+    }
+
+    if (endpoint === "agency-member-status") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ success: false, code: "method_not_allowed", error: "Method not allowed" });
+      }
+      const result = await setAgencyMemberStatus(req, req.body || {}, options);
+      return res.status(result.status || (result.ok ? 200 : 400)).json({
+        success: Boolean(result.ok),
+        ...result
+      });
+    }
 
     if (endpoint === "agency-orders") {
       if (req.method !== "GET") {

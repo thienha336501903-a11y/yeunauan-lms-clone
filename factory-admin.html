@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>System B — Agency Factory V1</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,sans-serif;color:#18211b;background:#eef3ef}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:980px;margin:auto;padding:24px}
+.card{background:#fff;border:1px solid #dfe8e1;border-radius:18px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(0,0,0,.05)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+label{font-size:12px;font-weight:800;display:grid;gap:6px}input,select,textarea{width:100%;padding:11px;border:1px solid #cfd9d1;border-radius:10px;font:inherit}
+textarea{min-height:120px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:850;cursor:pointer;background:#245d37;color:#fff}.btn.secondary{background:#e7eee9;color:#1f4a2d}.btn.danger{background:#8e3434}.btn:disabled{opacity:.45;cursor:not-allowed}
+.status{font-size:13px;padding:11px;border-radius:10px;background:#f0f4f1;white-space:pre-wrap}.bad{background:#fff0f0;color:#812d2d}.ok{background:#edf8ef;color:#245d37}
+small{color:#6c786f}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;word-break:break-word}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<h1>Agency Factory V1</h1>
+<p><strong>Create</strong> luôn tạo tenant ở trạng thái <code>SUSPENDED</code>. <strong>Activate</strong> là thao tác riêng.</p>
+<div id="status" class="status">Đang kiểm tra Platform Admin session…</div>
+
+<section class="card">
+  <h2>Agency</h2>
+  <div class="grid">
+    <label>Tên Agency<input id="name" placeholder="Agency B"></label>
+    <label>Slug<input id="slug" placeholder="agency-b"></label>
+    <label>Commerce host<input id="commerceHost" placeholder="agency-b-shop.example.com"></label>
+    <label>LMS host<input id="lmsHost" placeholder="agency-b-learn.example.com"></label>
+    <label>Owner Google email<input id="ownerEmail" type="email" placeholder="owner@example.com"></label>
+    <label>Readiness profile
+      <select id="profile">
+        <option>TENANT_SHELL</option>
+        <option>LEARNING_READY</option>
+        <option>COMMERCE_TEST_READY</option>
+      </select>
+    </label>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Provider readiness</h2>
+  <small>Factory V1 không tự sửa Google/Vercel/Worker. Các checkbox là operator attestation có evidence.</small>
+  <div class="grid">
+    <label><span><input id="lmsHostReady" type="checkbox"> LMS host verified</span></label>
+    <label><span><input id="commerceHostReady" type="checkbox"> Commerce host verified</span></label>
+    <label><span><input id="googleLmsReady" type="checkbox"> Google LMS origin verified</span></label>
+    <label><span><input id="googleCommerceReady" type="checkbox"> Google Commerce origin verified</span></label>
+    <label><span><input id="workerReady" type="checkbox"> Worker LMS origin verified</span></label>
+    <label>Evidence refs<textarea id="evidenceRefs" placeholder="one reference per line"></textarea></label>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Optional profile data</h2>
+  <label>Bank accounts JSON<textarea id="banks">[]</textarea></label>
+  <label>Offerings JSON<textarea id="offerings">[]</textarea></label>
+  <label>Learning JSON<textarea id="learning">{"courses":[]}</textarea></label>
+</section>
+
+<section class="card">
+  <div class="row">
+    <button class="btn secondary" id="preflight">1. Preflight</button>
+    <button class="btn" id="createRun">2. Create Run</button>
+    <button class="btn secondary" id="prepare">3. Resolve Principals</button>
+    <button class="btn" id="apply">4. Apply SUSPENDED</button>
+    <button class="btn secondary" id="validate">5. Validate → READY</button>
+    <button class="btn" id="activate">6. Activate</button>
+    <button class="btn danger" id="suspend">Suspend</button>
+  </div>
+  <p>Run ID: <span id="runId" class="mono">—</span></p>
+  <p>Idempotency: <span id="idem" class="mono">—</span></p>
+  <pre id="output" class="status mono">Chưa chạy.</pre>
+</section>
+</main>
+<script>
+let csrf='';
+let currentRun='';
+let currentIdem='';
+
+const $=id=>document.getElementById(id);
+function parseJson(id,fallback){try{return JSON.parse($(id).value||'')}catch{return fallback}}
+function setStatus(text,kind=''){ $('status').textContent=text; $('status').className='status '+kind; }
+function show(value){ $('output').textContent=JSON.stringify(value,null,2); }
+
+async function bootstrap(){
+  const r=await fetch('/api/factory?action=bootstrap',{credentials:'same-origin',cache:'no-store'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.ok){
+    setStatus('Chưa có Platform Admin session. Hãy đăng nhập tại /admin.html rồi quay lại.','bad');
+    return false;
+  }
+  csrf=d.csrf;
+  setStatus('Platform Admin: '+d.admin+' — Factory Level 2','ok');
+  return true;
+}
+
+function manifest(){
+  const slug=$('slug').value.trim().toLowerCase();
+  return {
+    version:1,
+    profile:$('profile').value,
+    agency:{slug,name:$('name').value.trim()},
+    domains:[
+      {hostname:$('commerceHost').value.trim().toLowerCase(),surface:'commerce'},
+      {hostname:$('lmsHost').value.trim().toLowerCase(),surface:'lms'}
+    ],
+    ui:{brand_name:$('name').value.trim()},
+    principals:[{email:$('ownerEmail').value.trim().toLowerCase(),role:'agency_owner'}],
+    bank_accounts:parseJson('banks',[]),
+    offerings:parseJson('offerings',[]),
+    learning:parseJson('learning',{courses:[]}),
+    provider_readiness:{
+      lms_host_ready:$('lmsHostReady').checked,
+      commerce_host_ready:$('commerceHostReady').checked,
+      google_lms_origin_ready:$('googleLmsReady').checked,
+      google_commerce_origin_ready:$('googleCommerceReady').checked,
+      worker_lms_origin_ready:$('workerReady').checked,
+      evidence_refs:$('evidenceRefs').value.split('\n').map(s=>s.trim()).filter(Boolean)
+    }
+  };
+}
+
+function ensureIdem(){
+  const slug=$('slug').value.trim().toLowerCase();
+  if(!slug)return '';
+  const key='factory_idem:'+slug;
+  currentIdem=localStorage.getItem(key)||('factory:'+slug+':'+crypto.randomUUID());
+  localStorage.setItem(key,currentIdem);
+  $('idem').textContent=currentIdem;
+  return currentIdem;
+}
+
+async function call(action,extra={}){
+  if(!csrf && !(await bootstrap()))return;
+  const r=await fetch('/api/factory',{
+    method:'POST',credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json','X-Factory-CSRF':csrf},
+    body:JSON.stringify({action,manifest:manifest(),runId:currentRun,...extra})
+  });
+  const d=await r.json().catch(()=>({}));
+  show(d);
+  if(d?.run?.id){currentRun=d.run.id;$('runId').textContent=currentRun}
+  setStatus((d.ok?'PASS: ':'BLOCKED: ')+(d.code||action),d.ok?'ok':'bad');
+  return d;
+}
+
+$('preflight').onclick=()=>call('preflight');
+$('createRun').onclick=()=>call('create-run',{idempotencyKey:ensureIdem()});
+$('prepare').onclick=()=>call('prepare-principals',{allowCreate:false});
+$('apply').onclick=()=>call('apply');
+$('validate').onclick=()=>call('validate');
+$('activate').onclick=()=>call('activate');
+$('suspend').onclick=()=>call('suspend');
+
+bootstrap();
+</script>
+</body>
+</html>

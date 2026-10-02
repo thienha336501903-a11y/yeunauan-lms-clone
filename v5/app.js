@@ -603,6 +603,62 @@ function ensureMediaWorker() {
   return mediaWorkerPromise;
 }
 
+const MEDIA_SESSION_CHANNEL = 'system-b-v5-media-session-v1';
+let mediaSessionContext = '';
+let mediaSessionBroadcast = null;
+
+function mediaSessionChannel() {
+  if (!('BroadcastChannel' in window)) return null;
+  if (!mediaSessionBroadcast) {
+    mediaSessionBroadcast = new BroadcastChannel(MEDIA_SESSION_CHANNEL);
+    mediaSessionBroadcast.addEventListener('message', event => {
+      const data = event.data || {};
+      if (data.type === 'clear') {
+        postMediaWorkerMessage('v5-clear-session').catch(() => {});
+      } else if (data.type === 'context' && typeof data.context === 'string' && data.context !== mediaSessionContext) {
+        mediaSessionContext = data.context;
+        postMediaWorkerMessage('v5-set-session-context', { context: data.context }).catch(() => {});
+      }
+    });
+  }
+  return mediaSessionBroadcast;
+}
+
+async function postMediaWorkerMessage(type, payload = {}) {
+  await ensureMediaWorker();
+  const controller = navigator.serviceWorker.controller;
+  if (!controller) throw new Error('V5 media worker chưa sẵn sàng.');
+  return new Promise((resolve, reject) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => reject(new Error('V5 media worker phản hồi quá lâu.')), 2500);
+    channel.port1.onmessage = event => {
+      clearTimeout(timer);
+      const data = event.data || {};
+      if (data.ok === false) {
+        const error = new Error('V5 media session rejected.');
+        error.status = Number(data.status || 0);
+        reject(error);
+        return;
+      }
+      resolve(data);
+    };
+    controller.postMessage({ type, ...payload }, [channel.port2]);
+  });
+}
+
+async function setProtectedMediaSessionContext(serverContext) {
+  const context = String(serverContext || '').trim() || ('page_' + crypto.randomUUID());
+  mediaSessionContext = context;
+  await postMediaWorkerMessage('v5-set-session-context', { context });
+  try { mediaSessionChannel()?.postMessage({ type: 'context', context }); } catch {}
+}
+
+async function clearProtectedMediaSessionContext() {
+  mediaSessionContext = '';
+  try { await postMediaWorkerMessage('v5-clear-session'); } catch {}
+  try { mediaSessionChannel()?.postMessage({ type: 'clear' }); } catch {}
+}
+
 async function hydrateProtectedImages() {
   await ensureMediaWorker();
   const images = [...document.querySelectorAll('img[data-v5-image][data-src]')];
@@ -806,6 +862,9 @@ async function load() {
       return;
     }
     if (!response.ok || !payload.success) throw new Error(payload.error || `HTTP ${response.status}`);
+    // The server returns an opaque context derived from the verified learner
+    // session. It is a cache namespace only, never authorization.
+    await setProtectedMediaSessionContext(payload.mediaSessionContext);
     render(payload);
     hydrateAgencyProgress().catch(() => {});
   } catch (error) { $('stateCard').innerHTML = `<strong>Không thể mở khóa học</strong><p>${esc(error.message)}</p><button onclick="location.reload()">Thử lại</button>`; }
