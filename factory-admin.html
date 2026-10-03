@@ -81,11 +81,31 @@ small{color:#6c786f}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monos
 let csrf='';
 let currentRun='';
 let currentIdem='';
+let currentRevision=null;
+let currentTarget='',factoryTargetEpoch=0,factoryActionPending=false;
 
 const $=id=>document.getElementById(id);
 function parseJson(id,fallback){try{return JSON.parse($(id).value||'')}catch{return fallback}}
 function setStatus(text,kind=''){ $('status').textContent=text; $('status').className='status '+kind; }
 function show(value){ $('output').textContent=JSON.stringify(value,null,2); }
+
+function syncFactoryTarget(){
+  const target=$('slug').value.trim().toLowerCase();
+  if(target!==currentTarget){
+    currentTarget=target;
+    factoryTargetEpoch+=1;
+    currentRun='';
+    currentRevision=null;
+    currentIdem='';
+    $('runId').textContent='—';
+    $('idem').textContent='—';
+  }
+  return target;
+}
+function setFactoryBusy(busy){
+  factoryActionPending=busy;
+  for(const id of ['preflight','createRun','prepare','apply','validate','activate','suspend'])$(id).disabled=busy;
+}
 
 async function bootstrap(){
   const r=await fetch('/api/factory?action=bootstrap',{credentials:'same-origin',cache:'no-store'});
@@ -126,6 +146,7 @@ function manifest(){
 }
 
 function ensureIdem(){
+  syncFactoryTarget();
   const slug=$('slug').value.trim().toLowerCase();
   if(!slug)return '';
   const key='factory_idem:'+slug;
@@ -136,31 +157,52 @@ function ensureIdem(){
 }
 
 async function call(action,extra={}){
-  if(!csrf && !(await bootstrap()))return;
-  const r=await fetch('/api/factory',{
-    method:'POST',credentials:'same-origin',cache:'no-store',
-    headers:{'Content-Type':'application/json','X-Factory-CSRF':csrf},
-    body:JSON.stringify({
-      action,
-      manifest:manifest(),
-      runId:currentRun,
-      ...(currentRevision!==null?{expectedRevision:currentRevision}:{}),
-      ...extra
-    })
-  });
-  const d=await r.json().catch(()=>({}));
-  show(d);
-  if(d?.run?.id){
-    currentRun=d.run.id;
-    if(Number.isSafeInteger(Number(d.run.revision)))currentRevision=Number(d.run.revision);
-    $('runId').textContent=currentRun;
-  } else if(Number.isSafeInteger(Number(d?.result?.revision))) {
-    currentRevision=Number(d.result.revision);
+  if(factoryActionPending)return;
+  const target=syncFactoryTarget(),targetEpoch=factoryTargetEpoch,requestRun=currentRun;
+  setFactoryBusy(true);
+  try{
+    if(!csrf && !(await bootstrap()))return;
+    syncFactoryTarget();
+    if(targetEpoch!==factoryTargetEpoch)return;
+    const r=await fetch('/api/factory',{
+      method:'POST',credentials:'same-origin',cache:'no-store',
+      headers:{'Content-Type':'application/json','X-Factory-CSRF':csrf},
+      body:JSON.stringify({
+        action,
+        manifest:manifest(),
+        runId:currentRun,
+        ...(currentRevision!==null?{expectedRevision:currentRevision}:{}),
+        ...extra
+      })
+    });
+    const d=await r.json().catch(()=>({}));
+    syncFactoryTarget();
+    if(target!==currentTarget||targetEpoch!==factoryTargetEpoch||requestRun!==currentRun)return;
+    if(action!=='create-run'&&requestRun&&d?.run?.id&&d.run.id!==requestRun){
+      setStatus('BLOCKED: factory_response_run_mismatch','bad');
+      return;
+    }
+    show(d);
+    if(d?.run?.id){
+      if(currentRun!==d.run.id)currentRevision=null;
+      currentRun=d.run.id;
+      const revision=Number(d.run.revision);
+      if(Number.isSafeInteger(revision)&&revision>0)currentRevision=revision;
+      $('runId').textContent=currentRun;
+    } else if(currentRun){
+      const revision=Number(d?.result?.revision);
+      if(Number.isSafeInteger(revision)&&revision>0)currentRevision=revision;
+    }
+    setStatus((d.ok?'PASS: ':'BLOCKED: ')+(d.code||action),d.ok?'ok':'bad');
+    return d;
+  }catch(error){
+    if(targetEpoch===factoryTargetEpoch)setStatus(error.message||'Factory request failed','bad');
+  }finally{
+    setFactoryBusy(false);
   }
-  setStatus((d.ok?'PASS: ':'BLOCKED: ')+(d.code||action),d.ok?'ok':'bad');
-  return d;
 }
 
+$('slug').addEventListener('input',syncFactoryTarget);
 $('preflight').onclick=()=>call('preflight');
 $('createRun').onclick=()=>call('create-run',{idempotencyKey:ensureIdem()});
 $('prepare').onclick=()=>call('prepare-principals',{allowCreate:false});

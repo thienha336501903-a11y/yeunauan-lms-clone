@@ -60,7 +60,7 @@ test("Auth create lost-response recovery preserves Factory run provenance", asyn
   const created = {
     id: "11111111-1111-4111-8111-111111111111",
     email: "owner@example.com",
-    user_metadata: {
+    app_metadata: {
       system_b_factory: true,
       system_b_factory_run_id: "run-123"
     }

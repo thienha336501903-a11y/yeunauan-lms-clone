@@ -42,7 +42,8 @@ export async function findAuthUserByEmail(client, email, options = {}) {
 function factoryRunOwner(user, factoryRunId) {
   const expected = clean(factoryRunId);
   if (!expected) return false;
-  return clean(user?.user_metadata?.system_b_factory_run_id) === expected;
+  // Ownership is read from the Admin API, never from editable profile metadata.
+  return clean(user?.app_metadata?.system_b_factory_run_id) === expected;
 }
 
 function preparedUserResult(user, options = {}, overrides = {}) {
@@ -95,14 +96,14 @@ export async function prepareAuthPrincipal(client, declaration, options = {}) {
 
   // Deliberately does not send an invite email. The current Agency Google bridge
   // later proves control of the verified Google email before minting a session.
-  const userMetadata = {
+  const appMetadata = {
     system_b_factory: true,
     ...(factoryRunId ? { system_b_factory_run_id: factoryRunId } : {})
   };
   const { data, error } = await client.auth.admin.createUser({
     email,
     email_confirm: true,
-    user_metadata: userMetadata
+    app_metadata: appMetadata
   });
 
   if (error || !data?.user?.id) {

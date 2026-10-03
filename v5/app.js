@@ -896,6 +896,8 @@ function render(payload, expectedEpoch = mediaPageEpoch) {
 }
 
 async function load() {
+  // Receive cross-tab invalidation before any asynchronous feed/context work.
+  mediaSessionChannel();
   const loadEpoch = ++mediaPageEpoch;
   activeCourse = new URLSearchParams(location.search).get('course') || '';
   if (!activeCourse) { $('stateCard').innerHTML = 'Thiếu mã khóa học.<br><a href="/my-courses.html">Về danh sách khóa học</a>'; return; }
