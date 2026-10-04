@@ -47,7 +47,7 @@ test("V1.1 privileged RPCs remain service-role only", () => {
 
 test("Factory API exposes upgrade with optimistic revision", () => {
   assert.match(api, /"upgrade"/);
-  assert.match(api, /upgradeFactoryRun\(runId, manifest, auth\.actorRef, \{ expectedRevision \}\)/);
+  assert.match(api, /upgradeFactoryRun\(runId, manifest, auth\.actorRef, \{[\s\S]*expectedRevision,[\s\S]*sourceCommerceSha:[\s\S]*\}\)/);
   assert.match(factory, /p_expected_revision: expectedRevision/);
   assert.match(factory, /p_manifest_summary: summary/);
 });
