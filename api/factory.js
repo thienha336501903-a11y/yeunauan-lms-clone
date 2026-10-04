@@ -6,6 +6,7 @@ import {
   preflightFactoryManifest,
   prepareFactoryPrincipals,
   setFactoryTenantRuntime,
+  upgradeFactoryRun,
   validateFactoryRun
 } from "../utils/agency-factory.js";
 import { normalizeFactoryManifest } from "../utils/agency-factory-manifest.js";
@@ -66,7 +67,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, code: "factory_invalid_expected_revision" });
     }
     const revisionRequired = new Set([
-      "prepare-principals","apply","retry","validate","activate","resume","suspend"
+      "prepare-principals","apply","retry","upgrade","validate","activate","resume","suspend"
     ]);
     if (revisionRequired.has(action) && expectedRevision === null) {
       return res.status(409).json({ ok: false, code: "factory_expected_revision_required" });
@@ -93,6 +94,8 @@ export default async function handler(req, res) {
       });
     } else if (action === "apply" || action === "retry") {
       result = await applyFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
+    } else if (action === "upgrade") {
+      result = await upgradeFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "validate") {
       result = await validateFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "activate" || action === "resume") {
