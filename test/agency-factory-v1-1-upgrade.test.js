@@ -51,3 +51,16 @@ test("Factory API exposes upgrade with optimistic revision", () => {
   assert.match(factory, /p_expected_revision: expectedRevision/);
   assert.match(factory, /p_manifest_summary: summary/);
 });
+
+
+test("V1.1.1 upgrade path binds Commerce provenance and exposes UI upgrade controls", () => {
+  const ui = fs.readFileSync(new URL("../factory-admin.html", import.meta.url), "utf8");
+  assert.match(ui, /id="upgrade"/);
+  assert.match(ui, /id="loadRun"/);
+  assert.match(ui, /id="sourceCommerceSha"/);
+  assert.match(ui, /call\('upgrade',\{sourceCommerceSha\}\)/);
+  assert.match(factory, /factory_source_commerce_sha_required/);
+  assert.match(factory, /factory_source_commerce_sha_conflict/);
+  assert.match(factory, /source_commerce_sha:\s*requestedSourceCommerceSha/);
+  assert.match(api, /sourceCommerceSha:\s*clean\(req\.body\?\.sourceCommerceSha\)/);
+});
