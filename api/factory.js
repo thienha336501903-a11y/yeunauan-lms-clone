@@ -95,7 +95,10 @@ export default async function handler(req, res) {
     } else if (action === "apply" || action === "retry") {
       result = await applyFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "upgrade") {
-      result = await upgradeFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
+      result = await upgradeFactoryRun(runId, manifest, auth.actorRef, {
+        expectedRevision,
+        sourceCommerceSha: clean(req.body?.sourceCommerceSha)
+      });
     } else if (action === "validate") {
       result = await validateFactoryRun(runId, manifest, auth.actorRef, { expectedRevision });
     } else if (action === "activate" || action === "resume") {

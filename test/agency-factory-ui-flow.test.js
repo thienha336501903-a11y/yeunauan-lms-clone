@@ -14,13 +14,32 @@ async function harness() {
     if (!nodes.has(id)) nodes.set(id, { value: '', checked: true, textContent: '', disabled: false, listeners: new Map(), addEventListener(type, fn) { this.listeners.set(type, fn); } });
     return nodes.get(id);
   };
-  for (const [id, value] of Object.entries({ slug: 'fixture-a', name: 'Fixture A', profile: 'TENANT_SHELL', commerceHost: 'shop.example.test', lmsHost: 'learn.example.test', ownerEmail: 'owner@example.test', banks: '[]', offerings: '[]', learning: '{"courses":[]}', evidenceRefs: 'unit' })) get(id).value = value;
+  for (const [id, value] of Object.entries({
+    slug: 'fixture-a',
+    name: 'Fixture A',
+    profile: 'TENANT_SHELL',
+    commerceHost: 'shop.example.test',
+    lmsHost: 'learn.example.test',
+    ownerEmail: 'owner@example.test',
+    sourceCommerceSha: '823ddd23c3edd32d57c6a05f1c1bc6350c6216c4',
+    loadRunId: '',
+    banks: '[]',
+    offerings: '[]',
+    learning: '{"courses":[]}',
+    evidenceRefs: 'unit'
+  })) get(id).value = value;
   let handler = async body => response(body.action === 'preflight' ? { ok: true } : { ok: true, run: { id: 'run-a', revision: 1 } });
   const context = vm.createContext({
     crypto, document: { getElementById: get },
     localStorage: { getItem: key => stored.get(key) || '', setItem: (key, value) => stored.set(key, value) },
     fetch: async (url, options = {}) => {
-      if (!options.method) return response({ ok: true, csrf: 'csrf-fixture', admin: 'fixture' });
+      if (!options.method) {
+        if (String(url).includes('action=run')) {
+          const runId = new URL(String(url), 'https://fixture.test').searchParams.get('runId');
+          return response({ ok: true, run: { id: runId, target_slug: 'fixture-a', profile: 'TENANT_SHELL', phase: 'READY', revision: 9 } });
+        }
+        return response({ ok: true, csrf: 'csrf-fixture', admin: 'fixture' });
+      }
       const body = JSON.parse(options.body); calls.push(body); return handler(body);
     }
   });
@@ -35,6 +54,7 @@ test('Factory actual inline UI carries each returned revision through all run ac
   await h.get('createRun').onclick();
   assert.equal(h.calls[0].expectedRevision, undefined);
   assert.equal(h.calls[1].expectedRevision, undefined);
+  assert.equal(h.calls[1].sourceCommerceSha, '823ddd23c3edd32d57c6a05f1c1bc6350c6216c4');
   assert.equal(h.state('currentIdem'), h.calls[1].idempotencyKey);
   let revision = 1;
   h.setHandler(async body => {
@@ -82,4 +102,39 @@ test('Factory prevents concurrent revision writes and rejects an unrelated retur
   await pending;
   assert.equal(h.state('currentRun'), 'run-a');
   assert.equal(h.state('currentRevision'), 1);
+});
+
+
+test('Factory UI can reload an existing run and send Commerce provenance on upgrade', async () => {
+  const h = await harness();
+  h.get('loadRunId').value = 'run-existing';
+  await h.get('loadRun').onclick();
+  assert.equal(h.state('currentRun'), 'run-existing');
+  assert.equal(h.state('currentRevision'), 9);
+  assert.equal(h.get('slug').value, 'fixture-a');
+
+  h.get('profile').value = 'LEARNING_READY';
+  h.setHandler(async body => {
+    assert.equal(body.action, 'upgrade');
+    assert.equal(body.runId, 'run-existing');
+    assert.equal(body.expectedRevision, 9);
+    assert.equal(body.sourceCommerceSha, '823ddd23c3edd32d57c6a05f1c1bc6350c6216c4');
+    return response({ ok: true, run: { id: 'run-existing', revision: 12 } });
+  });
+
+  await h.get('upgrade').onclick();
+  assert.equal(h.state('currentRevision'), 12);
+});
+
+test('Factory UI blocks create or upgrade when Commerce source SHA is missing or malformed', async () => {
+  const h = await harness();
+  h.get('sourceCommerceSha').value = 'bad-sha';
+  const before = h.calls.length;
+  await h.get('createRun').onclick();
+  assert.equal(h.calls.length, before);
+
+  h.get('loadRunId').value = 'run-existing';
+  await h.get('loadRun').onclick();
+  await h.get('upgrade').onclick();
+  assert.equal(h.calls.length, before);
 });
