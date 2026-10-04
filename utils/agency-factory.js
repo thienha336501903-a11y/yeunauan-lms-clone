@@ -398,6 +398,10 @@ export async function createFactoryRun({
   const normalized = normalizeFactoryManifest(manifest);
   const manifestHash = factoryManifestHash(normalized);
   const key = clean(idempotencyKey);
+  const commerceSha = clean(sourceCommerceSha).toLowerCase();
+  if (commerceSha && !/^[0-9a-f]{40}$/.test(commerceSha)) {
+    return { ok: false, status: 400, code: "factory_invalid_source_commerce_sha" };
+  }
 
   if (!/^[A-Za-z0-9:_-]{16,160}$/.test(key)) {
     return { ok: false, status: 400, code: "factory_invalid_idempotency_key" };
@@ -446,7 +450,7 @@ export async function createFactoryRun({
     actor_ref: actorRef,
     provider_readiness: normalized.provider_readiness,
     source_lms_sha: clean(sourceLmsSha) || null,
-    source_commerce_sha: clean(sourceCommerceSha) || null
+    source_commerce_sha: commerceSha || null
   };
 
   const { data: created, error } = await client
@@ -824,14 +828,27 @@ export async function upgradeFactoryRun(runId, manifest, actorRef, options = {})
   const summary = factoryManifestSummary(normalized);
   const lookup = await getFactoryRun(runId, { supabaseClient: client });
   if (!lookup.ok) return lookup;
-  const run = lookup.run;
+  let run = lookup.run;
 
-  const expectedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+  let expectedRevision = options.expectedRevision === undefined || options.expectedRevision === null
     ? Number(run.revision)
     : Number(options.expectedRevision);
   if (!Number.isSafeInteger(expectedRevision) || Number(run.revision) !== expectedRevision) {
     return { ok: false, status: 409, code: "factory_stale_revision" };
   }
+
+  const requestedSourceCommerceSha = clean(options.sourceCommerceSha).toLowerCase();
+  if (requestedSourceCommerceSha && !/^[0-9a-f]{40}$/.test(requestedSourceCommerceSha)) {
+    return { ok: false, status: 400, code: "factory_invalid_source_commerce_sha" };
+  }
+  const existingSourceCommerceSha = clean(run.source_commerce_sha).toLowerCase();
+  if (existingSourceCommerceSha && requestedSourceCommerceSha && existingSourceCommerceSha !== requestedSourceCommerceSha) {
+    return { ok: false, status: 409, code: "factory_source_commerce_sha_conflict" };
+  }
+  if (!existingSourceCommerceSha && !requestedSourceCommerceSha) {
+    return { ok: false, status: 409, code: "factory_source_commerce_sha_required" };
+  }
+
   if (run.actor_ref !== actorRef) {
     return { ok: false, status: 403, code: "factory_actor_mismatch" };
   }
@@ -880,6 +897,26 @@ export async function upgradeFactoryRun(runId, manifest, actorRef, options = {})
       code: "factory_upgrade_preflight_blocked",
       blockers
     };
+  }
+
+  if (!existingSourceCommerceSha && requestedSourceCommerceSha) {
+    try {
+      run = await updateRun(
+        client,
+        run.id,
+        {
+          source_commerce_sha: requestedSourceCommerceSha,
+          revision: expectedRevision + 1
+        },
+        expectedRevision
+      );
+      expectedRevision = Number(run.revision);
+    } catch (error) {
+      if (String(error?.message || "").includes("factory_stale_revision")) {
+        return { ok: false, status: 409, code: "factory_stale_revision" };
+      }
+      throw error;
+    }
   }
 
   if (committedUpgradeRetry) {
