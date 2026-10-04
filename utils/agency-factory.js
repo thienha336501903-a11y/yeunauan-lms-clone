@@ -201,6 +201,129 @@ async function checkLearningReadiness(client, normalized) {
   return blockers;
 }
 
+
+function profileRank(profile) {
+  if (profile === "TENANT_SHELL") return 1;
+  if (profile === "LEARNING_READY") return 2;
+  if (profile === "COMMERCE_TEST_READY") return 3;
+  return 0;
+}
+
+function factoryLearningAccessSourceRef(runId, userId, canonicalCourseId) {
+  return `factory:${clean(runId)}:${clean(userId)}:${clean(canonicalCourseId)}`;
+}
+
+async function applyFactoryLearningAccess(client, run, normalized, actorRef) {
+  const grants = Array.isArray(normalized?.learning?.access_grants)
+    ? normalized.learning.access_grants
+    : [];
+  if (!grants.length || normalized.profile === "TENANT_SHELL") {
+    return { ok: true, idempotent: true, run };
+  }
+
+  const prior = run?.step_results?.learning_access;
+  if (prior?.status === "PASS" && Number(prior?.count) === grants.length) {
+    return { ok: true, idempotent: true, run };
+  }
+
+  const { data, error } = await client.rpc("apply_agency_factory_v1_1_learning_access", {
+    p_run_id: run.id,
+    p_expected_revision: Number(run.revision),
+    p_manifest_hash: run.manifest_hash,
+    p_actor_ref: actorRef,
+    p_access_grants: grants
+  });
+
+  if (error) {
+    return {
+      ok: false,
+      status: 409,
+      code: safeCode(error, "factory_learning_access_failed"),
+      error: "Factory learning access apply failed."
+    };
+  }
+
+  const after = await getFactoryRun(run.id, { supabaseClient: client });
+  return {
+    ok: true,
+    idempotent: Boolean(data?.idempotent),
+    result: data,
+    run: after.ok ? after.run : run
+  };
+}
+
+async function checkLearningAccessReadiness(client, normalized, run) {
+  if (normalized.profile === "TENANT_SHELL") return [];
+
+  const blockers = [];
+  for (const grant of normalized.learning.access_grants || []) {
+    const principal = {
+      ...(grant.principal_email ? { email: grant.principal_email } : {}),
+      ...(grant.principal_user_id ? { user_id: grant.principal_user_id } : {})
+    };
+    const prepared = await prepareAuthPrincipal(client, principal, {
+      mode: "reuse_only",
+      allowCreate: false
+    });
+    if (!prepared.ok) {
+      blockers.push(`learning_access_principal_not_ready:${grant.canonical_course_code}`);
+      continue;
+    }
+
+    const { data: canonical, error: canonicalError } = await client
+      .from("canonical_courses")
+      .select("id,code")
+      .eq("code", grant.canonical_course_code)
+      .maybeSingle();
+    if (canonicalError) throw canonicalError;
+    if (!canonical?.id) {
+      blockers.push(`learning_access_course_not_ready:${grant.canonical_course_code}`);
+      continue;
+    }
+
+    const { data: membership, error: membershipError } = await client
+      .from("agency_memberships")
+      .select("id,status")
+      .eq("agency_id", run.agency_id)
+      .eq("user_id", prepared.user.id)
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership || membership.status !== "active") {
+      blockers.push(`learning_access_membership_not_ready:${grant.canonical_course_code}`);
+      continue;
+    }
+
+    const { data: entitlement, error: entitlementError } = await client
+      .from("student_entitlements")
+      .select("id,status")
+      .eq("agency_id", run.agency_id)
+      .eq("membership_id", membership.id)
+      .eq("canonical_course_id", canonical.id)
+      .maybeSingle();
+    if (entitlementError) throw entitlementError;
+    if (!entitlement || entitlement.status !== "active") {
+      blockers.push(`learning_access_entitlement_not_ready:${grant.canonical_course_code}`);
+      continue;
+    }
+
+    const sourceRef = factoryLearningAccessSourceRef(run.id, prepared.user.id, canonical.id);
+    const { data: provenance, error: grantError } = await client
+      .from("entitlement_grants")
+      .select("id,status")
+      .eq("agency_id", run.agency_id)
+      .eq("entitlement_id", entitlement.id)
+      .eq("source_type", "manual_admin")
+      .eq("source_reference_id", sourceRef)
+      .maybeSingle();
+    if (grantError) throw grantError;
+    if (!provenance || provenance.status !== "active") {
+      blockers.push(`learning_access_provenance_not_ready:${grant.canonical_course_code}`);
+    }
+  }
+
+  return blockers;
+}
+
 export async function preflightFactoryManifest(manifest, options = {}) {
   const client = options.supabaseClient || defaultSupabase;
   const normalized = normalizeFactoryManifest(manifest);
@@ -486,7 +609,17 @@ export async function applyFactoryRun(runId, manifest, actorRef, options = {}) {
       .maybeSingle();
     if (ownedError) throw ownedError;
     if (!ownedAgency) return { ok: false, status: 409, code: "factory_target_ownership_mismatch" };
-    return { ok: true, idempotent: true, run, agencyId: run.agency_id };
+    if (run.phase === "ACTIVE") {
+      return { ok: true, idempotent: true, run, agencyId: run.agency_id };
+    }
+    const learning = await applyFactoryLearningAccess(client, run, normalized, actorRef);
+    if (!learning.ok) return learning;
+    return {
+      ok: true,
+      idempotent: true,
+      run: learning.run || run,
+      agencyId: run.agency_id
+    };
   }
 
   if (!["DRAFT", "BLOCKED"].includes(run.phase)) {
@@ -505,11 +638,14 @@ export async function applyFactoryRun(runId, manifest, actorRef, options = {}) {
     if (error) throw error;
 
     const after = await getFactoryRun(run.id, { supabaseClient: client });
+    const appliedRun = after.ok ? after.run : run;
+    const learning = await applyFactoryLearningAccess(client, appliedRun, normalized, actorRef);
+    if (!learning.ok) return learning;
     return {
       ok: true,
       idempotent: Boolean(data?.idempotent),
       result: data,
-      run: after.ok ? after.run : run
+      run: learning.run || appliedRun
     };
   } catch (error) {
     try {
@@ -597,6 +733,7 @@ export async function validateFactoryRun(runId, manifest, actorRef, options = {}
   }
 
   blockers.push(...await checkLearningReadiness(client, normalized));
+  blockers.push(...await checkLearningAccessReadiness(client, normalized, run));
   blockers.push(...providerReadinessBlockers(normalized));
 
   if (normalized.profile === "COMMERCE_TEST_READY") {
@@ -678,6 +815,114 @@ export async function validateFactoryRun(runId, manifest, actorRef, options = {}
     }
     throw error;
   }
+}
+
+export async function upgradeFactoryRun(runId, manifest, actorRef, options = {}) {
+  const client = options.supabaseClient || defaultSupabase;
+  const normalized = normalizeFactoryManifest(manifest);
+  const hash = factoryManifestHash(normalized);
+  const summary = factoryManifestSummary(normalized);
+  const lookup = await getFactoryRun(runId, { supabaseClient: client });
+  if (!lookup.ok) return lookup;
+  const run = lookup.run;
+
+  const expectedRevision = options.expectedRevision === undefined || options.expectedRevision === null
+    ? Number(run.revision)
+    : Number(options.expectedRevision);
+  if (!Number.isSafeInteger(expectedRevision) || Number(run.revision) !== expectedRevision) {
+    return { ok: false, status: 409, code: "factory_stale_revision" };
+  }
+  if (run.actor_ref !== actorRef) {
+    return { ok: false, status: 403, code: "factory_actor_mismatch" };
+  }
+  if (!run.agency_id || run.target_slug !== normalized.agency.slug) {
+    return { ok: false, status: 409, code: "factory_target_ownership_mismatch" };
+  }
+  const committedUpgradeRetry =
+    run.phase === "PREPARING" &&
+    run.profile === normalized.profile &&
+    run.manifest_hash === hash;
+  if (run.phase !== "READY" && !committedUpgradeRetry) {
+    return { ok: false, status: 409, code: "factory_upgrade_requires_ready_suspended_run" };
+  }
+  if (profileRank(normalized.profile) < profileRank(run.profile)) {
+    return { ok: false, status: 409, code: "factory_profile_downgrade_forbidden" };
+  }
+
+  const { data: agency, error: agencyError } = await client
+    .from("agencies")
+    .select("id,slug,status")
+    .eq("id", run.agency_id)
+    .maybeSingle();
+  if (agencyError) throw agencyError;
+  if (!agency || agency.slug !== run.target_slug) {
+    return { ok: false, status: 409, code: "factory_target_ownership_mismatch" };
+  }
+  if (agency.status !== "suspended") {
+    return { ok: false, status: 409, code: "factory_upgrade_requires_suspended_tenant" };
+  }
+
+  const blockers = [
+    ...await checkLearningReadiness(client, normalized),
+    ...providerReadinessBlockers(normalized)
+  ];
+  for (const principal of normalized.principals) {
+    const prepared = await prepareAuthPrincipal(client, principal, {
+      mode: "reuse_only",
+      allowCreate: false
+    });
+    if (!prepared.ok) blockers.push(`principal_not_prepared:${principal.role}`);
+  }
+  if (blockers.length) {
+    return {
+      ok: false,
+      status: 409,
+      code: "factory_upgrade_preflight_blocked",
+      blockers
+    };
+  }
+
+  if (committedUpgradeRetry) {
+    const learning = await applyFactoryLearningAccess(client, run, normalized, actorRef);
+    if (!learning.ok) return learning;
+    return {
+      ok: true,
+      idempotent: true,
+      run: learning.run || run
+    };
+  }
+
+  const atomicManifest = buildAtomicManifest(normalized);
+  const { data, error } = await client.rpc("upgrade_agency_factory_v1_1_atomic", {
+    p_run_id: run.id,
+    p_expected_revision: expectedRevision,
+    p_manifest: atomicManifest,
+    p_manifest_hash: hash,
+    p_manifest_summary: summary,
+    p_profile: normalized.profile,
+    p_actor_ref: actorRef
+  });
+
+  if (error) {
+    return {
+      ok: false,
+      status: 409,
+      code: safeCode(error, "factory_upgrade_failed"),
+      error: "Factory staged upgrade failed."
+    };
+  }
+
+  const after = await getFactoryRun(run.id, { supabaseClient: client });
+  const upgradedRun = after.ok ? after.run : run;
+  const learning = await applyFactoryLearningAccess(client, upgradedRun, normalized, actorRef);
+  if (!learning.ok) return learning;
+
+  return {
+    ok: true,
+    idempotent: Boolean(data?.idempotent),
+    result: data,
+    run: learning.run || upgradedRun
+  };
 }
 
 export async function setFactoryTenantRuntime(runId, action, actorRef, options = {}) {

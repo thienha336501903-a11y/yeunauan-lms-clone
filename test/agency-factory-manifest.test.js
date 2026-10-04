@@ -78,12 +78,35 @@ test("Learning profile requires prepared course references", () => {
 test("Commerce test profile requires bank and offering", () => {
   const input = base("COMMERCE_TEST_READY");
   input.learning.courses = [{ code: "b-course", course_id: "00000000-0000-4000-8000-000000000001" }];
+  input.learning.access_grants = [{ principal_email: "owner@example.com", canonical_course_code: "b-course" }];
   assert.throws(() => normalizeFactoryManifest(input), /bank_required/);
 });
 
 test("Provider readiness is explicit and fail-closed for learning", () => {
   const input = base("LEARNING_READY");
   input.learning.courses = [{ code: "b-course", course_id: "00000000-0000-4000-8000-000000000001" }];
+  input.learning.access_grants = [{ principal_email: "owner@example.com", canonical_course_code: "b-course" }];
   input.provider_readiness.google_lms_origin_ready = false;
   assert.deepEqual(providerReadinessBlockers(input), ["google_lms_origin_not_verified"]);
+});
+
+test("Learning-ready manifest requires explicit provenance-backed access grants", () => {
+  const input = base("LEARNING_READY");
+  input.learning.courses = [{ code: "b-course", course_id: "00000000-0000-4000-8000-000000000001" }];
+  assert.throws(() => normalizeFactoryManifest(input), /learning_access_required/);
+
+  input.learning.access_grants = [{ principal_email: "owner@example.com", canonical_course_code: "b-course" }];
+  const normalized = normalizeFactoryManifest(input);
+  assert.equal(normalized.learning.access_grants.length, 1);
+  assert.equal(normalized.learning.access_grants[0].principal_email, "owner@example.com");
+});
+
+test("Learning access grant must target a declared principal and declared course", () => {
+  const input = base("LEARNING_READY");
+  input.learning.courses = [{ code: "b-course", course_id: "00000000-0000-4000-8000-000000000001" }];
+  input.learning.access_grants = [{ principal_email: "other@example.com", canonical_course_code: "b-course" }];
+  assert.throws(() => normalizeFactoryManifest(input), /learning_access_principal_not_declared/);
+
+  input.learning.access_grants = [{ principal_email: "owner@example.com", canonical_course_code: "other-course" }];
+  assert.throws(() => normalizeFactoryManifest(input), /learning_access_course_not_declared/);
 });
