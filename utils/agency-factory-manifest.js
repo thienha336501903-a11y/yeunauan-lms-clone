@@ -135,6 +135,31 @@ function normalizeLearningCourse(course) {
   };
 }
 
+function normalizeLearningAccessGrant(grant) {
+  assertPlainObject(grant, "learning_access_grant");
+  const allowed = new Set(["principal_email","principal_user_id","canonical_course_code"]);
+  for (const key of Object.keys(grant)) {
+    if (!allowed.has(key)) throw new Error(`factory_manifest_unknown_learning_access_grant_field:${key}`);
+  }
+  const principalEmail = lower(grant.principal_email);
+  const principalUserId = clean(grant.principal_user_id);
+  const canonicalCourseCode = clean(grant.canonical_course_code);
+  if (!principalEmail && !principalUserId) {
+    throw new Error("factory_manifest_learning_access_principal_required");
+  }
+  if (principalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(principalEmail)) {
+    throw new Error("factory_manifest_invalid_learning_access_email");
+  }
+  if (!canonicalCourseCode) {
+    throw new Error("factory_manifest_learning_access_course_required");
+  }
+  return {
+    ...(principalEmail ? { principal_email: principalEmail } : {}),
+    ...(principalUserId ? { principal_user_id: principalUserId } : {}),
+    canonical_course_code: canonicalCourseCode
+  };
+}
+
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== "object") return value;
@@ -274,14 +299,22 @@ export function normalizeFactoryManifest(input = {}) {
     };
   }) : [];
 
-  const learningInput = input.learning && typeof input.learning === "object" ? input.learning : { courses: [] };
-  assertAllowedKeys(learningInput, new Set(["courses"]), "learning");
+  const learningInput = input.learning && typeof input.learning === "object"
+    ? input.learning
+    : { courses: [], access_grants: [] };
+  assertAllowedKeys(learningInput, new Set(["courses","access_grants"]), "learning");
   const learning = {
-    courses: Array.isArray(learningInput.courses) ? learningInput.courses.map(normalizeLearningCourse) : []
+    courses: Array.isArray(learningInput.courses) ? learningInput.courses.map(normalizeLearningCourse) : [],
+    access_grants: Array.isArray(learningInput.access_grants)
+      ? learningInput.access_grants.map(normalizeLearningAccessGrant)
+      : []
   };
 
   if (profile !== "TENANT_SHELL" && learning.courses.length === 0) {
     throw new Error("factory_manifest_learning_required");
+  }
+  if (profile !== "TENANT_SHELL" && learning.access_grants.length === 0) {
+    throw new Error("factory_manifest_learning_access_required");
   }
   if (profile === "COMMERCE_TEST_READY") {
     if (!bankAccounts.length) throw new Error("factory_manifest_bank_required");
@@ -328,10 +361,32 @@ export function normalizeFactoryManifest(input = {}) {
   }
 
   const principalKeys = new Set();
+  const principalIdentityKeys = new Set();
   for (const principal of principals) {
     const key = principal.user_id ? `uid:${principal.user_id}` : `email:${principal.email}`;
     if (principalKeys.has(key)) throw new Error("factory_manifest_duplicate_principal");
     principalKeys.add(key);
+    if (principal.user_id) principalIdentityKeys.add(`uid:${principal.user_id}`);
+    if (principal.email) principalIdentityKeys.add(`email:${principal.email}`);
+  }
+
+  const learningCourseCodes = new Set(learning.courses.map(course => course.code));
+  const learningAccessKeys = new Set();
+  for (const grant of learning.access_grants) {
+    const principalKey = grant.principal_user_id
+      ? `uid:${grant.principal_user_id}`
+      : `email:${grant.principal_email}`;
+    if (!principalIdentityKeys.has(principalKey)) {
+      throw new Error("factory_manifest_learning_access_principal_not_declared");
+    }
+    if (!learningCourseCodes.has(grant.canonical_course_code)) {
+      throw new Error("factory_manifest_learning_access_course_not_declared");
+    }
+    const accessKey = `${principalKey}:${grant.canonical_course_code}`;
+    if (learningAccessKeys.has(accessKey)) {
+      throw new Error("factory_manifest_duplicate_learning_access_grant");
+    }
+    learningAccessKeys.add(accessKey);
   }
 
   const providerReadinessInput = input.provider_readiness && typeof input.provider_readiness === "object"
@@ -400,6 +455,7 @@ export function factoryManifestSummary(factoryManifest) {
     bank_count: normalized.bank_accounts.length,
     offering_count: normalized.offerings.length,
     course_codes: normalized.learning.courses.map(course => clean(course.code)).filter(Boolean).sort(),
+    learning_access_grant_count: normalized.learning.access_grants.length,
     provider_readiness: {
       lms_host_ready: normalized.provider_readiness.lms_host_ready,
       commerce_host_ready: normalized.provider_readiness.commerce_host_ready,
