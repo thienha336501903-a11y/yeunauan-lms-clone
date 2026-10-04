@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-const DEFAULT_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
 let cachedPrivateJwkRaw = "";
 let cachedPrivateKey = null;
 
@@ -59,7 +59,7 @@ export function issueV5PlaybackLease({ version = 1, assetId, courseSlug, objectK
     throw error;
   }
   const now = Date.now();
-  const maxTtl = 30 * 60 * 1000;
+  const maxTtl = 5 * 60 * 1000;
   const effectiveTtl = Math.min(maxTtl, Math.max(60 * 1000, Number(ttlMs || DEFAULT_TTL_MS)));
   const leaseVersion = Number(version) === 2 ? 2 : 1;
   const payload = {

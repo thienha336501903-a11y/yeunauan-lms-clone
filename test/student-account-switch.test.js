@@ -6,7 +6,9 @@ const page = fs.readFileSync(new URL('../my-courses.html', import.meta.url), 'ut
 
 test('student can switch Google accounts without an auth bypass', () => {
   assert.match(page, /id="switchAccountBtn"[\s\S]*>Đổi tài khoản<\/button>/);
-  assert.match(page, /function switchAccount\(\)\{sessionToken='';/);
+  assert.match(page, /async function switchAccount\(\)\{[\s\S]*sessionToken='';/);
+  assert.match(page, /await clearV5MediaSession\(\)/);
+  assert.match(page, /endpoint=learner-logout/);
   assert.match(page, /localStorage\.removeItem\('lms_verified_session_id'\)/);
   assert.match(page, /localStorage\.removeItem\('lms_session_id'\)/);
   assert.match(page, /localStorage\.removeItem\('lms_device_id'\)/);

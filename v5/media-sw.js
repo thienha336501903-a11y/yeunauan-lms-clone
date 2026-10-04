@@ -1,11 +1,14 @@
 const MEDIA_PREFIX = "/v5/media/";
 const leases = new Map();
 const leaseRequests = new Map();
+const upstreamControllers = new Set();
 const REFRESH_SKEW_MS = 45 * 1000;
 const STARTUP_VIDEO_RANGE_BYTES = 1 * 1024 * 1024;
 const STEADY_VIDEO_RANGE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 let proofIdentityPromise = null;
+let sessionContext = "";
+let sessionGeneration = 0;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => event.waitUntil(Promise.all([
@@ -43,8 +46,37 @@ async function proofIdentity() {
   return proofIdentityPromise;
 }
 
-function cacheKey(course, lessonId, assetId) {
-  return `${course}:${lessonId || ''}:${assetId}`;
+function staleSessionError() {
+  const error = new Error("media_session_stale");
+  error.status = 401;
+  return error;
+}
+
+function assertSessionState(expectedGeneration, expectedContext) {
+  if (
+    !expectedContext ||
+    expectedGeneration !== sessionGeneration ||
+    expectedContext !== sessionContext
+  ) {
+    throw staleSessionError();
+  }
+}
+
+function resetSessionState(nextContext = "") {
+  sessionGeneration += 1;
+  sessionContext = clean(nextContext);
+  for (const controller of upstreamControllers) {
+    try { controller.abort("media_session_reset"); } catch {}
+  }
+  upstreamControllers.clear();
+  leases.clear();
+  leaseRequests.clear();
+  proofIdentityPromise = null;
+  return sessionGeneration;
+}
+
+function cacheKey(course, lessonId, assetId, context = sessionContext) {
+  return `${context}:${course}:${lessonId || ''}:${assetId}`;
 }
 
 function playbackRange(rawRange, mimeType, method = "GET") {
@@ -85,10 +117,22 @@ function playbackRange(rawRange, mimeType, method = "GET") {
   return isVideo ? `bytes=0-${STARTUP_VIDEO_RANGE_BYTES - 1}` : "";
 }
 
-async function issueLease(course, lessonId, assetId) {
+async function issueLease(course, lessonId, assetId, expectedGeneration, expectedContext) {
+  if (!expectedContext || expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   const params = new URLSearchParams({ endpoint: "v5-play", course, asset: assetId });
   if (lessonId) params.set("lesson", lessonId);
   const proof = await proofIdentity();
+  if (expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   const response = await fetch(`/api/lms/portal?${params}`, {
     method: "GET",
     credentials: "include",
@@ -101,22 +145,51 @@ async function issueLease(course, lessonId, assetId) {
     error.status = response.status;
     throw error;
   }
+  if (expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+    const error = new Error("media_session_stale");
+    error.status = 401;
+    throw error;
+  }
+
   return {
     url: String(data.playbackUrl),
     token: String(data.playbackLease),
     mimeType: String(data.mimeType || ""),
     key: proof.privateKey,
-    expiresAt: Number(data.expiresAt)
+    expiresAt: Number(data.expiresAt),
+    generation: expectedGeneration,
+    context: expectedContext
   };
 }
 
 async function fetchLease(course, lessonId, assetId, force = false) {
-  const key = cacheKey(course, lessonId, assetId);
+  const context = sessionContext;
+  const generation = sessionGeneration;
+  if (!context) {
+    const error = new Error("media_session_not_initialized");
+    error.status = 401;
+    throw error;
+  }
+
+  const key = cacheKey(course, lessonId, assetId, context);
   const current = leases.get(key);
-  if (!force && current && Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS) return current;
+  if (
+    !force &&
+    current &&
+    current.generation === generation &&
+    current.context === context &&
+    Number(current.expiresAt || 0) > Date.now() + REFRESH_SKEW_MS
+  ) {
+    return current;
+  }
   if (!force && leaseRequests.has(key)) return leaseRequests.get(key);
 
-  const request = issueLease(course, lessonId, assetId).then(lease => {
+  const request = issueLease(course, lessonId, assetId, generation, context).then(lease => {
+    if (generation !== sessionGeneration || context !== sessionContext) {
+      const error = new Error("media_session_stale");
+      error.status = 401;
+      throw error;
+    }
     leases.set(key, lease);
     return lease;
   });
@@ -147,13 +220,23 @@ function copyHeaders(upstream) {
   return headers;
 }
 
-async function upstreamRequest(request, lease) {
+async function upstreamRequest(request, lease, expectedGeneration, expectedContext) {
+  assertSessionState(expectedGeneration, expectedContext);
+  if (
+    lease.generation !== expectedGeneration ||
+    lease.context !== expectedContext
+  ) {
+    throw staleSessionError();
+  }
+
   const method = request.method === "HEAD" ? "HEAD" : "GET";
   const range = method === "HEAD" ? clean(request.headers.get("range")) : playbackRange(request.headers.get("range"), lease.mimeType);
   const timestamp = String(Date.now());
   const nonce = randomNonce();
   const canonical = [method, range, timestamp, nonce, lease.token, self.location.origin].join("\n");
   const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, lease.key, encoder.encode(canonical));
+  assertSessionState(expectedGeneration, expectedContext);
+
   const headers = new Headers();
   if (range) headers.set("Range", range);
   headers.set("Authorization", `Bearer ${lease.token}`);
@@ -161,34 +244,127 @@ async function upstreamRequest(request, lease) {
   headers.set("X-V5-Playback-Timestamp", timestamp);
   headers.set("X-V5-Playback-Nonce", nonce);
   headers.set("X-V5-Playback-Signature", base64url(signature));
-  return fetch(lease.url, {
-    method,
-    headers,
-    mode: "cors",
-    credentials: "omit",
-    redirect: "follow",
-    cache: "no-store"
+
+  const controller = new AbortController();
+  upstreamControllers.add(controller);
+  try {
+    const response = await fetch(lease.url, {
+      method,
+      headers,
+      mode: "cors",
+      credentials: "omit",
+      redirect: "follow",
+      cache: "no-store",
+      signal: controller.signal
+    });
+    assertSessionState(expectedGeneration, expectedContext);
+    // Keep the AbortController registered until the response body is fully
+    // consumed so a session reset can abort a stream after headers arrived.
+    return { response, controller };
+  } catch (error) {
+    upstreamControllers.delete(controller);
+    if (expectedGeneration !== sessionGeneration || expectedContext !== sessionContext) {
+      throw staleSessionError();
+    }
+    throw error;
+  }
+}
+
+function releaseUpstream(controller, reason = "") {
+  if (!controller) return;
+  upstreamControllers.delete(controller);
+  if (reason) {
+    try { controller.abort(reason); } catch {}
+  }
+}
+
+function guardedBody(body, expectedGeneration, expectedContext, upstreamController) {
+  if (!body || typeof body.getReader !== "function") {
+    releaseUpstream(upstreamController);
+    return body;
+  }
+  const reader = body.getReader();
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        assertSessionState(expectedGeneration, expectedContext);
+        const { done, value } = await reader.read();
+        assertSessionState(expectedGeneration, expectedContext);
+        if (done) {
+          releaseUpstream(upstreamController);
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        releaseUpstream(upstreamController, "media_session_stream_cancelled");
+        try { await reader.cancel(error); } catch {}
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      releaseUpstream(upstreamController, "media_session_stream_cancelled");
+      try { await reader.cancel(reason); } catch {}
+    }
   });
 }
 
 async function proxyMedia(request, course, lessonId, assetId) {
+  const expectedGeneration = sessionGeneration;
+  const expectedContext = sessionContext;
+  let activeUpstreamController = null;
   try {
-    let lease = await fetchLease(course, lessonId, assetId, false);
-    let upstream = await upstreamRequest(request, lease);
-
-    if ([401, 403, 410].includes(upstream.status)) {
-      leases.delete(cacheKey(course, lessonId, assetId));
-      lease = await fetchLease(course, lessonId, assetId, true);
-      upstream = await upstreamRequest(request, lease);
+    if (!expectedContext) {
+      return new Response("Media session not initialized", {
+        status: 401,
+        headers: { "Cache-Control": "private, no-store", "Content-Type": "text/plain; charset=utf-8" }
+      });
     }
 
-    return new Response(request.method === "HEAD" ? null : upstream.body, {
+    assertSessionState(expectedGeneration, expectedContext);
+    let lease = await fetchLease(course, lessonId, assetId, false);
+    assertSessionState(expectedGeneration, expectedContext);
+    let upstreamResult = await upstreamRequest(request, lease, expectedGeneration, expectedContext);
+    let upstream = upstreamResult.response;
+    activeUpstreamController = upstreamResult.controller;
+    assertSessionState(expectedGeneration, expectedContext);
+
+    if ([401, 403, 410].includes(upstream.status)) {
+      releaseUpstream(activeUpstreamController, "media_retry");
+      activeUpstreamController = null;
+      try { await upstream.body?.cancel?.("media_retry"); } catch {}
+      leases.delete(cacheKey(course, lessonId, assetId, expectedContext));
+      assertSessionState(expectedGeneration, expectedContext);
+      lease = await fetchLease(course, lessonId, assetId, true);
+      assertSessionState(expectedGeneration, expectedContext);
+      upstreamResult = await upstreamRequest(request, lease, expectedGeneration, expectedContext);
+      upstream = upstreamResult.response;
+      activeUpstreamController = upstreamResult.controller;
+      assertSessionState(expectedGeneration, expectedContext);
+    }
+
+    let body = null;
+    if (request.method === "HEAD") {
+      releaseUpstream(activeUpstreamController);
+      activeUpstreamController = null;
+    } else {
+      body = guardedBody(upstream.body, expectedGeneration, expectedContext, activeUpstreamController);
+      activeUpstreamController = null;
+    }
+
+    assertSessionState(expectedGeneration, expectedContext);
+    return new Response(body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: copyHeaders(upstream)
     });
   } catch (error) {
-    const status = Number(error?.status || 0);
+    releaseUpstream(activeUpstreamController, "media_session_stale");
+    const stale =
+      expectedGeneration !== sessionGeneration ||
+      expectedContext !== sessionContext ||
+      error?.message === "media_session_stale";
+    const status = stale ? 401 : Number(error?.status || 0);
     return new Response(status === 401 || status === 403 ? "Playback access denied" : "V5 media proxy failed", {
       status: status === 401 || status === 403 ? status : 502,
       headers: { "Cache-Control": "private, no-store", "Content-Type": "text/plain; charset=utf-8" }
@@ -198,12 +374,34 @@ async function proxyMedia(request, course, lessonId, assetId) {
 
 self.addEventListener("message", event => {
   const data = event.data || {};
+  const reply = event.ports?.[0] || null;
+
+  if (data.type === "v5-clear-session") {
+    resetSessionState("");
+    try { reply?.postMessage({ ok: true, generation: sessionGeneration }); } catch {}
+    return;
+  }
+
+  if (data.type === "v5-set-session-context") {
+    const next = clean(data.context);
+    if (!/^[A-Za-z0-9_-]{24,160}$/.test(next)) {
+      resetSessionState("");
+      try { reply?.postMessage({ ok: false, status: 400 }); } catch {}
+      return;
+    }
+    if (next !== sessionContext) resetSessionState(next);
+    try { reply?.postMessage({ ok: true, generation: sessionGeneration }); } catch {}
+    return;
+  }
+
   if (data.type !== "v5-warm-lease") return;
   const course = clean(data.course);
   const lessonId = clean(data.lessonId);
   const assetId = clean(data.assetId);
-  if (!course || !lessonId || !assetId) return;
-  const reply = event.ports?.[0] || null;
+  if (!course || !lessonId || !assetId || !sessionContext) {
+    try { reply?.postMessage({ ok: false, status: 401 }); } catch {}
+    return;
+  }
   const task = fetchLease(course, lessonId, assetId, false)
     .then(() => { try { reply?.postMessage({ ok: true }); } catch {} })
     .catch(error => { try { reply?.postMessage({ ok: false, status: Number(error?.status || 0) }); } catch {} });

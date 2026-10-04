@@ -14,7 +14,7 @@ test('V5 playback signs short ECDSA P-256 leases on demand without exposing R2 o
   assert.match(lease, /V5_PLAYBACK_PRIVATE_JWK/);
   assert.match(lease, /crv !== "P-256"/);
   assert.match(lease, /dsaEncoding: "ieee-p1363"/);
-  assert.match(lease, /DEFAULT_TTL_MS = 10 \* 60 \* 1000/);
+  assert.match(lease, /DEFAULT_TTL_MS = 5 \* 60 \* 1000/);
   assert.match(lease, /uah:/);
 
   assert.match(play, /requireV4CourseAccess/);
