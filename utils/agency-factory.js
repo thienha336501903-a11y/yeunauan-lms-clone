@@ -838,7 +838,11 @@ export async function upgradeFactoryRun(runId, manifest, actorRef, options = {})
   if (!run.agency_id || run.target_slug !== normalized.agency.slug) {
     return { ok: false, status: 409, code: "factory_target_ownership_mismatch" };
   }
-  if (run.phase !== "READY") {
+  const committedUpgradeRetry =
+    run.phase === "PREPARING" &&
+    run.profile === normalized.profile &&
+    run.manifest_hash === hash;
+  if (run.phase !== "READY" && !committedUpgradeRetry) {
     return { ok: false, status: 409, code: "factory_upgrade_requires_ready_suspended_run" };
   }
   if (profileRank(normalized.profile) < profileRank(run.profile)) {
@@ -875,6 +879,16 @@ export async function upgradeFactoryRun(runId, manifest, actorRef, options = {})
       status: 409,
       code: "factory_upgrade_preflight_blocked",
       blockers
+    };
+  }
+
+  if (committedUpgradeRetry) {
+    const learning = await applyFactoryLearningAccess(client, run, normalized, actorRef);
+    if (!learning.ok) return learning;
+    return {
+      ok: true,
+      idempotent: true,
+      run: learning.run || run
     };
   }
 
