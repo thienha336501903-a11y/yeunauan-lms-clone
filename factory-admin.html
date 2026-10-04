@@ -39,6 +39,9 @@ small{color:#6c786f}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monos
         <option>COMMERCE_TEST_READY</option>
       </select>
     </label>
+    <label>Commerce source SHA
+      <input id="sourceCommerceSha" class="mono" placeholder="40-char production git SHA">
+    </label>
   </div>
 </section>
 
@@ -63,11 +66,20 @@ small{color:#6c786f}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monos
 </section>
 
 <section class="card">
-  <div class="row">
+  <div class="grid">
+    <label>Existing Run ID
+      <input id="loadRunId" class="mono" placeholder="Paste run UUID after page reload">
+    </label>
+    <div class="row" style="align-items:end">
+      <button class="btn secondary" id="loadRun">Load Run</button>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
     <button class="btn secondary" id="preflight">1. Preflight</button>
     <button class="btn" id="createRun">2. Create Run</button>
     <button class="btn secondary" id="prepare">3. Resolve Principals</button>
     <button class="btn" id="apply">4. Apply SUSPENDED</button>
+    <button class="btn secondary" id="upgrade">Upgrade SUSPENDED</button>
     <button class="btn secondary" id="validate">5. Validate → READY</button>
     <button class="btn" id="activate">6. Activate</button>
     <button class="btn danger" id="suspend">Suspend</button>
@@ -104,7 +116,7 @@ function syncFactoryTarget(){
 }
 function setFactoryBusy(busy){
   factoryActionPending=busy;
-  for(const id of ['preflight','createRun','prepare','apply','validate','activate','suspend'])$(id).disabled=busy;
+  for(const id of ['loadRun','preflight','createRun','prepare','apply','upgrade','validate','activate','suspend'])$(id).disabled=busy;
 }
 
 async function bootstrap(){
@@ -156,6 +168,50 @@ function ensureIdem(){
   return currentIdem;
 }
 
+function commerceSourceSha(){
+  return $('sourceCommerceSha').value.trim().toLowerCase();
+}
+function requireCommerceSourceSha(){
+  const sha=commerceSourceSha();
+  if(!/^[0-9a-f]{40}$/.test(sha)){
+    setStatus('BLOCKED: nhập Commerce production SHA đủ 40 ký tự hex.','bad');
+    return '';
+  }
+  return sha;
+}
+
+async function loadExistingRun(){
+  if(factoryActionPending)return;
+  const id=$('loadRunId').value.trim();
+  if(!id){setStatus('BLOCKED: nhập Existing Run ID.','bad');return}
+  setFactoryBusy(true);
+  try{
+    if(!csrf && !(await bootstrap()))return;
+    const r=await fetch('/api/factory?action=run&runId='+encodeURIComponent(id),{
+      credentials:'same-origin',cache:'no-store'
+    });
+    const d=await r.json().catch(()=>({}));
+    show(d);
+    if(!r.ok||!d.ok||!d.run?.id){
+      setStatus('BLOCKED: '+(d.code||'factory_run_load_failed'),'bad');
+      return;
+    }
+    currentRun=d.run.id;
+    currentRevision=Number(d.run.revision);
+    currentTarget=String(d.run.target_slug||'').trim().toLowerCase();
+    $('slug').value=currentTarget;
+    if(d.run.profile)$('profile').value=d.run.profile;
+    $('runId').textContent=currentRun;
+    $('loadRunId').value=currentRun;
+    localStorage.setItem('factory_run:'+currentTarget,currentRun);
+    setStatus('PASS: loaded '+d.run.phase+' / '+d.run.profile+' / revision '+currentRevision,'ok');
+  }catch(error){
+    setStatus(error.message||'Factory run load failed','bad');
+  }finally{
+    setFactoryBusy(false);
+  }
+}
+
 async function call(action,extra={}){
   if(factoryActionPending)return;
   const target=syncFactoryTarget(),targetEpoch=factoryTargetEpoch,requestRun=currentRun;
@@ -189,6 +245,8 @@ async function call(action,extra={}){
       const revision=Number(d.run.revision);
       if(Number.isSafeInteger(revision)&&revision>0)currentRevision=revision;
       $('runId').textContent=currentRun;
+      $('loadRunId').value=currentRun;
+      if(currentTarget)localStorage.setItem('factory_run:'+currentTarget,currentRun);
     } else if(currentRun){
       const revision=Number(d?.result?.revision);
       if(Number.isSafeInteger(revision)&&revision>0)currentRevision=revision;
@@ -203,10 +261,20 @@ async function call(action,extra={}){
 }
 
 $('slug').addEventListener('input',syncFactoryTarget);
+$('loadRun').onclick=()=>loadExistingRun();
 $('preflight').onclick=()=>call('preflight');
-$('createRun').onclick=()=>call('create-run',{idempotencyKey:ensureIdem()});
+$('createRun').onclick=()=>{
+  const sourceCommerceSha=requireCommerceSourceSha();
+  if(!sourceCommerceSha)return;
+  return call('create-run',{idempotencyKey:ensureIdem(),sourceCommerceSha});
+};
 $('prepare').onclick=()=>call('prepare-principals',{allowCreate:false});
 $('apply').onclick=()=>call('apply');
+$('upgrade').onclick=()=>{
+  const sourceCommerceSha=requireCommerceSourceSha();
+  if(!sourceCommerceSha)return;
+  return call('upgrade',{sourceCommerceSha});
+};
 $('validate').onclick=()=>call('validate');
 $('activate').onclick=()=>call('activate');
 $('suspend').onclick=()=>call('suspend');
